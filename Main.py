@@ -1123,19 +1123,21 @@ def main() -> None:
         screen.blit(title_surf, (title_x, title_y))
 
         # 3b. PLAY BUTTON: WHITE TEXT WITH BLACK OUTLINE (ONLY VISIBLE WHEN OFFLINE)
+        # Made smaller and positioned neatly right below the title text
         if not is_online:
-            play_px = max(42, min(96, ((round(win_h * 0.095)) // 2) * 2))
-            play_outline_px = max(3, round(play_px * 0.07))
+            play_px = max(24, min(52, ((round(title_px * 0.52)) // 2) * 2))
+            play_outline_px = max(2, round(play_px * 0.07))
             play_surf = get_outlined_text_surface("PLAY", play_px, outline_px=play_outline_px)
             play_x = (win_w - play_surf.get_width()) // 2
-            play_y = round(win_h * 0.58)
+            play_gap = max(8, round(win_h * 0.016))
+            play_y = title_y + title_surf.get_height() + play_gap
 
             # Store the clickable boundary of the PLAY text button
             play_button_rect = pygame.Rect(
-                play_x - 12,
-                play_y - 8,
-                play_surf.get_width() + 24,
-                play_surf.get_height() + 16,
+                play_x - 10,
+                play_y - 6,
+                play_surf.get_width() + 20,
+                play_surf.get_height() + 12,
             )
             screen.blit(play_surf, (play_x, play_y))
 
