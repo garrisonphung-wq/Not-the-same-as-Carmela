@@ -1129,7 +1129,7 @@ def main() -> None:
             play_outline_px = max(2, round(play_px * 0.07))
             play_surf = get_outlined_text_surface("PLAY", play_px, outline_px=play_outline_px)
             play_x = (win_w - play_surf.get_width()) // 2
-            play_gap = max(8, round(win_h * 0.016))
+            play_gap = max(24, round(win_h * 0.05))
             play_y = title_y + title_surf.get_height() + play_gap
 
             # Store the clickable boundary of the PLAY text button
