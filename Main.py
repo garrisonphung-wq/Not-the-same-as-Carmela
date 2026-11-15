@@ -3,6 +3,7 @@ import asyncio
 import json
 import math
 import os
+import random
 import sys
 import threading
 from typing import Any
@@ -27,6 +28,16 @@ GRASS_BLADE_NEAR_DARK = (90, 164, 70)
 GRASS_BLADE_NEAR_LIGHT = (108, 182, 86)
 GRASS_BLADE_FAR_DARK = (114, 182, 94)
 GRASS_BLADE_FAR_LIGHT = (124, 192, 102)
+
+# Giant Island colors (storybook cliffs, beach rim, lush top plateau)
+ISLAND_TOP_COLOR = (138, 202, 114)
+ISLAND_RIM_SAND = (228, 218, 176)
+ISLAND_CLIFF_LIGHT = (182, 154, 122)
+ISLAND_CLIFF_DARK = (146, 120, 92)
+ISLAND_SHADOW = (118, 96, 74)
+OCEAN_WATER_COLOR = (180, 222, 245)
+OCEAN_FOAM_COLOR = (235, 248, 255)
+
 LOCAL_DOT_COLOR = (255, 175, 195)
 REMOTE_DOT_COLOR = (120, 195, 255)
 
@@ -37,7 +48,7 @@ WALK_SPEED = 3.2
 RUN_SPEED = 6.8
 TURN_SPEED = 2.2
 
-# Normal tall human eye height
+# Normal tall human eye height / island top ground height
 GROUND_Y = -3.0
 CARMELITO_WORLD_SCALE = 1.85  # Matches Carmelito's ~3.0 eye height above GROUND_Y
 
@@ -49,6 +60,19 @@ GRASS_RINGS = (
     (8.0, 64.0, 140.0, 3, 2.1, 0.0),
 )
 
+# Giant Island geometry constants - EVEN MORE GIANT!
+ISLAND_RADIUS = 112.0     # Double the size for an expansive, colossal storybook island
+ISLAND_SEGMENTS = 72      # Smoother organic shoreline for the colossal island
+ISLAND_CLIFF_DEPTH = 28.0 # Taller rock cliffs plunging into the sea
+ISLAND_WATER_Y = GROUND_Y - ISLAND_CLIFF_DEPTH
+
+# Fixed overview camera looking down at the giant island from high above
+OVERVIEW_CAM_X = 0.0
+OVERVIEW_CAM_Y = 138.0    # Elevated high above the colossal island
+OVERVIEW_CAM_Z = -220.0   # Backed up to view the colossal island in full grandeur
+OVERVIEW_CAM_YAW = 0.0    # Stares straight north toward the island center (0, 0)
+OVERVIEW_CAM_PITCH = math.radians(-31.0)  # Tilted 31 degrees down overlooking the giant island
+
 # Anatomical neck rotation limits (less than 90 degrees sideways, can look up to sky & down at feet)
 MAX_HEAD_YAW = math.radians(72.0)        # ~72 degrees max turn left/right (close to sideways, but less than sideways)
 MAX_HEAD_PITCH_UP = math.radians(52.0)   # ~52 degrees max upward tilt
@@ -59,6 +83,7 @@ _CHINESE_FONT_PATH: str | None = None
 _CHINESE_FONT_SEARCHED = False
 _CHINESE_FONT_CACHE: dict[int, pygame.font.Font] = {}
 _NAMEPLATE_CACHE: dict[tuple[str, int, tuple[int, int, int], tuple[int, int, int]], pygame.Surface] = {}
+_OUTLINED_TEXT_CACHE: dict[tuple[str, int, int], pygame.Surface] = {}
 
 
 def get_chinese_font(size: int) -> pygame.font.Font:
@@ -116,6 +141,33 @@ def get_nameplate_surface(
     return badge
 
 
+def get_outlined_text_surface(text: str, font_size: int, outline_px: int = 4) -> pygame.Surface:
+    key = (text, font_size, outline_px)
+    cached = _OUTLINED_TEXT_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    font = get_chinese_font(font_size)
+    fill_surf = font.render(text, True, (255, 255, 255))
+    outline_surf = font.render(text, True, (0, 0, 0))
+
+    w = fill_surf.get_width() + outline_px * 2
+    h = fill_surf.get_height() + outline_px * 2
+    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+
+    r2 = outline_px * outline_px + 1
+    for dy in range(-outline_px, outline_px + 1):
+        for dx in range(-outline_px, outline_px + 1):
+            if dx == 0 and dy == 0:
+                continue
+            if dx * dx + dy * dy <= r2:
+                surf.blit(outline_surf, (outline_px + dx, outline_px + dy))
+
+    surf.blit(fill_surf, (outline_px, outline_px))
+    _OUTLINED_TEXT_CACHE[key] = surf
+    return surf
+
+
 def wrap_angle(angle: float) -> float:
     return (angle + math.pi) % (2.0 * math.pi) - math.pi
 
@@ -138,13 +190,19 @@ def is_local_server_url(server_url: str) -> tuple[bool, int]:
 
 
 class NetworkClient:
-    def __init__(self, server_url: str = DEFAULT_SERVER_URL, auto_host: bool = True) -> None:
+    def __init__(
+        self,
+        server_url: str = DEFAULT_SERVER_URL,
+        auto_host: bool = True,
+        is_online: bool = True,
+    ) -> None:
         self.server_url = server_url
         self.auto_host = auto_host
 
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._host_started = False
+        self._is_online = is_online
 
         self.connected = False
         self.is_host = False
@@ -160,6 +218,7 @@ class NetworkClient:
         self._local_running = False
         self._local_walking = False
         self._local_mouth = False
+        self._local_blink = False
         self._local_rot_y = 0.0
         self._local_head_yaw = 0.0
         self._local_head_pitch = 0.0
@@ -167,6 +226,16 @@ class NetworkClient:
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
+
+    def set_online(self, online: bool = True) -> None:
+        with self._lock:
+            self._is_online = online
+            self._pos_dirty = True
+
+    @property
+    def is_online(self) -> bool:
+        with self._lock:
+            return self._is_online
 
     def update_local_state(
         self,
@@ -180,6 +249,7 @@ class NetworkClient:
         wz: float = 0.0,
         head_yaw: float = 0.0,
         head_pitch: float = 0.0,
+        blink: bool = False,
     ) -> None:
         nx = max(0.05, min(0.95, nx))
         ny = max(0.05, min(0.95, ny))
@@ -194,6 +264,7 @@ class NetworkClient:
                 (is_running != self._local_running)
                 or (is_walking != self._local_walking)
                 or (mouth_open != self._local_mouth)
+                or (blink != self._local_blink)
                 or (abs(rot_y - self._local_rot_y) > 0.01)
                 or (abs(head_yaw - self._local_head_yaw) > 0.01)
                 or (abs(head_pitch - self._local_head_pitch) > 0.01)
@@ -206,6 +277,7 @@ class NetworkClient:
                 self._local_running = is_running
                 self._local_walking = is_walking
                 self._local_mouth = mouth_open
+                self._local_blink = blink
                 self._local_rot_y = rot_y
                 self._local_head_yaw = head_yaw
                 self._local_head_pitch = head_pitch
@@ -222,6 +294,7 @@ class NetworkClient:
                     "running": data.get("running", False),
                     "walking": data.get("walking", False),
                     "mouth": data.get("mouth", False),
+                    "blink": data.get("blink", False),
                     "rot_y": data.get("rot_y", 0.0),
                     "head_yaw": data.get("head_yaw", 0.0),
                     "head_pitch": data.get("head_pitch", 0.0),
@@ -263,10 +336,12 @@ class NetworkClient:
                 async with connect(self.server_url, ping_interval=15, ping_timeout=15) as ws:
                     with self._lock:
                         self.connected = True
-                    send_task = asyncio.create_task(self._sender_loop(ws))
-                    recv_task = asyncio.create_task(self._receiver_loop(ws))
+                    tasks = [
+                        asyncio.create_task(self._receiver_loop(ws)),
+                        asyncio.create_task(self._sender_loop(ws)),
+                    ]
                     done, pending = await asyncio.wait(
-                        {send_task, recv_task},
+                        tasks,
                         return_when=asyncio.FIRST_COMPLETED,
                     )
                     for t in pending:
@@ -297,7 +372,7 @@ class NetworkClient:
         while not self._stop_event.is_set():
             payload = None
             with self._lock:
-                if self._pos_dirty:
+                if self._is_online and self._pos_dirty:
                     payload = json.dumps(
                         {
                             "type": "pos",
@@ -308,6 +383,7 @@ class NetworkClient:
                             "running": self._local_running,
                             "walking": self._local_walking,
                             "mouth": self._local_mouth,
+                            "blink": self._local_blink,
                             "rot_y": round(self._local_rot_y, 4),
                             "head_yaw": round(self._local_head_yaw, 4),
                             "head_pitch": round(self._local_head_pitch, 4),
@@ -334,6 +410,7 @@ class NetworkClient:
             "running": bool(pdata.get("running", False)),
             "walking": bool(pdata.get("walking", False)),
             "mouth": bool(pdata.get("mouth", False)),
+            "blink": bool(pdata.get("blink", False)),
             "rot_y": float(pdata.get("rot_y", 0.0)),
             "head_yaw": float(pdata.get("head_yaw", 0.0)),
             "head_pitch": float(pdata.get("head_pitch", 0.0)),
@@ -391,6 +468,7 @@ class NetworkClient:
                         rp["running"] = bool(msg.get("running", False))
                         rp["walking"] = bool(msg.get("walking", False))
                         rp["mouth"] = bool(msg.get("mouth", False))
+                        rp["blink"] = bool(msg.get("blink", False))
                         if "rot_y" in msg:
                             rp["rot_y"] = float(msg["rot_y"])
                         if "head_yaw" in msg:
@@ -443,25 +521,38 @@ def main() -> None:
 
     model_3d = Carmelito3D()
 
-    # Carmelito's body position and body yaw in 3D space
-    cam_x = 0.0
-    cam_z = -3.5
-    cam_yaw = 0.0         # Body facing angle around Y axis
+    anim_time = 0.0
+    is_online = False     # You start offline staring down at the island until you click Play
 
-    # Head neck yaw and pitch offsets (controlled by mouse)
+    # Carmelito's ground-level gameplay coordinates
+    ground_cam_x = 0.0
+    ground_cam_z = -3.5
+    ground_cam_yaw = 0.0
+
+    # Current camera variables (initialized to overview camera)
+    cam_x = OVERVIEW_CAM_X
+    cam_y = OVERVIEW_CAM_Y
+    cam_z = OVERVIEW_CAM_Z
+    cam_yaw = OVERVIEW_CAM_YAW
     head_yaw = 0.0
-    head_pitch = 0.0
+    head_pitch = OVERVIEW_CAM_PITCH
 
     mouth_open = False
-    anim_time = 0.0
+
+    # Natural automatic blinking + manual 'B' key blinking (for online player mode)
+    blink_amount = 0.0
+    blink_hold_timer = 0.0
+    auto_blink_timer = random.uniform(2.2, 4.2)
 
     # Locomotion states & smooth weights
     run_weight = 0.0      # 0.0 = not running, 1.0 = full sprint
     walk_weight = 0.0     # 0.0 = not walking, 1.0 = full walk
     motion_cycle = 0.0    # Continuous stride cadence
 
-    net = NetworkClient(server_url=args.server, auto_host=not args.no_auto_host)
+    net = NetworkClient(server_url=args.server, auto_host=not args.no_auto_host, is_online=is_online)
     remote_states: dict[int, dict[str, float]] = {}
+
+    play_button_rect = pygame.Rect(0, 0, 10, 10)
 
     running = True
     while running:
@@ -477,91 +568,149 @@ def main() -> None:
                 elif event.key in (pygame.K_F11, pygame.K_f):
                     fullscreen = not fullscreen
                     screen = create_window(fullscreen)
-                elif event.key == pygame.K_u:
+                elif is_online and event.key == pygame.K_u:
                     # Toggle mouth open / close
                     mouth_open = not mouth_open
+                elif is_online and event.key == pygame.K_b:
+                    # Trigger a blink on demand (and holding B keeps eyes closed)
+                    blink_hold_timer = 0.16
+                    auto_blink_timer = random.uniform(2.8, 5.0)
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                # When clicking the PLAY button in offline mode: equip Carmelito and join the game!
+                if not is_online and play_button_rect.collidepoint(event.pos):
+                    is_online = True
+                    net.set_online(True)
+                    # Transition camera to ground-level Carmelito first-person view
+                    cam_x = ground_cam_x
+                    cam_z = ground_cam_z
+                    cam_yaw = ground_cam_yaw
+                    head_yaw = 0.0
+                    head_pitch = 0.0
 
         keys = pygame.key.get_pressed()
         win_w, win_h = screen.get_size()
 
-        # --- HEAD FOLLOWS MOUSE POINTER ---
-        mx, my = pygame.mouse.get_pos()
-        norm_mx = (mx - win_w * 0.5) / max(1.0, win_w * 0.5)
-        norm_my = (my - win_h * 0.5) / max(1.0, win_h * 0.5)
-
-        target_head_yaw = max(-MAX_HEAD_YAW, min(MAX_HEAD_YAW, norm_mx * MAX_HEAD_YAW))
-        if norm_my < 0.0:
-            target_head_pitch = -norm_my * MAX_HEAD_PITCH_UP
+        # In offline mode: cannot move or turn, stare at the chick's giant island
+        if not is_online:
+            cam_x = OVERVIEW_CAM_X
+            cam_y = OVERVIEW_CAM_Y
+            cam_z = OVERVIEW_CAM_Z
+            cam_yaw = OVERVIEW_CAM_YAW
+            head_yaw = 0.0
+            head_pitch = OVERVIEW_CAM_PITCH
+            total_yaw = cam_yaw
+            total_pitch = head_pitch
+            eye_y = cam_y
+            blink_amount = 0.0
+            is_blinking = False
         else:
-            target_head_pitch = -norm_my * MAX_HEAD_PITCH_DOWN
-        target_head_pitch = max(-MAX_HEAD_PITCH_DOWN, min(MAX_HEAD_PITCH_UP, target_head_pitch))
+            # --- BLINKING (when online: automatic natural blinks + 'B' key manual blink) ---
+            auto_blink_timer -= dt
+            if auto_blink_timer <= 0.0:
+                blink_hold_timer = 0.16
+                auto_blink_timer = random.uniform(0.18, 0.28) if random.random() < 0.18 else random.uniform(2.8, 5.0)
 
-        head_alpha = 1.0 - math.exp(-HEAD_SMOOTH_SPEED * dt)
-        head_yaw += (target_head_yaw - head_yaw) * head_alpha
-        head_pitch += (target_head_pitch - head_pitch) * head_alpha
+            if blink_hold_timer > 0.0:
+                blink_hold_timer = max(0.0, blink_hold_timer - dt)
 
-        # --- BODY TURNING CONTROLS ---
-        turn_input = 0.0
-        if keys[pygame.K_LEFT]:
-            turn_input -= 1.0
-        if keys[pygame.K_RIGHT]:
-            turn_input += 1.0
-        cam_yaw += turn_input * TURN_SPEED * dt
+            target_blink = 1.0 if (blink_hold_timer > 0.0 or keys[pygame.K_b]) else 0.0
+            if blink_amount < target_blink:
+                blink_amount = min(target_blink, blink_amount + 18.0 * dt)
+            elif blink_amount > target_blink:
+                blink_amount = max(target_blink, blink_amount - 14.0 * dt)
+            is_blinking = blink_amount >= 0.45
 
-        total_yaw = cam_yaw + head_yaw
-        total_pitch = head_pitch
+            # --- HEAD / CAMERA LOOK FOLLOWS MOUSE POINTER ---
+            mx, my = pygame.mouse.get_pos()
+            norm_mx = (mx - win_w * 0.5) / max(1.0, win_w * 0.5)
+            norm_my = (my - win_h * 0.5) / max(1.0, win_h * 0.5)
 
-        move_fwd = 0.0
-        if keys[pygame.K_UP]:
-            move_fwd += 1.0
-        if keys[pygame.K_DOWN]:
-            move_fwd -= 1.0
+            target_head_yaw = max(-MAX_HEAD_YAW, min(MAX_HEAD_YAW, norm_mx * MAX_HEAD_YAW))
+            if norm_my < 0.0:
+                target_head_pitch = -norm_my * MAX_HEAD_PITCH_UP
+            else:
+                target_head_pitch = -norm_my * MAX_HEAD_PITCH_DOWN
+            target_head_pitch = max(-MAX_HEAD_PITCH_DOWN, min(MAX_HEAD_PITCH_UP, target_head_pitch))
 
-        is_moving = (move_fwd != 0.0)
-        space_pressed = keys[pygame.K_SPACE]
-        is_running = is_moving and space_pressed
-        is_walking = is_moving and not space_pressed
+            head_alpha = 1.0 - math.exp(-HEAD_SMOOTH_SPEED * dt)
+            head_yaw += (target_head_yaw - head_yaw) * head_alpha
+            head_pitch += (target_head_pitch - head_pitch) * head_alpha
 
-        target_run_weight = 1.0 if is_running else 0.0
-        target_walk_weight = 1.0 if is_walking else 0.0
+            # --- VIEW TURNING CONTROLS ---
+            turn_input = 0.0
+            if keys[pygame.K_LEFT]:
+                turn_input -= 1.0
+            if keys[pygame.K_RIGHT]:
+                turn_input += 1.0
+            cam_yaw += turn_input * TURN_SPEED * dt
 
-        if run_weight < target_run_weight:
-            run_weight = min(target_run_weight, run_weight + 8.0 * dt)
-        elif run_weight > target_run_weight:
-            run_weight = max(target_run_weight, run_weight - 4.5 * dt)
+            total_yaw = cam_yaw + head_yaw
+            total_pitch = head_pitch
 
-        if walk_weight < target_walk_weight:
-            walk_weight = min(target_walk_weight, walk_weight + 8.0 * dt)
-        elif walk_weight > target_walk_weight:
-            walk_weight = max(target_walk_weight, walk_weight - 5.0 * dt)
+            # --- MOVEMENT CONTROLS (Arrow Up/Down + WASD) ---
+            move_fwd = 0.0
+            move_side = 0.0
+            if keys[pygame.K_UP] or keys[pygame.K_w]:
+                move_fwd += 1.0
+            if keys[pygame.K_DOWN] or keys[pygame.K_s]:
+                move_fwd -= 1.0
+            if keys[pygame.K_d]:
+                move_side += 1.0
+            if keys[pygame.K_a]:
+                move_side -= 1.0
 
-        active_loco = max(run_weight, walk_weight)
-        if active_loco > 0.001:
-            stride_speed = (3.2 * run_weight) + (1.8 * walk_weight * (1.0 - run_weight))
-            motion_cycle += dt * max(0.4, stride_speed)
+            move_mag = math.hypot(move_fwd, move_side)
+            is_moving = move_mag > 0.0
+            space_pressed = keys[pygame.K_SPACE]
+            is_running = is_moving and space_pressed
+            is_walking = is_moving and not space_pressed
 
-        speed = (RUN_SPEED if is_running else WALK_SPEED) * move_fwd
-        cam_x += math.sin(cam_yaw) * speed * dt
-        cam_z += math.cos(cam_yaw) * speed * dt
+            target_run_weight = 1.0 if is_running else 0.0
+            target_walk_weight = 1.0 if is_walking else 0.0
 
-        head_bob = math.sin(motion_cycle * 2.0 * math.pi) * (0.04 * run_weight + 0.02 * walk_weight)
-        eye_y = head_bob
+            if run_weight < target_run_weight:
+                run_weight = min(target_run_weight, run_weight + 8.0 * dt)
+            elif run_weight > target_run_weight:
+                run_weight = max(target_run_weight, run_weight - 4.5 * dt)
 
-        # Sync position & posture with network
-        norm_x = max(0.05, min(0.95, (cam_x + 42.0) / 84.0 * 0.9 + 0.05))
-        norm_y = max(0.05, min(0.95, (cam_z + 42.0) / 84.0 * 0.9 + 0.05))
-        net.update_local_state(
-            norm_x,
-            norm_y,
-            is_running,
-            mouth_open,
-            is_walking=is_walking,
-            rot_y=cam_yaw,
-            wx=cam_x,
-            wz=cam_z,
-            head_yaw=head_yaw,
-            head_pitch=head_pitch,
-        )
+            if walk_weight < target_walk_weight:
+                walk_weight = min(target_walk_weight, walk_weight + 8.0 * dt)
+            elif walk_weight > target_walk_weight:
+                walk_weight = max(target_walk_weight, walk_weight - 5.0 * dt)
+
+            active_loco = max(run_weight, walk_weight)
+            if active_loco > 0.001:
+                stride_speed = (3.2 * run_weight) + (1.8 * walk_weight * (1.0 - run_weight))
+                motion_cycle += dt * max(0.4, stride_speed)
+
+            if is_moving:
+                fwd_n = move_fwd / move_mag
+                side_n = move_side / move_mag
+                speed = RUN_SPEED if is_running else WALK_SPEED
+                sin_b = math.sin(cam_yaw)
+                cos_b = math.cos(cam_yaw)
+                cam_x += (sin_b * fwd_n + cos_b * side_n) * speed * dt
+                cam_z += (cos_b * fwd_n - sin_b * side_n) * speed * dt
+
+            head_bob = math.sin(motion_cycle * 2.0 * math.pi) * (0.04 * run_weight + 0.02 * walk_weight)
+            eye_y = head_bob
+
+            # Sync position & posture with network only if online
+            norm_x = max(0.05, min(0.95, (cam_x + 42.0) / 84.0 * 0.9 + 0.05))
+            norm_y = max(0.05, min(0.95, (cam_z + 42.0) / 84.0 * 0.9 + 0.05))
+            net.update_local_state(
+                norm_x,
+                norm_y,
+                is_running,
+                mouth_open,
+                is_walking=is_walking,
+                rot_y=cam_yaw,
+                wx=cam_x,
+                wz=cam_z,
+                head_yaw=head_yaw,
+                head_pitch=head_pitch,
+                blink=is_blinking,
+            )
 
         connected, is_host, my_id, my_color, remote_players = net.get_snapshot()
 
@@ -584,6 +733,7 @@ def main() -> None:
             t_head_pitch = pdata.get("head_pitch", 0.0)
             t_run = 1.0 if pdata.get("running", False) else 0.0
             t_walk = 1.0 if pdata.get("walking", False) else 0.0
+            t_blink = 1.0 if pdata.get("blink", False) else 0.0
 
             if pid not in remote_states:
                 remote_states[pid] = {
@@ -594,6 +744,7 @@ def main() -> None:
                     "head_pitch": t_head_pitch,
                     "run_weight": t_run,
                     "walk_weight": t_walk,
+                    "blink_amount": t_blink,
                     "motion_cycle": 0.0,
                 }
             else:
@@ -605,12 +756,16 @@ def main() -> None:
                 rs["head_pitch"] += (t_head_pitch - rs["head_pitch"]) * remote_alpha
                 rs["run_weight"] += (t_run - rs["run_weight"]) * min(1.0, 8.0 * dt)
                 rs["walk_weight"] += (t_walk - rs["walk_weight"]) * min(1.0, 8.0 * dt)
+                if rs["blink_amount"] < t_blink:
+                    rs["blink_amount"] = min(t_blink, rs["blink_amount"] + 18.0 * dt)
+                elif rs["blink_amount"] > t_blink:
+                    rs["blink_amount"] = max(t_blink, rs["blink_amount"] - 14.0 * dt)
                 loco = max(rs["run_weight"], rs["walk_weight"])
                 if loco > 0.001:
                     stride_spd = (3.2 * rs["run_weight"]) + (1.8 * rs["walk_weight"] * (1.0 - rs["run_weight"]))
                     rs["motion_cycle"] += dt * max(0.4, stride_spd)
 
-        # --- 1. RENDER WHAT CARMELITO IS SEEING THROUGH HIS EYES (MAIN VIEW) ---
+        # --- 1. RENDER WHAT YOU SEE: THE GIANT ISLAND, CHICKENS, GRASS, HORIZON ---
         screen.fill(BG_COLOR)
 
         focal = win_w * 0.75
@@ -631,17 +786,86 @@ def main() -> None:
             rz = dx * sin_yaw + dz * cos_yaw
             return (rx, dy * cos_pitch - rz * sin_pitch, dy * sin_pitch + rz * cos_pitch)
 
-        # 1a. Seamless green grass ground below the true perspective horizon
-        # Using screen-bounded fill avoids large-coordinate polygon rasterizer overflow when looking down
+        # 1a. Ocean water & horizon around the giant island
         horizon_y = max(0, min(win_h, round(hh + math.tan(total_pitch) * focal)))
         if horizon_y < win_h:
-            screen.fill(GRASS_GROUND_COLOR, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
+            screen.fill(OCEAN_WATER_COLOR, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
 
-        # 1b. Render 3D grass blades from Carmelito's feet all the way far into the distance
+        # 1b. Render the Giant Island (Top lush plateau, Sandy beach edge, and 3D Rocky Cliffs)
+        # Compute island outline vertices at top plateau (GROUND_Y) and water base (ISLAND_WATER_Y)
+        top_rim_cam: list[tuple[float, float, float]] = []
+        top_rim_scr: list[tuple[int, int] | None] = []
+        bot_rim_cam: list[tuple[float, float, float]] = []
+        bot_rim_scr: list[tuple[int, int] | None] = []
+
+        for i in range(ISLAND_SEGMENTS):
+            ang = (2.0 * math.pi * i) / ISLAND_SEGMENTS
+            # Organic island shape with wavy shorelines
+            r = ISLAND_RADIUS + 5.5 * math.sin(ang * 4.0) + 3.2 * math.cos(ang * 7.0)
+            ix = math.sin(ang) * r
+            iz = math.cos(ang) * r
+
+            tc = to_cam(ix, GROUND_Y, iz)
+            top_rim_cam.append(tc)
+            if tc[2] > near_z:
+                top_rim_scr.append((round(hw + (tc[0] / tc[2]) * focal), round(hh - (tc[1] / tc[2]) * focal)))
+            else:
+                top_rim_scr.append(None)
+
+            bc = to_cam(ix * 1.05, ISLAND_WATER_Y, iz * 1.05)
+            bot_rim_cam.append(bc)
+            if bc[2] > near_z:
+                bot_rim_scr.append((round(hw + (bc[0] / bc[2]) * focal), round(hh - (bc[1] / bc[2]) * focal)))
+            else:
+                bot_rim_scr.append(None)
+
+        # Island top plateau lush green surface
+        valid_top = [pt for pt in top_rim_scr if pt is not None]
+        if len(valid_top) >= 3:
+            # Sandy rim stroke
+            pygame.draw.polygon(screen, ISLAND_RIM_SAND, valid_top)
+            # Lush green plateau fill slightly inset
+            pygame.draw.polygon(screen, ISLAND_TOP_COLOR, valid_top)
+
+        # Render island cliff sides facing the camera (drawn after top so cliffs overlap shoreline)
+        cliff_quads: list[tuple[float, list[tuple[int, int]], tuple[int, int, int]]] = []
+        for i in range(ISLAND_SEGMENTS):
+            next_i = (i + 1) % ISLAND_SEGMENTS
+            t0, t1 = top_rim_cam[i], top_rim_cam[next_i]
+            b0, b1 = bot_rim_cam[i], bot_rim_cam[next_i]
+            ts0, ts1 = top_rim_scr[i], top_rim_scr[next_i]
+            bs0, bs1 = bot_rim_scr[i], bot_rim_scr[next_i]
+
+            if ts0 is None or ts1 is None or bs0 is None or bs1 is None:
+                continue
+
+            avg_z = (t0[2] + t1[2] + b0[2] + b1[2]) * 0.25
+            # Cliff face normal check (front-facing to camera)
+            ang_mid = (2.0 * math.pi * (i + 0.5)) / ISLAND_SEGMENTS
+            on_x = math.sin(ang_mid)
+            on_z = math.cos(ang_mid)
+            cam_dir_x = (OVERVIEW_CAM_X if not is_online else cam_x) - on_x * ISLAND_RADIUS
+            cam_dir_z = (OVERVIEW_CAM_Z if not is_online else cam_z) - on_z * ISLAND_RADIUS
+            facing = (cam_dir_x * on_x + cam_dir_z * on_z)
+            if facing > 0:
+                cliff_col = ISLAND_CLIFF_LIGHT if (i % 2 == 0) else ISLAND_CLIFF_DARK
+                cliff_quads.append((avg_z, [ts0, ts1, bs1, bs0], cliff_col))
+
+        cliff_quads.sort(key=lambda item: item[0], reverse=True)
+        for _, quad_pts, col in cliff_quads:
+            pygame.draw.polygon(screen, col, quad_pts)
+            pygame.draw.polygon(screen, ISLAND_SHADOW, quad_pts, 1)
+
+        # 1c. Render 3D grass blades across the island
         base_sway = math.sin(anim_time * 2.2) * 0.045
         blades: list[tuple[float, float, float, tuple[float, float, float], int, float, float]] = []
 
-        for step, min_d, max_d, tufts, b_scale, sway_amp in GRASS_RINGS:
+        # When staring from overview, render grass patches across the colossal island surface
+        for step, min_d, max_d, tufts, b_scale, sway_amp in (
+            ((6.0, 0.0, 100.0, 3, 2.0, 0.6), (12.0, 40.0, 140.0, 2, 2.8, 0.0))
+            if not is_online
+            else GRASS_RINGS
+        ):
             ix_c = round(cam_x / step)
             iz_c = round(cam_z / step)
             half_cells = int(max_d / step) + 1
@@ -658,6 +882,9 @@ def main() -> None:
                     d2 = dx_c * dx_c + dz_c * dz_c
                     if d2 < min_d2 or d2 > max_d2:
                         continue
+                    # Stay within giant island radius
+                    if math.hypot(cx, cz) > ISLAND_RADIUS - 1.5:
+                        continue
 
                     c_cam = to_cam(cx, GROUND_Y, cz)
                     if c_cam[2] < near_z - step:
@@ -671,13 +898,16 @@ def main() -> None:
                         fz = (((th >> 8) & 255) / 255.0) * 0.9 + 0.05
                         bx = (ix + fx) * step
                         bz = (iz + fz) * step
+                        if math.hypot(bx, bz) > ISLAND_RADIUS - 1.5:
+                            continue
+
                         b_cam = to_cam(bx, GROUND_Y, bz)
                         if b_cam[2] > near_z and abs(b_cam[0]) <= b_cam[2] * half_fov_tan + 0.5:
                             blades.append((b_cam[2], bx, bz, b_cam, th, b_scale, sway_amp))
 
         blades.sort(key=lambda item: item[0], reverse=True)
         for bz_cam, bx, bz, b_cam, th, b_scale, sway_amp in blades:
-            height = (0.20 + ((th >> 4) & 7) * 0.018) * b_scale
+            height = (0.22 + ((th >> 4) & 7) * 0.02) * b_scale
             local_sway = (base_sway + math.sin(anim_time * 2.6 + bx * 0.9 + bz * 0.7) * 0.03) * sway_amp
             t_cam = to_cam(bx + local_sway, GROUND_Y + height, bz)
             if t_cam[2] <= near_z:
@@ -688,28 +918,11 @@ def main() -> None:
             tsx = round(hw + (t_cam[0] / t_cam[2]) * focal)
             tsy = round(hh - (t_cam[1] / t_cam[2]) * focal)
 
-            if bz_cam < 50.0:
-                blade_col = GRASS_BLADE_NEAR_DARK if (th & 1) else GRASS_BLADE_NEAR_LIGHT
-            else:
-                blade_col = GRASS_BLADE_FAR_DARK if (th & 1) else GRASS_BLADE_FAR_LIGHT
-
-            width = 2 if bz_cam < 12.0 else 1
+            blade_col = GRASS_BLADE_NEAR_DARK if (th & 1) else GRASS_BLADE_NEAR_LIGHT
+            width = 2 if bz_cam < 36.0 else 1
             pygame.draw.line(screen, blade_col, (bsx, bsy), (tsx, tsy), width)
 
-            if bz_cam < 55.0:
-                spread = 0.095 * b_scale
-                l_cam = to_cam(bx - spread + local_sway * 0.8, GROUND_Y + height * 0.78, bz)
-                r_cam = to_cam(bx + spread + local_sway * 0.8, GROUND_Y + height * 0.75, bz)
-                if l_cam[2] > near_z:
-                    lsx = round(hw + (l_cam[0] / l_cam[2]) * focal)
-                    lsy = round(hh - (l_cam[1] / l_cam[2]) * focal)
-                    pygame.draw.line(screen, blade_col, (bsx, bsy), (lsx, lsy), width)
-                if r_cam[2] > near_z:
-                    rsx = round(hw + (r_cam[0] / r_cam[2]) * focal)
-                    rsy = round(hh - (r_cam[1] / r_cam[2]) * focal)
-                    pygame.draw.line(screen, blade_col, (bsx, bsy), (rsx, rsy), width)
-
-        # 1c. RENDER AI / REMOTE PLAYERS IN CARMELITO'S 3D FIELD OF VIEW (sorted far-to-near)
+        # 1d. RENDER CHICKENS / OTHER PLAYERS IN 3D SPACE (with Chinese name "卡梅利多" and player names)
         visible_remotes: list[tuple[float, int, dict[str, Any], dict[str, float], float, float, float]] = []
         for pid, pdata in remote_players.items():
             if pid not in remote_states:
@@ -730,7 +943,7 @@ def main() -> None:
             sy = hh - (ry_p / rz_p) * focal
 
             if pdata.get("is_carmelito", True):
-                # Soft shadow on the grass right beneath the AI Carmelito's feet
+                # Soft shadow on the grass right beneath the Carmelito chick's feet
                 sh_w = max(8, round((1.15 / rz_p) * focal))
                 sh_h = max(3, round((0.36 / rz_p) * focal))
                 shadow_rect = pygame.Rect(round(sx - sh_w * 0.5), round(sy - sh_h * 0.4), sh_w, sh_h)
@@ -738,7 +951,7 @@ def main() -> None:
 
                 model_scale = (CARMELITO_WORLD_SCALE / rz_p) * focal
                 rel_rot_y = math.pi - (rs["rot_y"] - total_yaw)
-                rel_rot_x = max(-0.4, min(0.55, 0.04 - total_pitch))
+                rel_rot_x = max(-0.55, min(0.65, 0.04 - total_pitch))
 
                 model_3d.render(
                     surface=screen,
@@ -754,6 +967,7 @@ def main() -> None:
                     run_weight=rs["run_weight"],
                     is_walking=pdata.get("walking", False),
                     walk_weight=rs["walk_weight"],
+                    blink=rs["blink_amount"],
                 )
 
                 # Floating nameplates above Carmelito's comb:
@@ -788,8 +1002,8 @@ def main() -> None:
                 pygame.draw.circle(screen, color, (round(sx), round(sy)), radius)
                 pygame.draw.circle(screen, (220, 225, 235), (round(sx), round(sy)), radius + 1, max(1, radius // 8))
 
-        # 1d. RENDER CARMELITO'S OWN FEET WHEN LOOKING DOWN
-        if head_pitch < -0.35:
+        # 1e. RENDER OWN FEET ONLY WHEN ONLINE
+        if is_online and head_pitch < -0.35:
             cos_body = math.cos(cam_yaw)
             sin_body = math.sin(cam_yaw)
 
@@ -805,7 +1019,6 @@ def main() -> None:
                 walk_weight=walk_weight,
             )
 
-            # Soft grass shadows under each foot
             for sbx, sby, sbz in foot_shadows:
                 scam = body_to_cam(sbx, sby, sbz)
                 if scam[2] > near_z:
@@ -828,12 +1041,6 @@ def main() -> None:
                 v0, v1, v2 = cam_verts[0], cam_verts[1], cam_verts[2]
                 e1 = (v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2])
                 e2 = (v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2])
-                # Note: cross(e1, e2) follows model outward normal in right-handed world space (x=left, y=up, z=fwd),
-                # which maps to -cam_normal when cam_x is flipped right; check dot toward camera origin (0,0,0):
-                # Since body_to_cam preserves handedness? Wait: rx = dx*cos - dz*sin, rz = dx*sin + dz*cos -> det([cos,-sin;sin,cos])=+1!
-                # And pitch rotation around X preserves det=+1! So outward normal in cam space is -cross(e1, e2) or +cross(e1, e2)?
-                # In create_cube_grid (+Z front quad: x0<x1, y0<y1 -> (x0,y0),(x1,y0),(x1,y1)): e1=(+x,0,0), e2=(+x,+y,0) -> cross=(0,0,+z)!
-                # So cross(e1, e2) points outward in right-handed space! Toward eye at (0,0,0) means dot(normal, -v0) > 0.
                 nx = e1[1] * e2[2] - e1[2] * e2[1]
                 ny = e1[2] * e2[0] - e1[0] * e2[2]
                 nz = e1[0] * e2[1] - e1[1] * e2[0]
@@ -844,7 +1051,6 @@ def main() -> None:
                 ny /= n_mag
                 nz /= n_mag
 
-                # Face is visible if its outward normal points toward the eye at (0, 0, 0)
                 to_eye_dot = -(nx * v0[0] + ny * v0[1] + nz * v0[2])
                 if to_eye_dot <= 0.0:
                     continue
@@ -874,28 +1080,56 @@ def main() -> None:
                     if draw_ink:
                         pygame.draw.polygon(screen, COLOR_INK_LINE, pts, 1)
 
-        # --- 2. TOP-LEFT CORNER PICTURE: CARMELITO'S LIVE 3D BODY MODEL ---
-        pic_rect = pygame.Rect(16, 16, 180, 200)
-        shadow_rect = pygame.Rect(18, 18, 180, 200)
-        pygame.draw.rect(screen, (232, 236, 242), shadow_rect, border_radius=16)
-        pygame.draw.rect(screen, (255, 255, 255), pic_rect, border_radius=16)
-        pygame.draw.rect(screen, (215, 224, 232), pic_rect, width=2, border_radius=16)
+        # --- 2. TOP-LEFT CORNER PICTURE: ONLY VISIBLE WHEN ONLINE (EQUIPPED CARMELITO) ---
+        if is_online:
+            pic_rect = pygame.Rect(16, 16, 180, 200)
+            shadow_rect = pygame.Rect(18, 18, 180, 200)
+            pygame.draw.rect(screen, (232, 236, 242), shadow_rect, border_radius=16)
+            pygame.draw.rect(screen, (255, 255, 255), pic_rect, border_radius=16)
+            pygame.draw.rect(screen, (215, 224, 232), pic_rect, width=2, border_radius=16)
 
-        model_3d.render(
-            surface=screen,
-            screen_pos=(106, 185),
-            scale=72,
-            rot_y=0.0,              # Body stays permanently facing front (cant see body turn)
-            rot_x=0.06,             # Gentle storybook forward angle
-            head_yaw=head_yaw,      # Head turns with mouse!
-            head_pitch=head_pitch,  # Head tilts with mouse!
-            mouth_open=mouth_open,  # Opens/closes with 'U'
-            run_cycle=motion_cycle,
-            is_running=is_running,
-            run_weight=run_weight,
-            is_walking=is_walking,
-            walk_weight=walk_weight,
-        )
+            model_3d.render(
+                surface=screen,
+                screen_pos=(106, 185),
+                scale=72,
+                rot_y=0.0,
+                rot_x=0.06,
+                head_yaw=head_yaw,
+                head_pitch=head_pitch,
+                mouth_open=mouth_open,
+                run_cycle=motion_cycle,
+                is_running=is_running,
+                run_weight=run_weight,
+                is_walking=is_walking,
+                walk_weight=walk_weight,
+                blink=blink_amount,
+            )
+
+        # --- 3. UI OVERLAYS ---
+        # 3a. GAME TITLE AT TOP CENTER: WHITE TEXT WITH BLACK OUTLINE
+        title_px = max(36, min(88, ((round(win_h * 0.085)) // 2) * 2))
+        title_outline_px = max(2, round(title_px * 0.065))
+        title_surf = get_outlined_text_surface(WINDOW_TITLE, title_px, outline_px=title_outline_px)
+        title_x = (win_w - title_surf.get_width()) // 2
+        title_y = max(14, round(win_h * 0.03))
+        screen.blit(title_surf, (title_x, title_y))
+
+        # 3b. PLAY BUTTON: WHITE TEXT WITH BLACK OUTLINE (ONLY VISIBLE WHEN OFFLINE)
+        if not is_online:
+            play_px = max(42, min(96, ((round(win_h * 0.095)) // 2) * 2))
+            play_outline_px = max(3, round(play_px * 0.07))
+            play_surf = get_outlined_text_surface("PLAY", play_px, outline_px=play_outline_px)
+            play_x = (win_w - play_surf.get_width()) // 2
+            play_y = round(win_h * 0.58)
+
+            # Store the clickable boundary of the PLAY text button
+            play_button_rect = pygame.Rect(
+                play_x - 12,
+                play_y - 8,
+                play_surf.get_width() + 24,
+                play_surf.get_height() + 16,
+            )
+            screen.blit(play_surf, (play_x, play_y))
 
         pygame.display.flip()
 
