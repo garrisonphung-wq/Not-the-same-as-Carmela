@@ -2,9 +2,7 @@ import argparse
 import asyncio
 import json
 import math
-import os
 import random
-import sys
 import threading
 from urllib.parse import urlparse
 
@@ -12,6 +10,8 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
 import server as game_server
+
+CHICK_NAME = "卡梅利多"
 
 
 def is_local_server_url(server_url: str) -> tuple[bool, int]:
@@ -21,7 +21,16 @@ def is_local_server_url(server_url: str) -> tuple[bool, int]:
     return host in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}, port
 
 
+def wrap_angle(angle: float) -> float:
+    return (angle + math.pi) % (2.0 * math.pi) - math.pi
+
+
 class AICodeCompanion:
+    WORLD_LIMIT = 42.0
+    WALK_SPEED = 2.8
+    RUN_SPEED = 5.8
+    TURN_SPEED = 3.2
+
     def __init__(
         self,
         server_url: str = "ws://127.0.0.1:8765",
@@ -34,9 +43,29 @@ class AICodeCompanion:
 
         self.my_id: int | None = None
         self.my_color: list[int] = [120, 195, 255]
-        self.target_id: int | None = None
-        self.target_pos = [0.5, 0.65]
-        self.pos = [0.38, 0.65]
+        self.other_players: dict[int, tuple[float, float]] = {}
+        self.other_player_labels: dict[int, str] = {}
+
+        # Autonomous 3D world position & posture (starts visible in the grass field)
+        self.wx = 2.2
+        self.wz = 4.5
+        self.rot_y = math.pi * 0.85  # Initially facing somewhat toward center/player
+        self.head_yaw = 0.0
+        self.head_pitch = 0.0
+        self.target_head_yaw = 0.0
+        self.target_head_pitch = 0.0
+
+        self.is_walking = False
+        self.is_running = False
+        self.mouth_open = False
+
+        # Independent AI decision state machine
+        self.mode = "idle"
+        self.mode_timer = 1.2
+        self.dest_x = self.wx
+        self.dest_z = self.wz
+        self.head_timer = 1.0
+        self.mouth_timer = 2.5
 
         self._host_started = False
 
@@ -53,15 +82,141 @@ class AICodeCompanion:
 
         threading.Thread(target=server_runner, daemon=True).start()
 
+    def _choose_next_action(self) -> None:
+        """
+        AI freely chooses what to do next:
+        - Mostly wanders or sprints to random places anywhere across the grass field.
+        - Often pauses to look around curiously or chirp.
+        - Only rarely (by its own whim) decides to wander near another player.
+        """
+        roll = random.random()
+
+        # If far from center, gently bias back into the open meadow
+        dist_from_origin = math.hypot(self.wx, self.wz)
+        if dist_from_origin > self.WORLD_LIMIT * 0.85:
+            angle = math.atan2(-self.wx, -self.wz) + random.uniform(-0.7, 0.7)
+            dist = random.uniform(8.0, 22.0)
+            self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
+            self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
+            self.mode = "run" if random.random() < 0.35 else "walk"
+            self.mode_timer = random.uniform(3.5, 7.0)
+            return
+
+        if roll < 0.25:
+            # Stop, rest, and look around on the grass
+            self.mode = "idle"
+            self.mode_timer = random.uniform(1.4, 4.0)
+            self.is_walking = False
+            self.is_running = False
+            self.target_head_yaw = random.uniform(-0.9, 0.9)
+            self.target_head_pitch = random.uniform(-0.25, 0.45)
+        elif roll < 0.65:
+            # Stroll anywhere in a random direction
+            angle = random.uniform(0.0, 2.0 * math.pi)
+            dist = random.uniform(5.0, 22.0)
+            self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
+            self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
+            self.mode = "walk"
+            self.mode_timer = random.uniform(3.0, 8.0)
+        elif roll < 0.90:
+            # Run excitedly to a spot further away across the meadow
+            angle = random.uniform(0.0, 2.0 * math.pi)
+            dist = random.uniform(10.0, 30.0)
+            self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
+            self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
+            self.mode = "run"
+            self.mode_timer = random.uniform(2.5, 5.5)
+        else:
+            # Occasionally (10% whim) walk near another player's general neighborhood,
+            # or wander away if already right next to them
+            if self.other_players:
+                px, pz = random.choice(list(self.other_players.values()))
+                offset_ang = random.uniform(0.0, 2.0 * math.pi)
+                offset_dist = random.uniform(3.5, 9.0)
+                self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, px + math.sin(offset_ang) * offset_dist))
+                self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, pz + math.cos(offset_ang) * offset_dist))
+                self.mode = "walk"
+                self.mode_timer = random.uniform(2.5, 5.0)
+            else:
+                angle = random.uniform(0.0, 2.0 * math.pi)
+                dist = random.uniform(6.0, 16.0)
+                self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
+                self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
+                self.mode = "walk"
+                self.mode_timer = random.uniform(3.0, 6.0)
+
+    def step_ai(self, dt: float) -> None:
+        self.mode_timer -= dt
+        self.head_timer -= dt
+        self.mouth_timer -= dt
+
+        if self.mode_timer <= 0.0:
+            self._choose_next_action()
+
+        if self.mouth_timer <= 0.0:
+            if self.mouth_open:
+                self.mouth_open = False
+                self.mouth_timer = random.uniform(2.2, 6.0)
+            elif random.random() < 0.35:
+                self.mouth_open = True
+                self.mouth_timer = random.uniform(0.45, 1.2)
+            else:
+                self.mouth_timer = random.uniform(1.8, 4.0)
+
+        if self.mode in ("walk", "run"):
+            dx = self.dest_x - self.wx
+            dz = self.dest_z - self.wz
+            dist = math.hypot(dx, dz)
+
+            if dist < 0.6:
+                self._choose_next_action()
+            else:
+                desired_yaw = math.atan2(dx, dz)
+                diff = wrap_angle(desired_yaw - self.rot_y)
+                max_turn = self.TURN_SPEED * dt
+                if abs(diff) <= max_turn:
+                    self.rot_y = desired_yaw
+                else:
+                    self.rot_y = wrap_angle(self.rot_y + math.copysign(max_turn, diff))
+
+                speed = self.RUN_SPEED if self.mode == "run" else self.WALK_SPEED
+                # Slow forward movement while turning sharply
+                align_factor = max(0.25, math.cos(min(math.pi * 0.5, abs(diff))))
+                step_dist = speed * align_factor * dt
+                self.wx += math.sin(self.rot_y) * step_dist
+                self.wz += math.cos(self.rot_y) * step_dist
+                self.wx = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx))
+                self.wz = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz))
+
+                self.is_running = (self.mode == "run")
+                self.is_walking = (self.mode == "walk")
+
+                if self.head_timer <= 0.0:
+                    self.target_head_yaw = max(-0.6, min(0.6, diff * 0.8 + random.uniform(-0.25, 0.25)))
+                    self.target_head_pitch = random.uniform(-0.12, 0.22)
+                    self.head_timer = random.uniform(1.0, 2.4)
+        else:
+            self.is_walking = False
+            self.is_running = False
+            if self.head_timer <= 0.0:
+                self.target_head_yaw = random.uniform(-0.95, 0.95)
+                self.target_head_pitch = random.uniform(-0.25, 0.45)
+                self.head_timer = random.uniform(0.9, 2.2)
+
+        # Smooth natural neck interpolation
+        head_alpha = 1.0 - math.exp(-6.0 * dt)
+        self.head_yaw += (self.target_head_yaw - self.head_yaw) * head_alpha
+        self.head_pitch += (self.target_head_pitch - self.head_pitch) * head_alpha
+
     async def run(self) -> None:
-        print(f"🤖 {self.name} connecting to {self.server_url}...", flush=True)
+        print(f"🤖 {self.name} ({CHICK_NAME}) connecting to {self.server_url}...", flush=True)
         is_local, port = is_local_server_url(self.server_url)
 
         first_retry = True
         while True:
             try:
                 async with connect(self.server_url, ping_interval=15, ping_timeout=15) as ws:
-                    print(f"🤖 {self.name} connected!", flush=True)
+                    print(f"🤖 {self.name} ({CHICK_NAME}) connected!", flush=True)
                     first_retry = True
                     send_task = asyncio.create_task(self._motion_loop(ws))
                     recv_task = asyncio.create_task(self._listen_loop(ws))
@@ -91,6 +246,14 @@ class AICodeCompanion:
                 print(f"🤖 Reconnecting after error: {e}", flush=True)
                 await asyncio.sleep(2.0)
 
+    def _update_observed_label(self, pid: int, pdata: dict) -> None:
+        label = pdata.get("chick_name") or (CHICK_NAME if pdata.get("is_carmelito") else pdata.get("name"))
+        if label:
+            prev = self.other_player_labels.get(pid)
+            self.other_player_labels[pid] = str(label)
+            if prev != label:
+                print(f"🤖 AI sees player {pid} labeled '{label}'", flush=True)
+
     async def _listen_loop(self, ws) -> None:
         async for raw in ws:
             try:
@@ -103,59 +266,63 @@ class AICodeCompanion:
                 self.my_id = int(msg["id"])
                 self.my_color = msg.get("color", self.my_color)
                 players = msg.get("players", {})
-                print(f"🤖 {self.name} joined as Player {self.my_id}", flush=True)
+                print(f"🤖 {self.name} joined as Player {self.my_id} ({CHICK_NAME})", flush=True)
+                self.other_players.clear()
+                self.other_player_labels.clear()
                 for pid_str, pdata in players.items():
                     pid = int(pid_str)
                     if pid != self.my_id:
-                        self.target_id = pid
-                        self.target_pos = [float(pdata["x"]), float(pdata["y"])]
-                        break
+                        wx = float(pdata.get("wx", (float(pdata["x"]) - 0.1) / 0.8 * 24.0 - 12.0))
+                        wz = float(pdata.get("wz", (float(pdata["y"]) - 0.1) / 0.8 * 24.0 - 12.0))
+                        self.other_players[pid] = (wx, wz)
+                        self._update_observed_label(pid, pdata)
 
             elif mtype == "join":
                 pid = int(msg["id"])
-                if pid != self.my_id and self.target_id is None:
-                    self.target_id = pid
-                    self.target_pos = [float(msg.get("x", 0.5)), float(msg.get("y", 0.65))]
+                if pid != self.my_id:
+                    wx = float(msg.get("wx", (float(msg.get("x", 0.5)) - 0.1) / 0.8 * 24.0 - 12.0))
+                    wz = float(msg.get("wz", (float(msg.get("y", 0.5)) - 0.1) / 0.8 * 24.0 - 12.0))
+                    self.other_players[pid] = (wx, wz)
+                    self._update_observed_label(pid, msg)
 
             elif mtype == "pos":
                 pid = int(msg["id"])
-                if pid == self.target_id:
-                    self.target_pos = [float(msg["x"]), float(msg["y"])]
+                if pid != self.my_id:
+                    wx = float(msg.get("wx", (float(msg["x"]) - 0.1) / 0.8 * 24.0 - 12.0))
+                    wz = float(msg.get("wz", (float(msg["y"]) - 0.1) / 0.8 * 24.0 - 12.0))
+                    self.other_players[pid] = (wx, wz)
+                    self._update_observed_label(pid, msg)
 
             elif mtype == "leave":
                 pid = int(msg["id"])
-                if pid == self.target_id:
-                    self.target_id = None
+                self.other_players.pop(pid, None)
+                self.other_player_labels.pop(pid, None)
 
     async def _motion_loop(self, ws) -> None:
-        tick_rate = 60.0
+        tick_rate = 30.0
         dt = 1.0 / tick_rate
-        t = 0.0
 
         while True:
-            t += dt
+            self.step_ai(dt)
 
-            if self.target_id is not None:
-                tx, ty = self.target_pos
-                # Keep a playful distance from player
-                angle = t * 2.2
-                dest_x = max(0.08, min(0.92, tx + 0.12 * math.cos(angle)))
-                dest_y = max(0.15, min(0.88, ty + 0.08 * math.sin(angle)))
-
-                self.pos[0] += (dest_x - self.pos[0]) * 0.14
-                self.pos[1] += (dest_y - self.pos[1]) * 0.14
-            else:
-                pass
-
-            self.pos[0] = max(0.08, min(0.92, self.pos[0]))
-            self.pos[1] = max(0.15, min(0.88, self.pos[1]))
+            norm_x = max(0.05, min(0.95, (self.wx + self.WORLD_LIMIT) / (2.0 * self.WORLD_LIMIT) * 0.9 + 0.05))
+            norm_y = max(0.05, min(0.95, (self.wz + self.WORLD_LIMIT) / (2.0 * self.WORLD_LIMIT) * 0.9 + 0.05))
 
             payload = json.dumps(
                 {
                     "type": "pos",
-                    "x": round(self.pos[0], 5),
-                    "y": round(self.pos[1], 5),
-                    "is_carmelito": False,
+                    "x": round(norm_x, 5),
+                    "y": round(norm_y, 5),
+                    "wx": round(self.wx, 4),
+                    "wz": round(self.wz, 4),
+                    "running": self.is_running,
+                    "walking": self.is_walking,
+                    "mouth": self.mouth_open,
+                    "rot_y": round(self.rot_y, 4),
+                    "head_yaw": round(self.head_yaw, 4),
+                    "head_pitch": round(self.head_pitch, 4),
+                    "is_carmelito": True,
+                    "chick_name": CHICK_NAME,
                     "name": self.name,
                 },
                 separators=(",", ":"),

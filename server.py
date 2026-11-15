@@ -2,6 +2,7 @@ import asyncio
 import colorsys
 from http import HTTPStatus
 import json
+import math
 import os
 from typing import Any
 
@@ -32,9 +33,19 @@ def clamp_norm(value: Any, default: float = 0.5) -> float:
         num = float(value)
     except (TypeError, ValueError):
         return default
-    if num != num:
+    if not math.isfinite(num):
         return default
     return max(0.0, min(1.0, num))
+
+
+def safe_float(value: Any, default: float = 0.0, limit: float = 10000.0) -> float:
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(num):
+        return default
+    return max(-limit, min(limit, num))
 
 
 class GameRelayServer:
@@ -67,10 +78,18 @@ class GameRelayServer:
         self._players[player_id] = {
             "x": 0.5,
             "y": 0.5,
+            "wx": 0.0,
+            "wz": 0.0,
             "color": color,
             "name": None,
+            "chick_name": "卡梅利多",
             "running": False,
+            "walking": False,
             "mouth": False,
+            "rot_y": 0.0,
+            "head_yaw": 0.0,
+            "head_pitch": 0.0,
+            "is_carmelito": True,
         }
 
         try:
@@ -90,10 +109,18 @@ class GameRelayServer:
                     "id": player_id,
                     "x": 0.5,
                     "y": 0.5,
+                    "wx": 0.0,
+                    "wz": 0.0,
                     "color": color,
                     "name": None,
+                    "chick_name": "卡梅利多",
                     "running": False,
+                    "walking": False,
                     "mouth": False,
+                    "rot_y": 0.0,
+                    "head_yaw": 0.0,
+                    "head_pitch": 0.0,
+                    "is_carmelito": True,
                 },
                 exclude_id=player_id,
             )
@@ -107,27 +134,50 @@ class GameRelayServer:
                     continue
 
                 if data.get("type") == "pos":
-                    nx = clamp_norm(data.get("x"), self._players[player_id]["x"])
-                    ny = clamp_norm(data.get("y"), self._players[player_id]["y"])
-                    self._players[player_id]["x"] = nx
-                    self._players[player_id]["y"] = ny
+                    p = self._players[player_id]
+                    nx = clamp_norm(data.get("x"), p["x"])
+                    ny = clamp_norm(data.get("y"), p["y"])
+                    p["x"] = nx
+                    p["y"] = ny
 
-                    running_state = bool(data.get("running", False))
-                    mouth_state = bool(data.get("mouth", False))
-                    self._players[player_id]["running"] = running_state
-                    self._players[player_id]["mouth"] = mouth_state
+                    if "wx" in data:
+                        p["wx"] = safe_float(data.get("wx"), p["wx"])
+                    if "wz" in data:
+                        p["wz"] = safe_float(data.get("wz"), p["wz"])
+
+                    p["running"] = bool(data.get("running", False))
+                    p["walking"] = bool(data.get("walking", False))
+                    p["mouth"] = bool(data.get("mouth", False))
+                    p["rot_y"] = safe_float(data.get("rot_y", p["rot_y"]), p["rot_y"], limit=100.0)
+                    p["head_yaw"] = safe_float(data.get("head_yaw", p["head_yaw"]), p["head_yaw"], limit=10.0)
+                    p["head_pitch"] = safe_float(data.get("head_pitch", p["head_pitch"]), p["head_pitch"], limit=10.0)
+                    if "is_carmelito" in data:
+                        p["is_carmelito"] = bool(data["is_carmelito"])
+                    if "chick_name" in data and data["chick_name"]:
+                        p["chick_name"] = str(data["chick_name"])[:32]
+                    elif p["is_carmelito"] and not p["chick_name"]:
+                        p["chick_name"] = "卡梅利多"
 
                     bcast_msg: dict[str, Any] = {
                         "type": "pos",
                         "id": player_id,
                         "x": nx,
                         "y": ny,
-                        "running": running_state,
-                        "mouth": mouth_state,
+                        "wx": p["wx"],
+                        "wz": p["wz"],
+                        "running": p["running"],
+                        "walking": p["walking"],
+                        "mouth": p["mouth"],
+                        "rot_y": p["rot_y"],
+                        "head_yaw": p["head_yaw"],
+                        "head_pitch": p["head_pitch"],
+                        "is_carmelito": p["is_carmelito"],
                     }
+                    if p["chick_name"]:
+                        bcast_msg["chick_name"] = p["chick_name"]
                     if "name" in data and data["name"]:
                         name_str = str(data["name"])[:32]
-                        self._players[player_id]["name"] = name_str
+                        p["name"] = name_str
                         bcast_msg["name"] = name_str
 
                     await self.broadcast(bcast_msg, exclude_id=player_id)
@@ -159,21 +209,15 @@ async def run_server(
         ping_interval=15,
         ping_timeout=15,
     ):
-        print(f"Game server listening on ws://{host}:{port}", flush=True)
-        if stop_event is None:
-            await asyncio.Future()
-        else:
+        print(f"Game relay server listening on ws://{host}:{port}", flush=True)
+        if stop_event is not None:
             await stop_event.wait()
-
-
-def main() -> None:
-    host = os.environ.get("HOST", "0.0.0.0")
-    port = int(os.environ.get("PORT", "8765"))
-    try:
-        asyncio.run(run_server(host=host, port=port))
-    except KeyboardInterrupt:
-        pass
+        else:
+            await asyncio.Future()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(run_server(port=int(os.environ.get("PORT", "8765"))))
+    except KeyboardInterrupt:
+        print("\nServer stopped.")

@@ -13,18 +13,24 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
 import server as game_server
-from carmelito_3d import Carmelito3D
+from carmelito_3d import COLOR_INK_LINE, Carmelito3D
 
 WINDOW_TITLE = "不一样的卡梅拉"
+CHICK_NAME = "卡梅利多"
 DEFAULT_SERVER_URL = os.environ.get("GAME_SERVER_URL", "ws://127.0.0.1:8765")
 
-# Pure white background, clean ground grid ready for grass
+# Pure white sky/background, seamless lush green grass ground (no grid)
 BG_COLOR = (255, 255, 255)
-GROUND_GRID_COLOR = (205, 220, 215)  # Muted pastel sage grid (ready to turn into grass)
+GRASS_GROUND_COLOR = (138, 202, 114)
+GRASS_SHADOW_COLOR = (108, 170, 84)
+GRASS_BLADE_NEAR_DARK = (90, 164, 70)
+GRASS_BLADE_NEAR_LIGHT = (108, 182, 86)
+GRASS_BLADE_FAR_DARK = (114, 182, 94)
+GRASS_BLADE_FAR_LIGHT = (124, 192, 102)
 LOCAL_DOT_COLOR = (255, 175, 195)
 REMOTE_DOT_COLOR = (120, 195, 255)
 
-REMOTE_LERP_SPEED = 24.0
+REMOTE_LERP_SPEED = 18.0
 NETWORK_SEND_HZ = 60.0
 TARGET_FPS = 60.0
 WALK_SPEED = 3.2
@@ -33,14 +39,85 @@ TURN_SPEED = 2.2
 
 # Normal tall human eye height
 GROUND_Y = -3.0
-GRID_STEP = 2.0
-GRID_EXTENT = 50.0
+CARMELITO_WORLD_SCALE = 1.85  # Matches Carmelito's ~3.0 eye height above GROUND_Y
 
-# Anatomical neck rotation limits (less than 90 degrees sideways, can tilt up into the sky)
-MAX_HEAD_YAW = math.radians(72.0)       # ~72 degrees max turn left/right (close to sideways, but less than sideways)
-MAX_HEAD_PITCH_UP = math.radians(52.0)  # ~52 degrees max upward tilt
-MAX_HEAD_PITCH_DOWN = math.radians(35.0)# ~35 degrees max downward tilt
-HEAD_SMOOTH_SPEED = 14.0                # Smooth realistic neck following rate
+# Multi-ring grass blade distribution reaching far across the meadow:
+# (patch_step, min_dist, max_dist, tufts_per_patch, blade_scale, sway_amp)
+GRASS_RINGS = (
+    (2.0, 0.0, 24.0, 4, 1.0, 1.0),
+    (4.0, 24.0, 64.0, 4, 1.4, 0.6),
+    (8.0, 64.0, 140.0, 3, 2.1, 0.0),
+)
+
+# Anatomical neck rotation limits (less than 90 degrees sideways, can look up to sky & down at feet)
+MAX_HEAD_YAW = math.radians(72.0)        # ~72 degrees max turn left/right (close to sideways, but less than sideways)
+MAX_HEAD_PITCH_UP = math.radians(52.0)   # ~52 degrees max upward tilt
+MAX_HEAD_PITCH_DOWN = math.radians(68.0) # ~68 degrees chin-down tilt so you can see your own feet
+HEAD_SMOOTH_SPEED = 14.0                 # Smooth realistic neck following rate
+
+_CHINESE_FONT_PATH: str | None = None
+_CHINESE_FONT_SEARCHED = False
+_CHINESE_FONT_CACHE: dict[int, pygame.font.Font] = {}
+_NAMEPLATE_CACHE: dict[tuple[str, int, tuple[int, int, int], tuple[int, int, int]], pygame.Surface] = {}
+
+
+def get_chinese_font(size: int) -> pygame.font.Font:
+    global _CHINESE_FONT_PATH, _CHINESE_FONT_SEARCHED
+    if not _CHINESE_FONT_SEARCHED:
+        _CHINESE_FONT_SEARCHED = True
+        for candidate in (
+            "pingfang",
+            "hiraginosansgb",
+            "stheitimedium",
+            "songti",
+            "arialunicode",
+            "notosanscjksc",
+            "microsoftyahei",
+            "simhei",
+        ):
+            matched = pygame.font.match_font(candidate)
+            if matched:
+                _CHINESE_FONT_PATH = matched
+                break
+
+    if size not in _CHINESE_FONT_CACHE:
+        if _CHINESE_FONT_PATH:
+            _CHINESE_FONT_CACHE[size] = pygame.font.Font(_CHINESE_FONT_PATH, size)
+        else:
+            _CHINESE_FONT_CACHE[size] = pygame.font.SysFont(
+                "PingFang SC,Hiragino Sans GB,STHeiti,Microsoft YaHei,SimHei", size
+            )
+    return _CHINESE_FONT_CACHE[size]
+
+
+def get_nameplate_surface(
+    text: str,
+    font_size: int,
+    text_color: tuple[int, int, int] = COLOR_INK_LINE,
+    border_color: tuple[int, int, int] = (215, 224, 232),
+) -> pygame.Surface:
+    key = (text, font_size, text_color, border_color)
+    cached = _NAMEPLATE_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    font = get_chinese_font(font_size)
+    txt_surf = font.render(text, True, text_color)
+    pad_x = max(6, round(font_size * 0.42))
+    pad_y = max(2, round(font_size * 0.16))
+    pill_w = txt_surf.get_width() + pad_x * 2
+    pill_h = txt_surf.get_height() + pad_y * 2
+
+    badge = pygame.Surface((pill_w, pill_h), pygame.SRCALPHA)
+    pygame.draw.rect(badge, (255, 255, 255, 232), badge.get_rect(), border_radius=max(6, pill_h // 2))
+    pygame.draw.rect(badge, (*border_color, 235), badge.get_rect(), width=1, border_radius=max(6, pill_h // 2))
+    badge.blit(txt_surf, (pad_x, pad_y))
+    _NAMEPLATE_CACHE[key] = badge
+    return badge
+
+
+def wrap_angle(angle: float) -> float:
+    return (angle + math.pi) % (2.0 * math.pi) - math.pi
 
 
 def create_window(fullscreen: bool) -> pygame.Surface:
@@ -78,10 +155,14 @@ class NetworkClient:
 
         self._local_nx = 0.5
         self._local_ny = 0.4
+        self._local_wx = 0.0
+        self._local_wz = -3.5
         self._local_running = False
         self._local_walking = False
         self._local_mouth = False
         self._local_rot_y = 0.0
+        self._local_head_yaw = 0.0
+        self._local_head_pitch = 0.0
         self._pos_dirty = True
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
@@ -95,24 +176,39 @@ class NetworkClient:
         mouth_open: bool,
         is_walking: bool = False,
         rot_y: float = 0.0,
+        wx: float = 0.0,
+        wz: float = 0.0,
+        head_yaw: float = 0.0,
+        head_pitch: float = 0.0,
     ) -> None:
         nx = max(0.05, min(0.95, nx))
         ny = max(0.05, min(0.95, ny))
         with self._lock:
-            pos_changed = (abs(nx - self._local_nx) > 0.0001) or (abs(ny - self._local_ny) > 0.0001)
+            pos_changed = (
+                (abs(nx - self._local_nx) > 0.0001)
+                or (abs(ny - self._local_ny) > 0.0001)
+                or (abs(wx - self._local_wx) > 0.002)
+                or (abs(wz - self._local_wz) > 0.002)
+            )
             state_changed = (
                 (is_running != self._local_running)
                 or (is_walking != self._local_walking)
                 or (mouth_open != self._local_mouth)
                 or (abs(rot_y - self._local_rot_y) > 0.01)
+                or (abs(head_yaw - self._local_head_yaw) > 0.01)
+                or (abs(head_pitch - self._local_head_pitch) > 0.01)
             )
             if pos_changed or state_changed:
                 self._local_nx = nx
                 self._local_ny = ny
+                self._local_wx = wx
+                self._local_wz = wz
                 self._local_running = is_running
                 self._local_walking = is_walking
                 self._local_mouth = mouth_open
                 self._local_rot_y = rot_y
+                self._local_head_yaw = head_yaw
+                self._local_head_pitch = head_pitch
                 self._pos_dirty = True
 
     def get_snapshot(self) -> tuple[bool, bool, int | None, tuple[int, int, int], dict[int, dict[str, Any]]]:
@@ -121,13 +217,18 @@ class NetworkClient:
                 pid: {
                     "nx": data["nx"],
                     "ny": data["ny"],
+                    "wx": data.get("wx"),
+                    "wz": data.get("wz"),
                     "running": data.get("running", False),
                     "walking": data.get("walking", False),
                     "mouth": data.get("mouth", False),
                     "rot_y": data.get("rot_y", 0.0),
+                    "head_yaw": data.get("head_yaw", 0.0),
+                    "head_pitch": data.get("head_pitch", 0.0),
                     "color": data["color"],
                     "name": data.get("name"),
-                    "is_carmelito": data.get("is_carmelito", False),
+                    "chick_name": data.get("chick_name") or CHICK_NAME,
+                    "is_carmelito": data.get("is_carmelito", True),
                 }
                 for pid, data in self.remote_players.items()
             }
@@ -202,11 +303,16 @@ class NetworkClient:
                             "type": "pos",
                             "x": round(self._local_nx, 5),
                             "y": round(self._local_ny, 5),
+                            "wx": round(self._local_wx, 4),
+                            "wz": round(self._local_wz, 4),
                             "running": self._local_running,
                             "walking": self._local_walking,
                             "mouth": self._local_mouth,
                             "rot_y": round(self._local_rot_y, 4),
+                            "head_yaw": round(self._local_head_yaw, 4),
+                            "head_pitch": round(self._local_head_pitch, 4),
                             "is_carmelito": True,
+                            "chick_name": CHICK_NAME,
                         },
                         separators=(",", ":"),
                     )
@@ -214,6 +320,28 @@ class NetworkClient:
             if payload is not None:
                 await ws.send(payload)
             await asyncio.sleep(interval)
+
+    @staticmethod
+    def _parse_remote_player(pdata: dict[str, Any]) -> dict[str, Any]:
+        nx = float(pdata.get("x", 0.5))
+        ny = float(pdata.get("y", 0.5))
+        raw_color = pdata.get("color", REMOTE_DOT_COLOR)
+        return {
+            "nx": nx,
+            "ny": ny,
+            "wx": float(pdata["wx"]) if "wx" in pdata else None,
+            "wz": float(pdata["wz"]) if "wz" in pdata else None,
+            "running": bool(pdata.get("running", False)),
+            "walking": bool(pdata.get("walking", False)),
+            "mouth": bool(pdata.get("mouth", False)),
+            "rot_y": float(pdata.get("rot_y", 0.0)),
+            "head_yaw": float(pdata.get("head_yaw", 0.0)),
+            "head_pitch": float(pdata.get("head_pitch", 0.0)),
+            "color": tuple(int(c) for c in raw_color),
+            "name": pdata.get("name"),
+            "chick_name": pdata.get("chick_name") or CHICK_NAME,
+            "is_carmelito": bool(pdata.get("is_carmelito", True)),
+        }
 
     async def _receiver_loop(self, ws: Any) -> None:
         async for raw in ws:
@@ -239,49 +367,42 @@ class NetworkClient:
                         pid = int(pid_str)
                         if pid == my_id:
                             continue
-                        self.remote_players[pid] = {
-                            "nx": float(pdata["x"]),
-                            "ny": float(pdata["y"]),
-                            "running": bool(pdata.get("running", False)),
-                            "walking": bool(pdata.get("walking", False)),
-                            "mouth": bool(pdata.get("mouth", False)),
-                            "rot_y": float(pdata.get("rot_y", 0.0)),
-                            "color": tuple(int(c) for c in pdata["color"]),
-                            "name": pdata.get("name"),
-                            "is_carmelito": bool(pdata.get("is_carmelito", False)),
-                        }
+                        self.remote_players[pid] = self._parse_remote_player(pdata)
 
             elif msg_type == "join":
                 pid = int(msg["id"])
                 with self._lock:
                     if pid != self.my_id:
-                        self.remote_players[pid] = {
-                            "nx": float(msg["x"]),
-                            "ny": float(msg["y"]),
-                            "running": bool(msg.get("running", False)),
-                            "walking": bool(msg.get("walking", False)),
-                            "mouth": bool(msg.get("mouth", False)),
-                            "rot_y": float(msg.get("rot_y", 0.0)),
-                            "color": tuple(int(c) for c in msg["color"]),
-                            "name": msg.get("name"),
-                            "is_carmelito": bool(msg.get("is_carmelito", False)),
-                        }
+                        self.remote_players[pid] = self._parse_remote_player(msg)
 
             elif msg_type == "pos":
                 pid = int(msg["id"])
                 with self._lock:
-                    if pid in self.remote_players:
-                        self.remote_players[pid]["nx"] = float(msg["x"])
-                        self.remote_players[pid]["ny"] = float(msg["y"])
-                        self.remote_players[pid]["running"] = bool(msg.get("running", False))
-                        self.remote_players[pid]["walking"] = bool(msg.get("walking", False))
-                        self.remote_players[pid]["mouth"] = bool(msg.get("mouth", False))
+                    if pid != self.my_id and pid not in self.remote_players:
+                        self.remote_players[pid] = self._parse_remote_player(msg)
+                    elif pid in self.remote_players:
+                        rp = self.remote_players[pid]
+                        rp["nx"] = float(msg["x"])
+                        rp["ny"] = float(msg["y"])
+                        if "wx" in msg:
+                            rp["wx"] = float(msg["wx"])
+                        if "wz" in msg:
+                            rp["wz"] = float(msg["wz"])
+                        rp["running"] = bool(msg.get("running", False))
+                        rp["walking"] = bool(msg.get("walking", False))
+                        rp["mouth"] = bool(msg.get("mouth", False))
                         if "rot_y" in msg:
-                            self.remote_players[pid]["rot_y"] = float(msg["rot_y"])
+                            rp["rot_y"] = float(msg["rot_y"])
+                        if "head_yaw" in msg:
+                            rp["head_yaw"] = float(msg["head_yaw"])
+                        if "head_pitch" in msg:
+                            rp["head_pitch"] = float(msg["head_pitch"])
                         if "is_carmelito" in msg:
-                            self.remote_players[pid]["is_carmelito"] = bool(msg["is_carmelito"])
+                            rp["is_carmelito"] = bool(msg["is_carmelito"])
+                        if "chick_name" in msg and msg["chick_name"]:
+                            rp["chick_name"] = msg["chick_name"]
                         if "name" in msg and msg["name"]:
-                            self.remote_players[pid]["name"] = msg["name"]
+                            rp["name"] = msg["name"]
 
             elif msg_type == "leave":
                 pid = int(msg["id"])
@@ -340,7 +461,7 @@ def main() -> None:
     motion_cycle = 0.0    # Continuous stride cadence
 
     net = NetworkClient(server_url=args.server, auto_host=not args.no_auto_host)
-    remote_world_pos: dict[int, list[float]] = {}
+    remote_states: dict[int, dict[str, float]] = {}
 
     running = True
     while running:
@@ -364,29 +485,22 @@ def main() -> None:
         win_w, win_h = screen.get_size()
 
         # --- HEAD FOLLOWS MOUSE POINTER ---
-        # Mouse position relative to center of screen [-1.0, 1.0]
         mx, my = pygame.mouse.get_pos()
         norm_mx = (mx - win_w * 0.5) / max(1.0, win_w * 0.5)
         norm_my = (my - win_h * 0.5) / max(1.0, win_h * 0.5)
 
-        # Human neck turning limits:
-        # Yaw: close to sideways (~72 degrees), but strictly less than 90 degrees sideways
         target_head_yaw = max(-MAX_HEAD_YAW, min(MAX_HEAD_YAW, norm_mx * MAX_HEAD_YAW))
-
-        # Pitch: moving mouse up tilts head up (can look up into sky), moving down tilts down
         if norm_my < 0.0:
             target_head_pitch = -norm_my * MAX_HEAD_PITCH_UP
         else:
             target_head_pitch = -norm_my * MAX_HEAD_PITCH_DOWN
         target_head_pitch = max(-MAX_HEAD_PITCH_DOWN, min(MAX_HEAD_PITCH_UP, target_head_pitch))
 
-        # Smooth neck interpolation
         head_alpha = 1.0 - math.exp(-HEAD_SMOOTH_SPEED * dt)
         head_yaw += (target_head_yaw - head_yaw) * head_alpha
         head_pitch += (target_head_pitch - head_pitch) * head_alpha
 
         # --- BODY TURNING CONTROLS ---
-        # Left Arrow / Right Arrow turns the entire body smoothly
         turn_input = 0.0
         if keys[pygame.K_LEFT]:
             turn_input -= 1.0
@@ -394,12 +508,9 @@ def main() -> None:
             turn_input += 1.0
         cam_yaw += turn_input * TURN_SPEED * dt
 
-        # Total eye gaze direction = Body yaw + Head neck yaw & pitch
         total_yaw = cam_yaw + head_yaw
         total_pitch = head_pitch
 
-        # Up Arrow: Walk/Run forward in the direction Carmelito is facing
-        # Down Arrow: Walk/Run backward
         move_fwd = 0.0
         if keys[pygame.K_UP]:
             move_fwd += 1.0
@@ -411,176 +522,359 @@ def main() -> None:
         is_running = is_moving and space_pressed
         is_walking = is_moving and not space_pressed
 
-        # Target locomotion blend weights
         target_run_weight = 1.0 if is_running else 0.0
         target_walk_weight = 1.0 if is_walking else 0.0
 
-        # Smooth run transition
         if run_weight < target_run_weight:
             run_weight = min(target_run_weight, run_weight + 8.0 * dt)
         elif run_weight > target_run_weight:
             run_weight = max(target_run_weight, run_weight - 4.5 * dt)
 
-        # Smooth walk transition
         if walk_weight < target_walk_weight:
             walk_weight = min(target_walk_weight, walk_weight + 8.0 * dt)
         elif walk_weight > target_walk_weight:
             walk_weight = max(target_walk_weight, walk_weight - 5.0 * dt)
 
-        # Advance stride cadence
         active_loco = max(run_weight, walk_weight)
         if active_loco > 0.001:
             stride_speed = (3.2 * run_weight) + (1.8 * walk_weight * (1.0 - run_weight))
             motion_cycle += dt * max(0.4, stride_speed)
 
-        # Move forward in the direction Carmelito's body is facing
         speed = (RUN_SPEED if is_running else WALK_SPEED) * move_fwd
         cam_x += math.sin(cam_yaw) * speed * dt
         cam_z += math.cos(cam_yaw) * speed * dt
 
-        # Biological head bob during locomotion
         head_bob = math.sin(motion_cycle * 2.0 * math.pi) * (0.04 * run_weight + 0.02 * walk_weight)
         eye_y = head_bob
 
-        # Sync position with network
-        norm_x = (cam_x + 12.0) / 24.0 * 0.8 + 0.1
-        norm_y = (cam_z + 12.0) / 24.0 * 0.8 + 0.1
-        net.update_local_state(norm_x, norm_y, is_running, mouth_open, is_walking=is_walking, rot_y=cam_yaw)
+        # Sync position & posture with network
+        norm_x = max(0.05, min(0.95, (cam_x + 42.0) / 84.0 * 0.9 + 0.05))
+        norm_y = max(0.05, min(0.95, (cam_z + 42.0) / 84.0 * 0.9 + 0.05))
+        net.update_local_state(
+            norm_x,
+            norm_y,
+            is_running,
+            mouth_open,
+            is_walking=is_walking,
+            rot_y=cam_yaw,
+            wx=cam_x,
+            wz=cam_z,
+            head_yaw=head_yaw,
+            head_pitch=head_pitch,
+        )
 
         connected, is_host, my_id, my_color, remote_players = net.get_snapshot()
 
-        # Update remote player positions in 3D space
-        for pid in list(remote_world_pos.keys()):
+        # Update remote player world positions and smooth animation weights
+        for pid in list(remote_states.keys()):
             if pid not in remote_players:
-                remote_world_pos.pop(pid, None)
+                remote_states.pop(pid, None)
 
         remote_alpha = 1.0 - math.exp(-REMOTE_LERP_SPEED * dt)
         for pid, pdata in remote_players.items():
-            tw_x = (pdata["nx"] - 0.1) / 0.8 * 24.0 - 12.0
-            tw_z = (pdata["ny"] - 0.1) / 0.8 * 24.0 - 12.0
-            if pid not in remote_world_pos:
-                remote_world_pos[pid] = [tw_x, tw_z]
+            if pdata["wx"] is not None and pdata["wz"] is not None:
+                tw_x = pdata["wx"]
+                tw_z = pdata["wz"]
             else:
-                remote_world_pos[pid][0] += (tw_x - remote_world_pos[pid][0]) * remote_alpha
-                remote_world_pos[pid][1] += (tw_z - remote_world_pos[pid][1]) * remote_alpha
+                tw_x = (pdata["nx"] - 0.1) / 0.8 * 24.0 - 12.0
+                tw_z = (pdata["ny"] - 0.1) / 0.8 * 24.0 - 12.0
+
+            t_rot_y = pdata.get("rot_y", 0.0)
+            t_head_yaw = pdata.get("head_yaw", 0.0)
+            t_head_pitch = pdata.get("head_pitch", 0.0)
+            t_run = 1.0 if pdata.get("running", False) else 0.0
+            t_walk = 1.0 if pdata.get("walking", False) else 0.0
+
+            if pid not in remote_states:
+                remote_states[pid] = {
+                    "wx": tw_x,
+                    "wz": tw_z,
+                    "rot_y": t_rot_y,
+                    "head_yaw": t_head_yaw,
+                    "head_pitch": t_head_pitch,
+                    "run_weight": t_run,
+                    "walk_weight": t_walk,
+                    "motion_cycle": 0.0,
+                }
+            else:
+                rs = remote_states[pid]
+                rs["wx"] += (tw_x - rs["wx"]) * remote_alpha
+                rs["wz"] += (tw_z - rs["wz"]) * remote_alpha
+                rs["rot_y"] = wrap_angle(rs["rot_y"] + wrap_angle(t_rot_y - rs["rot_y"]) * remote_alpha)
+                rs["head_yaw"] += (t_head_yaw - rs["head_yaw"]) * remote_alpha
+                rs["head_pitch"] += (t_head_pitch - rs["head_pitch"]) * remote_alpha
+                rs["run_weight"] += (t_run - rs["run_weight"]) * min(1.0, 8.0 * dt)
+                rs["walk_weight"] += (t_walk - rs["walk_weight"]) * min(1.0, 8.0 * dt)
+                loco = max(rs["run_weight"], rs["walk_weight"])
+                if loco > 0.001:
+                    stride_spd = (3.2 * rs["run_weight"]) + (1.8 * rs["walk_weight"] * (1.0 - rs["run_weight"]))
+                    rs["motion_cycle"] += dt * max(0.4, stride_spd)
 
         # --- 1. RENDER WHAT CARMELITO IS SEEING THROUGH HIS EYES (MAIN VIEW) ---
         screen.fill(BG_COLOR)
 
         focal = win_w * 0.75
+        hw = win_w * 0.5
+        hh = win_h * 0.5
         cos_yaw = math.cos(total_yaw)
         sin_yaw = math.sin(total_yaw)
         cos_pitch = math.cos(total_pitch)
         sin_pitch = math.sin(total_pitch)
+        near_z = 0.25
+        half_fov_tan = hw / focal
 
-        # 3D GROUND GRID (Perspective grid responding to head yaw & upward tilt)
-        def clip_and_project_line(
-            p1: tuple[float, float, float],
-            p2: tuple[float, float, float],
-        ) -> tuple[tuple[int, int], tuple[int, int]] | None:
-            # Point 1: camera space yaw rotation
-            dx1, dy1, dz1 = p1[0] - cam_x, p1[1] - eye_y, p1[2] - cam_z
-            rx1 = dx1 * cos_yaw - dz1 * sin_yaw
-            rz1 = dx1 * sin_yaw + dz1 * cos_yaw
-            ry1 = dy1
-
-            # Point 1: camera space pitch rotation
-            rx1_p = rx1
-            ry1_p = ry1 * cos_pitch - rz1 * sin_pitch
-            rz1_p = ry1 * sin_pitch + rz1 * cos_pitch
-
-            # Point 2: camera space yaw rotation
-            dx2, dy2, dz2 = p2[0] - cam_x, p2[1] - eye_y, p2[2] - cam_z
-            rx2 = dx2 * cos_yaw - dz2 * sin_yaw
-            rz2 = dx2 * sin_yaw + dz2 * cos_yaw
-            ry2 = dy2
-
-            # Point 2: camera space pitch rotation
-            rx2_p = rx2
-            ry2_p = ry2 * cos_pitch - rz2 * sin_pitch
-            rz2_p = ry2 * sin_pitch + rz2 * cos_pitch
-
-            near_z = 0.25
-            if rz1_p < near_z and rz2_p < near_z:
-                return None
-
-            # Clip line against camera near plane
-            if rz1_p < near_z:
-                t = (near_z - rz1_p) / (rz2_p - rz1_p)
-                rx1_p = rx1_p + t * (rx2_p - rx1_p)
-                ry1_p = ry1_p + t * (ry2_p - ry1_p)
-                rz1_p = near_z
-            elif rz2_p < near_z:
-                t = (near_z - rz2_p) / (rz1_p - rz2_p)
-                rx2_p = rx2_p + t * (rx1_p - rx2_p)
-                ry2_p = ry2_p + t * (ry1_p - ry2_p)
-                rz2_p = near_z
-
-            sx1 = win_w * 0.5 + (rx1_p / rz1_p) * focal
-            sy1 = win_h * 0.5 - (ry1_p / rz1_p) * focal
-            sx2 = win_w * 0.5 + (rx2_p / rz2_p) * focal
-            sy2 = win_h * 0.5 - (ry2_p / rz2_p) * focal
-            return (round(sx1), round(sy1)), (round(sx2), round(sy2))
-
-        # Dynamically center grid around Carmelito for infinite continuous scrolling
-        cx_grid = round(cam_x / GRID_STEP) * GRID_STEP
-        cz_grid = round(cam_z / GRID_STEP) * GRID_STEP
-        gx_min = cx_grid - GRID_EXTENT
-        gx_max = cx_grid + GRID_EXTENT
-        gz_min = cz_grid - GRID_EXTENT
-        gz_max = cz_grid + GRID_EXTENT
-
-        cur_x = gx_min
-        while cur_x <= gx_max:
-            seg = clip_and_project_line((cur_x, GROUND_Y, gz_min), (cur_x, GROUND_Y, gz_max))
-            if seg:
-                pygame.draw.line(screen, GROUND_GRID_COLOR, seg[0], seg[1], 1)
-            cur_x += GRID_STEP
-
-        cur_z = gz_min
-        while cur_z <= gz_max:
-            seg = clip_and_project_line((gx_min, GROUND_Y, cur_z), (gx_max, GROUND_Y, cur_z))
-            if seg:
-                pygame.draw.line(screen, GROUND_GRID_COLOR, seg[0], seg[1], 1)
-            cur_z += GRID_STEP
-
-        # RENDER THE AI COMPANION IN CARMELITO'S 3D FIELD OF VIEW
-        for pid, pdata in remote_players.items():
-            if pid not in remote_world_pos:
-                continue
-            rwx, rwz = remote_world_pos[pid]
-            # Floating companion directly ahead at eye level
-            rwy = 0.0 + 0.12 * math.sin(anim_time * 2.8)
-
-            dx = rwx - cam_x
-            dz = rwz - cam_z
-            dy = rwy - eye_y
-
-            # 3D Camera yaw rotation
+        def to_cam(wx: float, wy: float, wz: float) -> tuple[float, float, float]:
+            dx = wx - cam_x
+            dy = wy - eye_y
+            dz = wz - cam_z
             rx = dx * cos_yaw - dz * sin_yaw
             rz = dx * sin_yaw + dz * cos_yaw
-            ry = dy
+            return (rx, dy * cos_pitch - rz * sin_pitch, dy * sin_pitch + rz * cos_pitch)
 
-            # 3D Camera pitch rotation
-            rx_p = rx
-            ry_p = ry * cos_pitch - rz * sin_pitch
-            rz_p = ry * sin_pitch + rz * cos_pitch
+        # 1a. Seamless green grass ground below the true perspective horizon
+        # Using screen-bounded fill avoids large-coordinate polygon rasterizer overflow when looking down
+        horizon_y = max(0, min(win_h, round(hh + math.tan(total_pitch) * focal)))
+        if horizon_y < win_h:
+            screen.fill(GRASS_GROUND_COLOR, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
 
-            # If the AI companion is in front of Carmelito's eyes (rz_p > 0.25)
-            if rz_p > 0.25:
-                sx = win_w * 0.5 + (rx_p / rz_p) * focal
-                sy = win_h * 0.5 - (ry_p / rz_p) * focal
+        # 1b. Render 3D grass blades from Carmelito's feet all the way far into the distance
+        base_sway = math.sin(anim_time * 2.2) * 0.045
+        blades: list[tuple[float, float, float, tuple[float, float, float], int, float, float]] = []
+
+        for step, min_d, max_d, tufts, b_scale, sway_amp in GRASS_RINGS:
+            ix_c = round(cam_x / step)
+            iz_c = round(cam_z / step)
+            half_cells = int(max_d / step) + 1
+            min_d2 = min_d * min_d
+            max_d2 = max_d * max_d
+            step_salt = int(step) * 2654435761
+
+            for iz in range(iz_c - half_cells, iz_c + half_cells + 1):
+                cz = (iz + 0.5) * step
+                dz_c = cz - cam_z
+                for ix in range(ix_c - half_cells, ix_c + half_cells + 1):
+                    cx = (ix + 0.5) * step
+                    dx_c = cx - cam_x
+                    d2 = dx_c * dx_c + dz_c * dz_c
+                    if d2 < min_d2 or d2 > max_d2:
+                        continue
+
+                    c_cam = to_cam(cx, GROUND_Y, cz)
+                    if c_cam[2] < near_z - step:
+                        continue
+                    if abs(c_cam[0]) > max(near_z, c_cam[2]) * half_fov_tan + step * 1.5:
+                        continue
+
+                    for ti in range(tufts):
+                        th = ((ix * 374761393) ^ (iz * 668265263) ^ (ti * 1442695041) ^ step_salt) & 0xFFFF
+                        fx = ((th & 255) / 255.0) * 0.9 + 0.05
+                        fz = (((th >> 8) & 255) / 255.0) * 0.9 + 0.05
+                        bx = (ix + fx) * step
+                        bz = (iz + fz) * step
+                        b_cam = to_cam(bx, GROUND_Y, bz)
+                        if b_cam[2] > near_z and abs(b_cam[0]) <= b_cam[2] * half_fov_tan + 0.5:
+                            blades.append((b_cam[2], bx, bz, b_cam, th, b_scale, sway_amp))
+
+        blades.sort(key=lambda item: item[0], reverse=True)
+        for bz_cam, bx, bz, b_cam, th, b_scale, sway_amp in blades:
+            height = (0.20 + ((th >> 4) & 7) * 0.018) * b_scale
+            local_sway = (base_sway + math.sin(anim_time * 2.6 + bx * 0.9 + bz * 0.7) * 0.03) * sway_amp
+            t_cam = to_cam(bx + local_sway, GROUND_Y + height, bz)
+            if t_cam[2] <= near_z:
+                continue
+
+            bsx = round(hw + (b_cam[0] / b_cam[2]) * focal)
+            bsy = round(hh - (b_cam[1] / b_cam[2]) * focal)
+            tsx = round(hw + (t_cam[0] / t_cam[2]) * focal)
+            tsy = round(hh - (t_cam[1] / t_cam[2]) * focal)
+
+            if bz_cam < 50.0:
+                blade_col = GRASS_BLADE_NEAR_DARK if (th & 1) else GRASS_BLADE_NEAR_LIGHT
+            else:
+                blade_col = GRASS_BLADE_FAR_DARK if (th & 1) else GRASS_BLADE_FAR_LIGHT
+
+            width = 2 if bz_cam < 12.0 else 1
+            pygame.draw.line(screen, blade_col, (bsx, bsy), (tsx, tsy), width)
+
+            if bz_cam < 55.0:
+                spread = 0.095 * b_scale
+                l_cam = to_cam(bx - spread + local_sway * 0.8, GROUND_Y + height * 0.78, bz)
+                r_cam = to_cam(bx + spread + local_sway * 0.8, GROUND_Y + height * 0.75, bz)
+                if l_cam[2] > near_z:
+                    lsx = round(hw + (l_cam[0] / l_cam[2]) * focal)
+                    lsy = round(hh - (l_cam[1] / l_cam[2]) * focal)
+                    pygame.draw.line(screen, blade_col, (bsx, bsy), (lsx, lsy), width)
+                if r_cam[2] > near_z:
+                    rsx = round(hw + (r_cam[0] / r_cam[2]) * focal)
+                    rsy = round(hh - (r_cam[1] / r_cam[2]) * focal)
+                    pygame.draw.line(screen, blade_col, (bsx, bsy), (rsx, rsy), width)
+
+        # 1c. RENDER AI / REMOTE PLAYERS IN CARMELITO'S 3D FIELD OF VIEW (sorted far-to-near)
+        visible_remotes: list[tuple[float, int, dict[str, Any], dict[str, float], float, float, float]] = []
+        for pid, pdata in remote_players.items():
+            if pid not in remote_states:
+                continue
+            rs = remote_states[pid]
+            rwx, rwz = rs["wx"], rs["wz"]
+            is_carmelito = pdata.get("is_carmelito", True)
+            rwy = GROUND_Y if is_carmelito else (0.0 + 0.12 * math.sin(anim_time * 2.8))
+
+            rx_p, ry_p, rz_p = to_cam(rwx, rwy, rwz)
+            min_z = 0.65 if is_carmelito else 0.25
+            if rz_p > min_z:
+                visible_remotes.append((rz_p, pid, pdata, rs, rx_p, ry_p, rz_p))
+
+        visible_remotes.sort(key=lambda item: item[0], reverse=True)
+        for _, pid, pdata, rs, rx_p, ry_p, rz_p in visible_remotes:
+            sx = hw + (rx_p / rz_p) * focal
+            sy = hh - (ry_p / rz_p) * focal
+
+            if pdata.get("is_carmelito", True):
+                # Soft shadow on the grass right beneath the AI Carmelito's feet
+                sh_w = max(8, round((1.15 / rz_p) * focal))
+                sh_h = max(3, round((0.36 / rz_p) * focal))
+                shadow_rect = pygame.Rect(round(sx - sh_w * 0.5), round(sy - sh_h * 0.4), sh_w, sh_h)
+                pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, shadow_rect)
+
+                model_scale = (CARMELITO_WORLD_SCALE / rz_p) * focal
+                rel_rot_y = math.pi - (rs["rot_y"] - total_yaw)
+                rel_rot_x = max(-0.4, min(0.55, 0.04 - total_pitch))
+
+                model_3d.render(
+                    surface=screen,
+                    screen_pos=(sx, sy),
+                    scale=model_scale,
+                    rot_y=rel_rot_y,
+                    rot_x=rel_rot_x,
+                    head_yaw=rs["head_yaw"],
+                    head_pitch=rs["head_pitch"],
+                    mouth_open=pdata.get("mouth", False),
+                    run_cycle=rs["motion_cycle"],
+                    is_running=pdata.get("running", False),
+                    run_weight=rs["run_weight"],
+                    is_walking=pdata.get("walking", False),
+                    walk_weight=rs["walk_weight"],
+                )
+
+                # Floating nameplates above Carmelito's comb:
+                # 1) Chicken's Chinese name ("卡梅利多")
+                # 2) AI / player's name (e.g. "Antigravity (AI)") stacked right above it
+                label_cam = to_cam(rs["wx"], GROUND_Y + 2.38 * CARMELITO_WORLD_SCALE, rs["wz"])
+                if label_cam[2] > near_z:
+                    lsx = round(hw + (label_cam[0] / label_cam[2]) * focal)
+                    lsy = round(hh - (label_cam[1] / label_cam[2]) * focal)
+                    raw_px = max(13, min(30, round((0.46 / label_cam[2]) * focal)))
+                    bucket_px = max(12, min(30, (raw_px // 2) * 2))
+                    chick_text = pdata.get("chick_name") or CHICK_NAME
+                    chick_badge = get_nameplate_surface(chick_text, bucket_px)
+                    chick_y = lsy - chick_badge.get_height() // 2
+                    screen.blit(chick_badge, (lsx - chick_badge.get_width() // 2, chick_y))
+
+                    player_name = pdata.get("name")
+                    if player_name:
+                        name_px = max(10, min(24, ((round(bucket_px * 0.78)) // 2) * 2))
+                        name_badge = get_nameplate_surface(
+                            str(player_name),
+                            name_px,
+                            text_color=(45, 95, 145),
+                            border_color=(175, 210, 240),
+                        )
+                        gap = max(3, bucket_px // 5)
+                        name_y = chick_y - gap - name_badge.get_height()
+                        screen.blit(name_badge, (lsx - name_badge.get_width() // 2, name_y))
+            else:
                 radius = max(6, int((0.45 / rz_p) * focal))
-
                 color = pdata.get("color", REMOTE_DOT_COLOR)
                 pygame.draw.circle(screen, color, (round(sx), round(sy)), radius)
                 pygame.draw.circle(screen, (220, 225, 235), (round(sx), round(sy)), radius + 1, max(1, radius // 8))
 
+        # 1d. RENDER CARMELITO'S OWN FEET WHEN LOOKING DOWN
+        if head_pitch < -0.35:
+            cos_body = math.cos(cam_yaw)
+            sin_body = math.sin(cam_yaw)
+
+            def body_to_cam(bx: float, by: float, bz: float) -> tuple[float, float, float]:
+                wx = cam_x + bx * cos_body + bz * sin_body
+                wz = cam_z - bx * sin_body + bz * cos_body
+                return to_cam(wx, by, wz)
+
+            feet_faces, foot_shadows = model_3d.build_first_person_feet_faces(
+                ground_y=GROUND_Y,
+                run_cycle=motion_cycle,
+                run_weight=run_weight,
+                walk_weight=walk_weight,
+            )
+
+            # Soft grass shadows under each foot
+            for sbx, sby, sbz in foot_shadows:
+                scam = body_to_cam(sbx, sby, sbz)
+                if scam[2] > near_z:
+                    ssx = hw + (scam[0] / scam[2]) * focal
+                    ssy = hh - (scam[1] / scam[2]) * focal
+                    sh_w = max(10, round((0.68 / scam[2]) * focal))
+                    sh_h = max(4, round((0.44 / scam[2]) * focal))
+                    pygame.draw.ellipse(
+                        screen,
+                        GRASS_SHADOW_COLOR,
+                        pygame.Rect(round(ssx - sh_w * 0.5), round(ssy - sh_h * 0.5), sh_w, sh_h),
+                    )
+
+            feet_projected: list[tuple[float, list[tuple[int, int]], tuple[int, int, int], bool]] = []
+            for quad_verts, base_col, has_contour in feet_faces:
+                cam_verts = [body_to_cam(*v) for v in quad_verts]
+                if any(cv[2] <= near_z for cv in cam_verts):
+                    continue
+
+                v0, v1, v2 = cam_verts[0], cam_verts[1], cam_verts[2]
+                e1 = (v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2])
+                e2 = (v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2])
+                # Note: cross(e1, e2) follows model outward normal in right-handed world space (x=left, y=up, z=fwd),
+                # which maps to -cam_normal when cam_x is flipped right; check dot toward camera origin (0,0,0):
+                # Since body_to_cam preserves handedness? Wait: rx = dx*cos - dz*sin, rz = dx*sin + dz*cos -> det([cos,-sin;sin,cos])=+1!
+                # And pitch rotation around X preserves det=+1! So outward normal in cam space is -cross(e1, e2) or +cross(e1, e2)?
+                # In create_cube_grid (+Z front quad: x0<x1, y0<y1 -> (x0,y0),(x1,y0),(x1,y1)): e1=(+x,0,0), e2=(+x,+y,0) -> cross=(0,0,+z)!
+                # So cross(e1, e2) points outward in right-handed space! Toward eye at (0,0,0) means dot(normal, -v0) > 0.
+                nx = e1[1] * e2[2] - e1[2] * e2[1]
+                ny = e1[2] * e2[0] - e1[0] * e2[2]
+                nz = e1[0] * e2[1] - e1[1] * e2[0]
+                n_mag = math.sqrt(nx * nx + ny * ny + nz * nz)
+                if n_mag < 1e-6:
+                    continue
+                nx /= n_mag
+                ny /= n_mag
+                nz /= n_mag
+
+                # Face is visible if its outward normal points toward the eye at (0, 0, 0)
+                to_eye_dot = -(nx * v0[0] + ny * v0[1] + nz * v0[2])
+                if to_eye_dot <= 0.0:
+                    continue
+
+                v_mag = math.sqrt(v0[0] * v0[0] + v0[1] * v0[1] + v0[2] * v0[2])
+                view_cos = to_eye_dot / max(1e-4, v_mag)
+
+                diffuse = max(0.0, nx * model_3d.light_dir[0] + ny * model_3d.light_dir[1] + nz * model_3d.light_dir[2])
+                brightness = 0.76 + 0.24 * diffuse
+                face_col = (
+                    min(255, int(base_col[0] * brightness)),
+                    min(255, int(base_col[1] * brightness)),
+                    min(255, int(base_col[2] * brightness)),
+                )
+
+                pts = [
+                    (round(hw + (cv[0] / cv[2]) * focal), round(hh - (cv[1] / cv[2]) * focal))
+                    for cv in cam_verts
+                ]
+                avg_z = sum(cv[2] for cv in cam_verts) / len(cam_verts)
+                feet_projected.append((avg_z, pts, face_col, has_contour and view_cos < 0.34))
+
+            feet_projected.sort(key=lambda item: item[0], reverse=True)
+            for _, pts, f_col, draw_ink in feet_projected:
+                if len(pts) >= 3:
+                    pygame.draw.polygon(screen, f_col, pts)
+                    if draw_ink:
+                        pygame.draw.polygon(screen, COLOR_INK_LINE, pts, 1)
+
         # --- 2. TOP-LEFT CORNER PICTURE: CARMELITO'S LIVE 3D BODY MODEL ---
-        # Framed picture in the top left corner:
-        # - Body stays facing forward (rot_y = 0.0) so you cannot see his body turn.
-        # - Head turns and tilts (head_yaw, head_pitch) following the mouse pointer.
-        # - Legs and arms walk & run with smooth animated strides and pumps.
         pic_rect = pygame.Rect(16, 16, 180, 200)
         shadow_rect = pygame.Rect(18, 18, 180, 200)
         pygame.draw.rect(screen, (232, 236, 242), shadow_rect, border_radius=16)
