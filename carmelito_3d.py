@@ -1,0 +1,1032 @@
+"""
+carmelito_3d.py
+Faithful real-time 3D Polygonal Mesh Renderer for Carmelito (å¡æ¢å©å¤).
+Modeled meticulously to match the official illustrations from Christian Jolibois & Christian Heinrich:
+1. Expressive round head with prominent red 4-scalloped crown crest.
+2. Large white cartoon eyes with cute, small/medium dark pupils (not oversized).
+3. Wide, short, blunt, rounded, bulbous duck/banana beak curving downward with a warm smile crease.
+4. SMOOTH LOCOMOTION BLENDING:
+   - Standing: Relaxed arms hanging downward along torso, legs straight.
+   - Walking: Gentle stroll stride with relaxed gentle arm pendulum swing.
+   - Running: Athletic 90-degree bent running arm pump, deep knee bending/unbending strides, tilted feet.
+   - Smooth interpolation between standing, walking, and running without snapping!
+5. Slender yellow chicken legs permanently rooted inside lower body drumstick cuffs (never detach).
+6. Storybook ink contour linework to match the hand-drawn picture-book aesthetic.
+"""
+
+from __future__ import annotations
+import math
+import pygame
+
+
+# Authentic Storybook Palette sampled directly from the illustrations:
+COLOR_BODY_PINK = (218, 96, 108)        # Carmelito's strawberry-magenta pink
+COLOR_COMB_RED = (200, 48, 42)          # Deep rooster red comb
+COLOR_BEAK_YELLOW = (238, 185, 65)      # Warm storybook beak yellow
+COLOR_MOUTH_DARK = (88, 20, 25)         # Deep mouth interior cavity
+COLOR_EYE_WHITE = (255, 255, 255)       # Bright cartoon eye white
+COLOR_PUPIL_DARK = (20, 12, 14)         # Rich dark cartoon pupil
+COLOR_LEG_YELLOW = (225, 172, 52)       # Chicken leg yellow
+COLOR_INK_LINE = (68, 24, 28)           # Hand-drawn ink outline
+
+
+def create_cube_grid(
+    center: tuple[float, float, float],
+    size: tuple[float, float, float],
+    subdivisions: tuple[int, int, int],
+    base_color: tuple[int, int, int],
+    taper_y: float = 0.0,
+    taper_z: float = 0.0,
+    roundness: float = 0.0,
+    draw_contour: bool = True,
+) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
+    """
+    Creates a polygonal 3D mesh block with subdivision, tapering, and spherical blending.
+    Returns a list of faces: (vertex_list, fill_color, draw_contour).
+    """
+    cx, cy, cz = center
+    sx, sy, sz = size
+    div_x, div_y, div_z = subdivisions
+
+    faces = []
+
+    def get_vertex(gx: float, gy: float, gz: float) -> tuple[float, float, float]:
+        t_y = (gy + 1.0) * 0.5  # 0 at bottom, 1 at top
+        taper_x = 1.0 - taper_y * (1.0 - t_y)
+
+        t_z = (gz + 1.0) * 0.5  # 0 at back, 1 at front
+        taper_tip = 1.0 - taper_z * t_z
+
+        vx = gx * (sx * 0.5) * taper_x * taper_tip
+        vy = gy * (sy * 0.5) * taper_tip
+        vz = gz * (sz * 0.5)
+
+        if roundness > 0:
+            length = math.sqrt(vx * vx + vy * vy + vz * vz)
+            if length > 1e-4:
+                max_rad = max(sx, sy, sz) * 0.5
+                rx = (vx / length) * max_rad
+                ry = (vy / length) * max_rad
+                rz = (vz / length) * max_rad
+                vx = vx * (1.0 - roundness) + rx * roundness
+                vy = vy * (1.0 - roundness) + ry * roundness
+                vz = vz * (1.0 - roundness) + rz * roundness
+
+        return (cx + vx, cy + vy, cz + vz)
+
+    # 1. Front (+Z) & Back (-Z)
+    for iz in (1, -1):
+        gz = float(iz)
+        for iy in range(div_y):
+            y0 = -1.0 + 2.0 * iy / div_y
+            y1 = -1.0 + 2.0 * (iy + 1) / div_y
+            for ix in range(div_x):
+                x0 = -1.0 + 2.0 * ix / div_x
+                x1 = -1.0 + 2.0 * (ix + 1) / div_x
+                if iz > 0:
+                    quad = [get_vertex(x0, y0, gz), get_vertex(x1, y0, gz), get_vertex(x1, y1, gz), get_vertex(x0, y1, gz)]
+                else:
+                    quad = [get_vertex(x1, y0, gz), get_vertex(x0, y0, gz), get_vertex(x0, y1, gz), get_vertex(x1, y1, gz)]
+                faces.append((quad, base_color, draw_contour))
+
+    # 2. Left (-X) & Right (+X)
+    for ix in (1, -1):
+        gx = float(ix)
+        for iy in range(div_y):
+            y0 = -1.0 + 2.0 * iy / div_y
+            y1 = -1.0 + 2.0 * (iy + 1) / div_y
+            for iz in range(div_z):
+                z0 = -1.0 + 2.0 * iz / div_z
+                z1 = -1.0 + 2.0 * (iz + 1) / div_z
+                if ix > 0:
+                    quad = [get_vertex(gx, y0, z1), get_vertex(gx, y0, z0), get_vertex(gx, y1, z0), get_vertex(gx, y1, z1)]
+                else:
+                    quad = [get_vertex(gx, y0, z0), get_vertex(gx, y0, z1), get_vertex(gx, y1, z1), get_vertex(gx, y1, z0)]
+                faces.append((quad, base_color, draw_contour))
+
+    # 3. Top (+Y) & Bottom (-Y)
+    for iy in (1, -1):
+        gy = float(iy)
+        for iz in range(div_z):
+            z0 = -1.0 + 2.0 * iz / div_z
+            z1 = -1.0 + 2.0 * (iz + 1) / div_z
+            for ix in range(div_x):
+                x0 = -1.0 + 2.0 * ix / div_x
+                x1 = -1.0 + 2.0 * (ix + 1) / div_x
+                if iy > 0:
+                    quad = [get_vertex(x0, gy, z1), get_vertex(x1, gy, z1), get_vertex(x1, gy, z0), get_vertex(x0, gy, z0)]
+                else:
+                    quad = [get_vertex(x0, gy, z0), get_vertex(x1, gy, z0), get_vertex(x1, gy, z1), get_vertex(x0, gy, z1)]
+                faces.append((quad, base_color, draw_contour))
+
+    return faces
+
+
+def create_oriented_box(
+    p0: tuple[float, float, float],
+    p1: tuple[float, float, float],
+    thickness: tuple[float, float],
+    base_color: tuple[int, int, int],
+    subdiv_length: int = 2,
+    draw_contour: bool = True,
+) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
+    """
+    Creates an oriented 3D box segment running between point p0 and point p1.
+    thickness is (width_u, width_v).
+    """
+    x0, y0, z0 = p0
+    x1, y1, z1 = p1
+    dx = x1 - x0
+    dy = y1 - y0
+    dz = z1 - z0
+    length = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if length < 1e-4:
+        return []
+
+    # Axis along segment:
+    ax = (dx / length, dy / length, dz / length)
+
+    # Find perpendicular vector:
+    ref = (0.0, 1.0, 0.0) if abs(ax[1]) < 0.9 else (1.0, 0.0, 0.0)
+    p1x = ax[1] * ref[2] - ax[2] * ref[1]
+    p1y = ax[2] * ref[0] - ax[0] * ref[2]
+    p1z = ax[0] * ref[1] - ax[1] * ref[0]
+    m1 = math.sqrt(p1x * p1x + p1y * p1y + p1z * p1z)
+    u = (p1x / m1, p1y / m1, p1z / m1)
+
+    v = (
+        ax[1] * u[2] - ax[2] * u[1],
+        ax[2] * u[0] - ax[0] * u[2],
+        ax[0] * u[1] - ax[1] * u[0],
+    )
+
+    w_u = thickness[0] * 0.5
+    w_v = thickness[1] * 0.5
+
+    faces = []
+    corners = [(1, 1), (-1, 1), (-1, -1), (1, -1)]
+
+    for step in range(subdiv_length):
+        t_a = step / subdiv_length
+        t_b = (step + 1) / subdiv_length
+
+        cA = (x0 + dx * t_a, y0 + dy * t_a, z0 + dz * t_a)
+        cB = (x0 + dx * t_b, y0 + dy * t_b, z0 + dz * t_b)
+
+        pts_A = [
+            (cA[0] + cu * w_u * u[0] + cv * w_v * v[0],
+             cA[1] + cu * w_u * u[1] + cv * w_v * v[1],
+             cA[2] + cu * w_u * u[2] + cv * w_v * v[2])
+            for cu, cv in corners
+        ]
+        pts_B = [
+            (cB[0] + cu * w_u * u[0] + cv * w_v * v[0],
+             cB[1] + cu * w_u * u[1] + cv * w_v * v[1],
+             cB[2] + cu * w_u * u[2] + cv * w_v * v[2])
+            for cu, cv in corners
+        ]
+
+        for i in range(4):
+            nxt = (i + 1) % 4
+            quad = [pts_A[i], pts_A[nxt], pts_B[nxt], pts_B[i]]
+            faces.append((quad, base_color, draw_contour))
+
+    quad_start = [
+        (x0 + cu * w_u * u[0] + cv * w_v * v[0],
+         y0 + cu * w_u * u[1] + cv * w_v * v[1],
+         z0 + cu * w_u * u[2] + cv * w_v * v[2])
+        for cu, cv in [(1, -1), (-1, -1), (-1, 1), (1, 1)]
+    ]
+    faces.append((quad_start, base_color, draw_contour))
+
+    quad_end = [
+        (x1 + cu * w_u * u[0] + cv * w_v * v[0],
+         y1 + cu * w_u * u[1] + cv * w_v * v[1],
+         z1 + cu * w_u * u[2] + cv * w_v * v[2])
+        for cu, cv in [(1, 1), (-1, 1), (-1, -1), (1, -1)]
+    ]
+    faces.append((quad_end, base_color, draw_contour))
+
+    return faces
+
+
+def lerp_vec3(a: tuple[float, float, float], b: tuple[float, float, float], t: float) -> tuple[float, float, float]:
+    return (
+        a[0] + (b[0] - a[0]) * t,
+        a[1] + (b[1] - a[1]) * t,
+        a[2] + (b[2] - a[2]) * t,
+    )
+
+
+class Carmelito3D:
+    def __init__(self) -> None:
+        self.light_dir = self._normalize((0.35, 0.85, -0.4))
+
+    @staticmethod
+    def _normalize(v: tuple[float, float, float]) -> tuple[float, float, float]:
+        mag = math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+        if mag < 1e-6:
+            return (0.0, 1.0, 0.0)
+        return (v[0] / mag, v[1] / mag, v[2] / mag)
+
+    @staticmethod
+    def _cross(a: tuple[float, float, float], b: tuple[float, float, float]) -> tuple[float, float, float]:
+        return (
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        )
+
+    @staticmethod
+    def _dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
+        return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+    def build_model_faces(
+        self,
+        mouth_open: bool = False,
+        run_cycle: float = 0.0,
+        is_running: bool = False,
+        run_weight: float | None = None,
+        is_walking: bool = False,
+        walk_weight: float = 0.0,
+        head_yaw: float = 0.0,
+        head_pitch: float = 0.0,
+    ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
+        """
+        Builds Carmelito 3D model with 100% faithful storybook geometry:
+        - Slender pear chick body (trim, upright, NOT fat)
+        - Big cartoon eyes with cute, small/medium dark pupils (not oversized)
+        - Wide, short, blunt, rounded banana beak
+        - DISTINCT WALKING & RUNNING ANIMATIONS:
+          * Walking: Natural relaxed stride, gentle arm pendulum swing, mild knee flex.
+          * Running: Athletic sprint with 90° bent elbow pump, high knee bend and push-off.
+          * Standing: Fully relaxed arms and straight posture.
+        - 4-lobe red crown comb.
+        """
+        if run_weight is None:
+            rw = 1.0 if is_running else 0.0
+        else:
+            rw = max(0.0, min(1.0, run_weight))
+
+        ww = max(0.0, min(1.0, walk_weight))
+        # Effective locomotion weights:
+        loco_weight = max(rw, ww)
+
+        all_faces = []
+        head_faces = []
+
+        # Running has higher bob and faster/larger swing; walking has softer cadence
+        run_swing = math.sin(run_cycle * 2.0 * math.pi)
+        run_bob = abs(math.sin(run_cycle * 2.0 * math.pi)) * 0.09
+
+        walk_swing = math.sin(run_cycle * 2.0 * math.pi)
+        walk_bob = abs(math.sin(run_cycle * 2.0 * math.pi)) * 0.04
+
+        # Blended bob
+        bob_y = run_bob * rw + walk_bob * (ww * (1.0 - rw))
+
+        # --- 1. HEAD & NECK (Trim, cute rounded head with smooth neck) ---
+        head_center_y = 1.56 + bob_y
+        head = create_cube_grid(
+            center=(0.0, head_center_y, 0.0),
+            size=(0.58, 0.58, 0.58),
+            subdivisions=(7, 6, 6),
+            base_color=COLOR_BODY_PINK,
+            taper_y=0.15,
+            roundness=0.76,
+            draw_contour=True,
+        )
+        head_faces.extend(head)
+
+        # Cheeks:
+        for side in (-1, 1):
+            cheek = create_cube_grid(
+                center=(side * 0.20, head_center_y - 0.10, 0.10),
+                size=(0.20, 0.18, 0.20),
+                subdivisions=(3, 3, 3),
+                base_color=COLOR_BODY_PINK,
+                roundness=0.75,
+                draw_contour=False,
+            )
+            head_faces.extend(cheek)
+
+        # Smooth neck connecting head to torso:
+        neck = create_cube_grid(
+            center=(0.0, head_center_y - 0.28, -0.02),
+            size=(0.42, 0.26, 0.42),
+            subdivisions=(5, 3, 5),
+            base_color=COLOR_BODY_PINK,
+            roundness=0.6,
+            draw_contour=False,
+        )
+        head_faces.extend(neck)
+
+        # --- 2. COMB / CREST (Carmelito's distinctive 4-lobed red rooster comb) ---
+        comb_y = head_center_y + 0.29
+        lobe_data = [
+            ((0.0, 0.12, 0.10), (0.13, 0.30, 0.16), (2, 4, 3)),   # Lobe 1 (tall front)
+            ((0.0, 0.08, -0.01), (0.13, 0.28, 0.16), (2, 4, 3)),  # Lobe 2
+            ((0.0, 0.03, -0.12), (0.12, 0.24, 0.15), (2, 3, 3)),  # Lobe 3
+            ((0.0, -0.04, -0.21), (0.11, 0.18, 0.13), (2, 3, 3)), # Lobe 4 (back small)
+        ]
+        for (dx, dy, dz), (lsx, lsy, lsz), ldiv in lobe_data:
+            lobe = create_cube_grid(
+                center=(dx, comb_y + dy, dz),
+                size=(lsx, lsy, lsz),
+                subdivisions=ldiv,
+                base_color=COLOR_COMB_RED,
+                taper_y=-0.2,
+                roundness=0.65,
+                draw_contour=True,
+            )
+            head_faces.extend(lobe)
+
+        # --- 3. EYES & PUPILS (Big white eyes with cute, small/medium dark pupils) ---
+        eye_y = head_center_y + 0.11
+        for eye_side in (-1, 1):
+            ex = eye_side * 0.13
+            # White eye oval
+            eye_white = create_cube_grid(
+                center=(ex, eye_y, 0.29),
+                size=(0.20, 0.26, 0.12),
+                subdivisions=(4, 5, 2),
+                base_color=COLOR_EYE_WHITE,
+                roundness=0.8,
+                draw_contour=True,
+            )
+            head_faces.extend(eye_white)
+
+            # Cute, small/medium dark pupil (properly proportioned like the illustrations)
+            pupil = create_cube_grid(
+                center=(ex + eye_side * 0.012, eye_y - 0.01, 0.36),
+                size=(0.065, 0.085, 0.03),
+                subdivisions=(2, 2, 1),
+                base_color=COLOR_PUPIL_DARK,
+                roundness=0.6,
+                draw_contour=False,
+            )
+            head_faces.extend(pupil)
+
+        # --- 4. BEAK (WIDER & SHORTER, BLUNT, BULBOUS BANANA BEAK) ---
+        beak_base_y = head_center_y - 0.18
+
+        # Beak Root (wide, arched base below eyes)
+        beak_root = create_cube_grid(
+            center=(0.0, beak_base_y + 0.04, 0.28),
+            size=(0.40, 0.18, 0.16),
+            subdivisions=(5, 3, 3),
+            base_color=COLOR_BEAK_YELLOW,
+            taper_y=0.10,
+            roundness=0.60,
+            draw_contour=True,
+        )
+        head_faces.extend(beak_root)
+
+        # Beak Mid-Bridge (wide, short rounded transition)
+        beak_mid = create_cube_grid(
+            center=(0.0, beak_base_y + 0.01, 0.38),
+            size=(0.38, 0.18, 0.16),
+            subdivisions=(5, 3, 3),
+            base_color=COLOR_BEAK_YELLOW,
+            taper_y=0.10,
+            roundness=0.70,
+            draw_contour=True,
+        )
+        head_faces.extend(beak_mid)
+
+        # Beak Tip (BLUNT, WIDE, SHORT CHUBBY BULB - NOT POINTY!)
+        beak_bulb = create_cube_grid(
+            center=(0.0, beak_base_y - 0.04, 0.46),
+            size=(0.36, 0.18, 0.16),
+            subdivisions=(5, 4, 3),
+            base_color=COLOR_BEAK_YELLOW,
+            taper_z=0.0,
+            roundness=0.85,
+            draw_contour=True,
+        )
+        head_faces.extend(beak_bulb)
+
+        if mouth_open:
+            lower_beak = create_cube_grid(
+                center=(0.0, beak_base_y - 0.13, 0.35),
+                size=(0.32, 0.12, 0.18),
+                subdivisions=(4, 2, 3),
+                base_color=COLOR_BEAK_YELLOW,
+                taper_y=0.15,
+                roundness=0.65,
+                draw_contour=True,
+            )
+            head_faces.extend(lower_beak)
+
+            throat = create_cube_grid(
+                center=(0.0, beak_base_y - 0.05, 0.28),
+                size=(0.24, 0.09, 0.10),
+                subdivisions=(2, 2, 2),
+                base_color=COLOR_MOUTH_DARK,
+                roundness=0.3,
+                draw_contour=False,
+            )
+            head_faces.extend(throat)
+        else:
+            lower_beak = create_cube_grid(
+                center=(0.0, beak_base_y - 0.04, 0.34),
+                size=(0.34, 0.11, 0.18),
+                subdivisions=(4, 2, 3),
+                base_color=COLOR_BEAK_YELLOW,
+                taper_y=0.15,
+                roundness=0.65,
+                draw_contour=True,
+            )
+            head_faces.extend(lower_beak)
+
+        # Rotate head faces on neck pivot when Carmelito turns or tilts his head
+        if abs(head_yaw) > 1e-4 or abs(head_pitch) > 1e-4:
+            cos_hy = math.cos(head_yaw)
+            sin_hy = math.sin(head_yaw)
+            cos_hp = math.cos(head_pitch)
+            sin_hp = math.sin(head_pitch)
+            pivot_y = head_center_y - 0.28
+
+            for quad_verts, base_col, has_contour in head_faces:
+                r_verts = []
+                for vx, vy, vz in quad_verts:
+                    dx = vx
+                    dy = vy - pivot_y
+                    dz = vz
+                    # Yaw around Y axis
+                    rx1 = dx * cos_hy + dz * sin_hy
+                    ry1 = dy
+                    rz1 = -dx * sin_hy + dz * cos_hy
+                    # Pitch around X axis (pitch > 0 tilts head up)
+                    rx2 = rx1
+                    ry2 = ry1 * cos_hp - rz1 * sin_hp
+                    rz2 = ry1 * sin_hp + rz1 * cos_hp
+                    r_verts.append((rx2, ry2 + pivot_y, rz2))
+                all_faces.append((r_verts, base_col, has_contour))
+        else:
+            all_faces.extend(head_faces)
+
+        # --- 5. BODY (TRIM, SLENDER PEAR-SHAPED CHICK BODY - NOT FAT) ---
+        body_center_y = 0.88 + bob_y
+        body = create_cube_grid(
+            center=(0.0, body_center_y, -0.02),
+            size=(0.54, 0.74, 0.52),
+            subdivisions=(7, 6, 6),
+            base_color=COLOR_BODY_PINK,
+            taper_y=-0.22,
+            roundness=0.75,
+            draw_contour=True,
+        )
+        all_faces.extend(body)
+
+        belly = create_cube_grid(
+            center=(0.0, body_center_y - 0.06, 0.12),
+            size=(0.40, 0.40, 0.18),
+            subdivisions=(4, 4, 3),
+            base_color=COLOR_BODY_PINK,
+            roundness=0.75,
+            draw_contour=False,
+        )
+        all_faces.extend(belly)
+
+        tail_data = [
+            ((0.0, 0.16, -0.32), (0.13, 0.28, 0.15)),
+            ((0.0, 0.05, -0.36), (0.14, 0.22, 0.15)),
+            ((0.0, -0.05, -0.32), (0.13, 0.17, 0.13)),
+        ]
+        for (tdx, tdy, tdz), (tsx, tsy, tsz) in tail_data:
+            tail_feat = create_cube_grid(
+                center=(tdx, body_center_y + tdy, tdz),
+                size=(tsx, tsy, tsz),
+                subdivisions=(2, 3, 2),
+                base_color=COLOR_BODY_PINK,
+                taper_y=0.3,
+                roundness=0.6,
+                draw_contour=True,
+            )
+            all_faces.extend(tail_feat)
+
+        # --- 6. WINGS / ARMS (STAND vs WALK PENDULUM vs RUN SPRINTER PUMP) ---
+        for side in (-1, 1):
+            shoulder_pt = (side * 0.32, body_center_y + 0.12, 0.02)
+
+            # 1. STANDING: Hanging down relaxed
+            stand_elbow = (side * 0.32, body_center_y - 0.06, -0.01)
+            stand_hand = (side * 0.33, body_center_y - 0.32, 0.01)
+
+            # 2. WALKING: Gentle relaxed pendulum swing forward & back
+            walk_arm_swing = -walk_swing * side
+            walk_elbow = (
+                side * 0.33,
+                body_center_y - 0.06,
+                walk_arm_swing * 0.10,
+            )
+            walk_hand = (
+                side * 0.34,
+                body_center_y - 0.28,
+                walk_arm_swing * 0.20,
+            )
+
+            # 3. RUNNING: 90-degree bent sprinter arm pump
+            run_arm_pump = -run_swing * side
+            run_elbow = (
+                side * 0.38,
+                body_center_y - 0.04,
+                -0.12 + run_arm_pump * 0.24,
+            )
+            run_hand = (
+                side * 0.30,
+                body_center_y + 0.14 + run_arm_pump * 0.22,
+                run_elbow[2] + 0.34,
+            )
+
+            # Blend between standing, walking, and running:
+            # First blend stand -> walk by walk_weight
+            elbow_stand_walk = lerp_vec3(stand_elbow, walk_elbow, ww)
+            hand_stand_walk = lerp_vec3(stand_hand, walk_hand, ww)
+
+            # Then blend into running by run_weight
+            elbow_pt = lerp_vec3(elbow_stand_walk, run_elbow, rw)
+            hand_pt = lerp_vec3(hand_stand_walk, run_hand, rw)
+
+            # Upper Arm
+            upper_arm = create_oriented_box(
+                shoulder_pt, elbow_pt,
+                thickness=(0.13, 0.18),
+                base_color=COLOR_BODY_PINK,
+                subdiv_length=3,
+                draw_contour=True,
+            )
+            all_faces.extend(upper_arm)
+
+            # Elbow joint
+            elbow_joint = create_cube_grid(
+                center=elbow_pt,
+                size=(0.13, 0.13, 0.13),
+                subdivisions=(2, 2, 2),
+                base_color=COLOR_BODY_PINK,
+                roundness=0.75,
+                draw_contour=True,
+            )
+            all_faces.extend(elbow_joint)
+
+            # Forearm
+            forearm = create_oriented_box(
+                elbow_pt, hand_pt,
+                thickness=(0.11, 0.15),
+                base_color=COLOR_BODY_PINK,
+                subdiv_length=3,
+                draw_contour=True,
+            )
+            all_faces.extend(forearm)
+
+            # Feather fingers at hand
+            hx, hy, hz = hand_pt
+            for finger_i, (f_dy, f_dz) in enumerate((
+                (0.04 * rw, 0.05 * rw),
+                (0.00, 0.08 * rw - 0.05 * (1.0 - rw)),
+                (-0.04 * rw, 0.04 * rw),
+            )):
+                f_thick = 0.065
+                finger = create_cube_grid(
+                    center=(hx - side * 0.02, hy + f_dy, hz + f_dz),
+                    size=(f_thick, 0.08, 0.09),
+                    subdivisions=(2, 2, 2),
+                    base_color=COLOR_BODY_PINK,
+                    roundness=0.62,
+                    draw_contour=True,
+                )
+                all_faces.extend(finger)
+
+        # --- 7. CHICKEN LEGS & FEET (NATURAL TWO-SEGMENT KINEMATICS) ---
+        hip_y = 0.52 + bob_y
+        for side in (-1, 1):
+            leg_x = side * 0.14
+            hip_pt = (leg_x, hip_y - 0.04, 0.0)
+
+            # Thigh cuff locked to lower body:
+            cuff = create_cube_grid(
+                center=hip_pt,
+                size=(0.19, 0.20, 0.19),
+                subdivisions=(3, 3, 3),
+                base_color=COLOR_BODY_PINK,
+                taper_y=0.45,
+                roundness=0.75,
+                draw_contour=True,
+            )
+            all_faces.extend(cuff)
+
+            # Leg segment lengths:
+            L_thigh = 0.22
+            L_shank = 0.22
+            hip_attach_y = hip_y - 0.04
+
+            # --- 1. STANDING POSE (Straight, relaxed vertical stance) ---
+            stand_knee = (leg_x, 0.30, 0.01)
+            stand_ankle = (leg_x, 0.08, 0.0)
+            stand_foot_angle = 0.0
+
+            # --- 2. WALKING POSE (Smooth biological gait: foot stays level on ground, lifts in swing) ---
+            walk_s = walk_swing * side
+            walk_stride_z = 0.16 * walk_s
+            if walk_s >= 0.0:
+                # Forward swing: foot smoothly clears ground, toes slightly elevated
+                walk_foot_y = 0.08 + 0.05 * walk_s
+                walk_pitch = -0.15 * walk_s
+            else:
+                # Backward stance: foot remains level on ground, toe gently rolls off at rear
+                walk_foot_y = 0.08
+                w_push = -walk_s
+                walk_pitch = 0.20 * w_push
+
+            # Analytical 2-link IK solve for walking knee (always bending forward)
+            w_dy = walk_foot_y - hip_attach_y
+            w_dz = walk_stride_z
+            w_dist = min(math.sqrt(w_dy * w_dy + w_dz * w_dz), L_thigh + L_shank - 0.001)
+            w_cos_alpha = max(-1.0, min(1.0, (L_thigh * L_thigh + w_dist * w_dist - L_shank * L_shank) / (2.0 * L_thigh * w_dist)))
+            w_alpha = math.acos(w_cos_alpha)
+            w_base_angle = math.atan2(w_dz, -w_dy)
+            w_knee_angle = w_base_angle + w_alpha
+
+            walk_knee = (leg_x, hip_attach_y - L_thigh * math.cos(w_knee_angle), L_thigh * math.sin(w_knee_angle))
+            walk_ankle = (leg_x, walk_foot_y, walk_stride_z)
+            walk_foot_angle = walk_pitch
+
+            # --- 3. RUNNING POSE (High knee lift forward kick, athletic rear push-off) ---
+            run_s = run_swing * side
+            run_stride_z = 0.24 * run_s
+            if run_s >= 0.0:
+                # Forward sprint stride: high knee lift, toe angled into stride
+                run_foot_y = 0.08 + 0.14 * run_s
+                run_pitch = -0.32 * run_s
+            else:
+                # Backward push-off: heel rises, toe digs in to propel forward
+                run_foot_y = 0.08
+                r_push = -run_s
+                run_pitch = 0.38 * r_push
+
+            r_dy = run_foot_y - hip_attach_y
+            r_dz = run_stride_z
+            r_dist = min(math.sqrt(r_dy * r_dy + r_dz * r_dz), L_thigh + L_shank - 0.001)
+            r_cos_alpha = max(-1.0, min(1.0, (L_thigh * L_thigh + r_dist * r_dist - L_shank * L_shank) / (2.0 * L_thigh * r_dist)))
+            r_alpha = math.acos(r_cos_alpha)
+            r_base_angle = math.atan2(r_dz, -r_dy)
+            r_knee_angle = r_base_angle + r_alpha
+
+            run_knee = (leg_x, hip_attach_y - L_thigh * math.cos(r_knee_angle), L_thigh * math.sin(r_knee_angle))
+            run_ankle = (leg_x, run_foot_y, run_stride_z)
+            run_foot_angle = run_pitch
+
+            # Smoothly blend between standing, walking, and running:
+            knee_stand_walk = lerp_vec3(stand_knee, walk_knee, ww)
+            ankle_stand_walk = lerp_vec3(stand_ankle, walk_ankle, ww)
+            fa_stand_walk = stand_foot_angle + (walk_foot_angle - stand_foot_angle) * ww
+
+            knee_pt = lerp_vec3(knee_stand_walk, run_knee, rw)
+            ankle_pt = lerp_vec3(ankle_stand_walk, run_ankle, rw)
+            foot_angle = fa_stand_walk + (run_foot_angle - fa_stand_walk) * rw
+
+            # Thigh / Femur
+            thigh = create_oriented_box(
+                hip_pt, knee_pt,
+                thickness=(0.075, 0.075),
+                base_color=COLOR_LEG_YELLOW,
+                subdiv_length=2,
+                draw_contour=True,
+            )
+            all_faces.extend(thigh)
+
+            # Knee Joint
+            knee_joint = create_cube_grid(
+                center=knee_pt,
+                size=(0.08, 0.08, 0.08),
+                subdivisions=(2, 2, 2),
+                base_color=COLOR_LEG_YELLOW,
+                roundness=0.5,
+                draw_contour=True,
+            )
+            all_faces.extend(knee_joint)
+
+            # Lower Shank
+            shank = create_oriented_box(
+                knee_pt, ankle_pt,
+                thickness=(0.06, 0.06),
+                base_color=COLOR_LEG_YELLOW,
+                subdiv_length=2,
+                draw_contour=True,
+            )
+            all_faces.extend(shank)
+
+            # Ankle Joint
+            ankle_joint = create_cube_grid(
+                center=ankle_pt,
+                size=(0.07, 0.07, 0.07),
+                subdivisions=(2, 2, 2),
+                base_color=COLOR_LEG_YELLOW,
+                roundness=0.4,
+                draw_contour=True,
+            )
+            all_faces.extend(ankle_joint)
+
+            # Articulated Foot
+            ax, ay, az = ankle_pt
+            cos_fa = math.cos(foot_angle)
+            sin_fa = math.sin(foot_angle)
+
+            def get_toe_point(local_x: float, local_y: float, local_z: float) -> tuple[float, float, float]:
+                rot_y = local_y * cos_fa - local_z * sin_fa
+                rot_z = local_y * sin_fa + local_z * cos_fa
+                return (ax + local_x, ay + rot_y, az + rot_z)
+
+            # Middle toe
+            t_mid_start = get_toe_point(0.0, -0.02, 0.0)
+            t_mid_end = get_toe_point(0.0, -0.02, 0.22)
+            toe_mid = create_oriented_box(
+                t_mid_start, t_mid_end,
+                thickness=(0.05, 0.05),
+                base_color=COLOR_LEG_YELLOW,
+                subdiv_length=2,
+                draw_contour=True,
+            )
+            all_faces.extend(toe_mid)
+
+            # Left toe
+            t_left_start = get_toe_point(0.0, -0.02, 0.0)
+            t_left_end = get_toe_point(-0.08, -0.02, 0.18)
+            toe_left = create_oriented_box(
+                t_left_start, t_left_end,
+                thickness=(0.045, 0.045),
+                base_color=COLOR_LEG_YELLOW,
+                subdiv_length=2,
+                draw_contour=True,
+            )
+            all_faces.extend(toe_left)
+
+            # Right toe
+            t_right_start = get_toe_point(0.0, -0.02, 0.0)
+            t_right_end = get_toe_point(0.08, -0.02, 0.18)
+            toe_right = create_oriented_box(
+                t_right_start, t_right_end,
+                thickness=(0.045, 0.045),
+                base_color=COLOR_LEG_YELLOW,
+                subdiv_length=2,
+                draw_contour=True,
+            )
+            all_faces.extend(toe_right)
+
+            # Rear spur toe
+            t_rear_start = get_toe_point(0.0, -0.01, 0.0)
+            t_rear_end = get_toe_point(0.0, 0.02, -0.10)
+            toe_rear = create_oriented_box(
+                t_rear_start, t_rear_end,
+                thickness=(0.04, 0.04),
+                base_color=COLOR_LEG_YELLOW,
+                subdiv_length=2,
+                draw_contour=True,
+            )
+            all_faces.extend(toe_rear)
+
+        return all_faces
+
+    def render(
+        self,
+        surface: pygame.Surface,
+        screen_pos: tuple[float, float],
+        scale: float,
+        rot_y: float = 0.0,
+        rot_x: float = 0.08,
+        head_yaw: float = 0.0,
+        head_pitch: float = 0.0,
+        mouth_open: bool = False,
+        run_cycle: float = 0.0,
+        is_running: bool = False,
+        run_weight: float | None = None,
+        is_walking: bool = False,
+        walk_weight: float = 0.0,
+        draw_wireframe: bool = False,
+    ) -> None:
+        """
+        Projects and renders Carmelito in authentic storybook 3D.
+        Uses Painter's algorithm with soft cel lighting and inked contour line art.
+        """
+        cx_screen, cy_screen = screen_pos
+        faces = self.build_model_faces(
+            mouth_open=mouth_open,
+            run_cycle=run_cycle,
+            is_running=is_running,
+            run_weight=run_weight,
+            is_walking=is_walking,
+            walk_weight=walk_weight,
+            head_yaw=head_yaw,
+            head_pitch=head_pitch,
+        )
+
+        cos_y = math.cos(rot_y)
+        sin_y = math.sin(rot_y)
+        cos_x = math.cos(rot_x)
+        sin_x = math.sin(rot_x)
+
+        projected_faces = []
+
+        for quad_verts, base_col, has_contour in faces:
+            trans_verts = []
+            sum_z = 0.0
+            for vx, vy, vz in quad_verts:
+                # Rotate around Y axis
+                rx1 = vx * cos_y + vz * sin_y
+                ry1 = vy
+                rz1 = -vx * sin_y + vz * cos_y
+
+                # Rotate around X axis (elevation pitch)
+                rx2 = rx1
+                ry2 = ry1 * cos_x - rz1 * sin_x
+                rz2 = ry1 * sin_x + rz1 * cos_x
+
+                trans_verts.append((rx2, ry2, rz2))
+                sum_z += rz2
+
+            # Compute normal for backface culling and lighting
+            v0 = trans_verts[0]
+            v1 = trans_verts[1]
+            v2 = trans_verts[2]
+            edge1 = (v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2])
+            edge2 = (v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2])
+            normal = self._cross(edge1, edge2)
+            normal = self._normalize(normal)
+
+            if normal[2] <= 0.0:
+                continue
+
+            # Storybook cel lighting: warm key light + gentle fill
+            diffuse = max(0.0, self._dot(normal, self.light_dir))
+            brightness = 0.72 + 0.28 * diffuse
+
+            shaded_r = min(255, int(base_col[0] * brightness))
+            shaded_g = min(255, int(base_col[1] * brightness))
+            shaded_b = min(255, int(base_col[2] * brightness))
+            face_col = (shaded_r, shaded_g, shaded_b)
+
+            # Silhouette outline detection
+            is_silhouette = normal[2] < 0.32
+
+            # Project to 2D screen coordinates
+            screen_pts = []
+            for rx, ry, rz in trans_verts:
+                dist = 6.0 + rz
+                proj_factor = 6.0 / max(0.5, dist)
+                sx = cx_screen + rx * scale * proj_factor
+                sy = cy_screen - ry * scale * proj_factor
+                screen_pts.append((round(sx), round(sy)))
+
+            avg_z = sum_z / len(trans_verts)
+
+            # Priority offset for pupils so they are guaranteed to render on top of eyes
+            if base_col == COLOR_PUPIL_DARK:
+                avg_z += 0.20
+
+            projected_faces.append((avg_z, screen_pts, face_col, has_contour and is_silhouette))
+
+        # Sort back to front (Painter's algorithm: lowest Z drawn first, highest Z drawn last on top)
+        projected_faces.sort(key=lambda item: item[0])
+
+        # Render filled polygons and inked silhouette contours
+        for _, pts, f_col, draw_ink in projected_faces:
+            if len(pts) >= 3:
+                pygame.draw.polygon(surface, f_col, pts)
+                if draw_ink:
+                    pygame.draw.polygon(surface, COLOR_INK_LINE, pts, 1)
+                elif draw_wireframe:
+                    pygame.draw.polygon(surface, COLOR_INK_LINE, pts, 1)
+
+    def render_first_person_beak(
+        self,
+        surface: pygame.Surface,
+        mouth_open: bool = False,
+        loco_cycle: float = 0.0,
+        run_weight: float = 0.0,
+        walk_weight: float = 0.0,
+        head_bob_y: float = 0.0,
+    ) -> None:
+        """
+        Renders what Carmelito sees from his own eyes looking out into the world:
+        - Wide, chubby yellow banana beak visible right below his sight line in the bottom center.
+        - Mouth opens/closes with 'U' key.
+        - Feather wings/hands pump into view along the lower corners when walking and running.
+        - Inked cartoon outlines matching the storybook style.
+        """
+        w, h = surface.get_size()
+        cx_screen = w * 0.5
+        cy_screen = h * 0.88 + head_bob_y * 120.0
+        scale = h * 0.55
+
+        # Build Beak & Mouth faces in POV local coords
+        # Eye camera is at (0, 0, 0), looking down +Z with slight downward pitch
+        pitch = -0.32
+        cos_p = math.cos(pitch)
+        sin_p = math.sin(pitch)
+
+        # POV Beak geometry positioned right under eyes:
+        beak_faces = []
+
+        # Upper Beak Base
+        beak_root = create_cube_grid(
+            center=(0.0, -0.22, 0.42),
+            size=(0.42, 0.18, 0.22),
+            subdivisions=(4, 3, 3),
+            base_color=COLOR_BEAK_YELLOW,
+            roundness=0.65,
+            draw_contour=True,
+        )
+        beak_faces.extend(beak_root)
+
+        # Upper Beak Tip (Blunt rounded banana beak)
+        beak_tip = create_cube_grid(
+            center=(0.0, -0.26, 0.62),
+            size=(0.38, 0.17, 0.22),
+            subdivisions=(4, 3, 3),
+            base_color=COLOR_BEAK_YELLOW,
+            roundness=0.82,
+            draw_contour=True,
+        )
+        beak_faces.extend(beak_tip)
+
+        if mouth_open:
+            # Lower beak drops down
+            lower_beak = create_cube_grid(
+                center=(0.0, -0.42, 0.48),
+                size=(0.34, 0.14, 0.24),
+                subdivisions=(4, 2, 3),
+                base_color=COLOR_BEAK_YELLOW,
+                roundness=0.65,
+                draw_contour=True,
+            )
+            beak_faces.extend(lower_beak)
+            mouth_inside = create_cube_grid(
+                center=(0.0, -0.32, 0.42),
+                size=(0.26, 0.10, 0.14),
+                subdivisions=(2, 2, 2),
+                base_color=COLOR_MOUTH_DARK,
+                roundness=0.3,
+                draw_contour=False,
+            )
+            beak_faces.extend(mouth_inside)
+        else:
+            lower_beak = create_cube_grid(
+                center=(0.0, -0.32, 0.48),
+                size=(0.36, 0.12, 0.24),
+                subdivisions=(4, 2, 3),
+                base_color=COLOR_BEAK_YELLOW,
+                roundness=0.65,
+                draw_contour=True,
+            )
+            beak_faces.extend(lower_beak)
+
+        # No arms or head in sight: purely what Carmelito sees in front
+
+        # Project and render POV faces
+        projected = []
+        for quad_verts, base_col, has_contour in beak_faces:
+            trans_verts = []
+            sum_z = 0.0
+            for vx, vy, vz in quad_verts:
+                # Rotate by downward pitch
+                ry = vy * cos_p - vz * sin_p
+                rz = vy * sin_p + vz * cos_p
+                rx = vx
+                trans_verts.append((rx, ry, rz))
+                sum_z += rz
+
+            # Normal lighting
+            v0, v1, v2 = trans_verts[0], trans_verts[1], trans_verts[2]
+            edge1 = (v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2])
+            edge2 = (v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2])
+            normal = self._normalize(self._cross(edge1, edge2))
+            if normal[2] <= 0.0:
+                continue
+
+            diffuse = max(0.0, self._dot(normal, self.light_dir))
+            brightness = 0.75 + 0.25 * diffuse
+            face_col = (
+                min(255, int(base_col[0] * brightness)),
+                min(255, int(base_col[1] * brightness)),
+                min(255, int(base_col[2] * brightness)),
+            )
+
+            is_silhouette = normal[2] < 0.35
+            screen_pts = []
+            for rx, ry, rz in trans_verts:
+                dist = max(0.1, rz)
+                proj = 1.0 / dist
+                sx = cx_screen + rx * scale * proj
+                sy = cy_screen - ry * scale * proj
+                screen_pts.append((round(sx), round(sy)))
+
+            avg_z = sum_z / len(trans_verts)
+            projected.append((avg_z, screen_pts, face_col, has_contour and is_silhouette))
+
+        projected.sort(key=lambda item: item[0], reverse=True)
+        for _, pts, f_col, draw_ink in projected:
+            if len(pts) >= 3:
+                pygame.draw.polygon(surface, f_col, pts)
+                if draw_ink:
+                    pygame.draw.polygon(surface, COLOR_INK_LINE, pts, 1)
