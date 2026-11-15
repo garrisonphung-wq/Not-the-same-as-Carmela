@@ -1113,18 +1113,17 @@ def main() -> None:
                 blink=blink_amount,
             )
 
-        # --- 3. UI OVERLAYS ---
-        # 3a. GAME TITLE AT TOP CENTER: WHITE TEXT WITH BLACK OUTLINE
-        title_px = max(36, min(88, ((round(win_h * 0.085)) // 2) * 2))
-        title_outline_px = max(2, round(title_px * 0.065))
-        title_surf = get_outlined_text_surface(WINDOW_TITLE, title_px, outline_px=title_outline_px)
-        title_x = (win_w - title_surf.get_width()) // 2
-        title_y = max(14, round(win_h * 0.03))
-        screen.blit(title_surf, (title_x, title_y))
-
-        # 3b. PLAY BUTTON: WHITE TEXT WITH BLACK OUTLINE (ONLY VISIBLE WHEN OFFLINE)
-        # Made smaller and positioned neatly right below the title text
+        # --- 3. TITLE SCREEN UI OVERLAYS (ONLY VISIBLE WHEN OFFLINE, DISAPPEARS ON JOIN) ---
         if not is_online:
+            # 3a. Game title at top center: white text with black outline
+            title_px = max(36, min(88, ((round(win_h * 0.085)) // 2) * 2))
+            title_outline_px = max(2, round(title_px * 0.065))
+            title_surf = get_outlined_text_surface(WINDOW_TITLE, title_px, outline_px=title_outline_px)
+            title_x = (win_w - title_surf.get_width()) // 2
+            title_y = max(14, round(win_h * 0.03))
+            screen.blit(title_surf, (title_x, title_y))
+
+            # 3b. PLAY button: white text with black outline positioned neatly below the title text
             play_px = max(24, min(52, ((round(title_px * 0.52)) // 2) * 2))
             play_outline_px = max(2, round(play_px * 0.07))
             play_surf = get_outlined_text_surface("PLAY", play_px, outline_px=play_outline_px)
