@@ -786,75 +786,83 @@ def main() -> None:
             rz = dx * sin_yaw + dz * cos_yaw
             return (rx, dy * cos_pitch - rz * sin_pitch, dy * sin_pitch + rz * cos_pitch)
 
-        # 1a. Ocean water & horizon around the giant island
+        # 1a. Horizon & ground / ocean rendering:
         horizon_y = max(0, min(win_h, round(hh + math.tan(total_pitch) * focal)))
-        if horizon_y < win_h:
-            screen.fill(OCEAN_WATER_COLOR, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
 
-        # 1b. Render the Giant Island (Top lush plateau, Sandy beach edge, and 3D Rocky Cliffs)
-        # Compute island outline vertices at top plateau (GROUND_Y) and water base (ISLAND_WATER_Y)
-        top_rim_cam: list[tuple[float, float, float]] = []
-        top_rim_scr: list[tuple[int, int] | None] = []
-        bot_rim_cam: list[tuple[float, float, float]] = []
-        bot_rim_scr: list[tuple[int, int] | None] = []
+        if is_online:
+            # When playing the game, you are standing on the lush green island meadow!
+            # The seamless green grass extends all the way to the horizon (no exposed ocean water lines).
+            if horizon_y < win_h:
+                screen.fill(GRASS_GROUND_COLOR, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
+        else:
+            # In offline overview mode: ocean water surrounds the giant island below the horizon
+            if horizon_y < win_h:
+                screen.fill(OCEAN_WATER_COLOR, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
 
-        for i in range(ISLAND_SEGMENTS):
-            ang = (2.0 * math.pi * i) / ISLAND_SEGMENTS
-            # Organic island shape with wavy shorelines
-            r = ISLAND_RADIUS + 5.5 * math.sin(ang * 4.0) + 3.2 * math.cos(ang * 7.0)
-            ix = math.sin(ang) * r
-            iz = math.cos(ang) * r
+            # Render the Giant Island (Top lush plateau, Sandy beach edge, and 3D Rocky Cliffs)
+            # Compute island outline vertices at top plateau (GROUND_Y) and water base (ISLAND_WATER_Y)
+            top_rim_cam: list[tuple[float, float, float]] = []
+            top_rim_scr: list[tuple[int, int] | None] = []
+            bot_rim_cam: list[tuple[float, float, float]] = []
+            bot_rim_scr: list[tuple[int, int] | None] = []
 
-            tc = to_cam(ix, GROUND_Y, iz)
-            top_rim_cam.append(tc)
-            if tc[2] > near_z:
-                top_rim_scr.append((round(hw + (tc[0] / tc[2]) * focal), round(hh - (tc[1] / tc[2]) * focal)))
-            else:
-                top_rim_scr.append(None)
+            for i in range(ISLAND_SEGMENTS):
+                ang = (2.0 * math.pi * i) / ISLAND_SEGMENTS
+                # Organic island shape with wavy shorelines
+                r = ISLAND_RADIUS + 5.5 * math.sin(ang * 4.0) + 3.2 * math.cos(ang * 7.0)
+                ix = math.sin(ang) * r
+                iz = math.cos(ang) * r
 
-            bc = to_cam(ix * 1.05, ISLAND_WATER_Y, iz * 1.05)
-            bot_rim_cam.append(bc)
-            if bc[2] > near_z:
-                bot_rim_scr.append((round(hw + (bc[0] / bc[2]) * focal), round(hh - (bc[1] / bc[2]) * focal)))
-            else:
-                bot_rim_scr.append(None)
+                tc = to_cam(ix, GROUND_Y, iz)
+                top_rim_cam.append(tc)
+                if tc[2] > near_z:
+                    top_rim_scr.append((round(hw + (tc[0] / tc[2]) * focal), round(hh - (tc[1] / tc[2]) * focal)))
+                else:
+                    top_rim_scr.append(None)
 
-        # Island top plateau lush green surface
-        valid_top = [pt for pt in top_rim_scr if pt is not None]
-        if len(valid_top) >= 3:
-            # Sandy rim stroke
-            pygame.draw.polygon(screen, ISLAND_RIM_SAND, valid_top)
-            # Lush green plateau fill slightly inset
-            pygame.draw.polygon(screen, ISLAND_TOP_COLOR, valid_top)
+                bc = to_cam(ix * 1.05, ISLAND_WATER_Y, iz * 1.05)
+                bot_rim_cam.append(bc)
+                if bc[2] > near_z:
+                    bot_rim_scr.append((round(hw + (bc[0] / bc[2]) * focal), round(hh - (bc[1] / bc[2]) * focal)))
+                else:
+                    bot_rim_scr.append(None)
 
-        # Render island cliff sides facing the camera (drawn after top so cliffs overlap shoreline)
-        cliff_quads: list[tuple[float, list[tuple[int, int]], tuple[int, int, int]]] = []
-        for i in range(ISLAND_SEGMENTS):
-            next_i = (i + 1) % ISLAND_SEGMENTS
-            t0, t1 = top_rim_cam[i], top_rim_cam[next_i]
-            b0, b1 = bot_rim_cam[i], bot_rim_cam[next_i]
-            ts0, ts1 = top_rim_scr[i], top_rim_scr[next_i]
-            bs0, bs1 = bot_rim_scr[i], bot_rim_scr[next_i]
+            # Island top plateau lush green surface
+            valid_top = [pt for pt in top_rim_scr if pt is not None]
+            if len(valid_top) >= 3:
+                # Sandy rim stroke
+                pygame.draw.polygon(screen, ISLAND_RIM_SAND, valid_top)
+                # Lush green plateau fill slightly inset
+                pygame.draw.polygon(screen, ISLAND_TOP_COLOR, valid_top)
 
-            if ts0 is None or ts1 is None or bs0 is None or bs1 is None:
-                continue
+            # Render island cliff sides facing the camera (drawn after top so cliffs overlap shoreline)
+            cliff_quads: list[tuple[float, list[tuple[int, int]], tuple[int, int, int]]] = []
+            for i in range(ISLAND_SEGMENTS):
+                next_i = (i + 1) % ISLAND_SEGMENTS
+                t0, t1 = top_rim_cam[i], top_rim_cam[next_i]
+                b0, b1 = bot_rim_cam[i], bot_rim_cam[next_i]
+                ts0, ts1 = top_rim_scr[i], top_rim_scr[next_i]
+                bs0, bs1 = bot_rim_scr[i], bot_rim_scr[next_i]
 
-            avg_z = (t0[2] + t1[2] + b0[2] + b1[2]) * 0.25
-            # Cliff face normal check (front-facing to camera)
-            ang_mid = (2.0 * math.pi * (i + 0.5)) / ISLAND_SEGMENTS
-            on_x = math.sin(ang_mid)
-            on_z = math.cos(ang_mid)
-            cam_dir_x = (OVERVIEW_CAM_X if not is_online else cam_x) - on_x * ISLAND_RADIUS
-            cam_dir_z = (OVERVIEW_CAM_Z if not is_online else cam_z) - on_z * ISLAND_RADIUS
-            facing = (cam_dir_x * on_x + cam_dir_z * on_z)
-            if facing > 0:
-                cliff_col = ISLAND_CLIFF_LIGHT if (i % 2 == 0) else ISLAND_CLIFF_DARK
-                cliff_quads.append((avg_z, [ts0, ts1, bs1, bs0], cliff_col))
+                if ts0 is None or ts1 is None or bs0 is None or bs1 is None:
+                    continue
 
-        cliff_quads.sort(key=lambda item: item[0], reverse=True)
-        for _, quad_pts, col in cliff_quads:
-            pygame.draw.polygon(screen, col, quad_pts)
-            pygame.draw.polygon(screen, ISLAND_SHADOW, quad_pts, 1)
+                avg_z = (t0[2] + t1[2] + b0[2] + b1[2]) * 0.25
+                # Cliff face normal check (front-facing to camera)
+                ang_mid = (2.0 * math.pi * (i + 0.5)) / ISLAND_SEGMENTS
+                on_x = math.sin(ang_mid)
+                on_z = math.cos(ang_mid)
+                cam_dir_x = (OVERVIEW_CAM_X if not is_online else cam_x) - on_x * ISLAND_RADIUS
+                cam_dir_z = (OVERVIEW_CAM_Z if not is_online else cam_z) - on_z * ISLAND_RADIUS
+                facing = (cam_dir_x * on_x + cam_dir_z * on_z)
+                if facing > 0:
+                    cliff_col = ISLAND_CLIFF_LIGHT if (i % 2 == 0) else ISLAND_CLIFF_DARK
+                    cliff_quads.append((avg_z, [ts0, ts1, bs1, bs0], cliff_col))
+
+            cliff_quads.sort(key=lambda item: item[0], reverse=True)
+            for _, quad_pts, col in cliff_quads:
+                pygame.draw.polygon(screen, col, quad_pts)
+                pygame.draw.polygon(screen, ISLAND_SHADOW, quad_pts, 1)
 
         # 1c. Render 3D grass blades across the island
         base_sway = math.sin(anim_time * 2.2) * 0.045
