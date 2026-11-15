@@ -66,12 +66,12 @@ ISLAND_SEGMENTS = 72      # Smoother organic shoreline for the colossal island
 ISLAND_CLIFF_DEPTH = 28.0 # Taller rock cliffs plunging into the sea
 ISLAND_WATER_Y = GROUND_Y - ISLAND_CLIFF_DEPTH
 
-# Fixed overview camera looking down at the giant island from high above
+# Fixed overview camera: true top-down view looking directly down at the top of the island
 OVERVIEW_CAM_X = 0.0
-OVERVIEW_CAM_Y = 138.0    # Elevated high above the colossal island
-OVERVIEW_CAM_Z = -220.0   # Backed up to view the colossal island in full grandeur
-OVERVIEW_CAM_YAW = 0.0    # Stares straight north toward the island center (0, 0)
-OVERVIEW_CAM_PITCH = math.radians(-31.0)  # Tilted 31 degrees down overlooking the giant island
+OVERVIEW_CAM_Y = 295.0    # High above island center for a full bird's-eye view of the top
+OVERVIEW_CAM_Z = 24.0     # Positioned so island is centered below title and play buttons
+OVERVIEW_CAM_YAW = 0.0    # Fixed north orientation
+OVERVIEW_CAM_PITCH = math.radians(-89.9)  # Looking straight down at the top of the island
 
 # Anatomical neck rotation limits (less than 90 degrees sideways, can look up to sky & down at feet)
 MAX_HEAD_YAW = math.radians(72.0)        # ~72 degrees max turn left/right (close to sideways, but less than sideways)
@@ -795,9 +795,8 @@ def main() -> None:
             if horizon_y < win_h:
                 screen.fill(GRASS_GROUND_COLOR, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
         else:
-            # In offline overview mode: ocean water surrounds the giant island below the horizon
-            if horizon_y < win_h:
-                screen.fill(OCEAN_WATER_COLOR, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
+            # In offline overview mode: ocean water surrounds the giant island on all sides
+            screen.fill(OCEAN_WATER_COLOR)
 
             # Render the Giant Island (Top lush plateau, Sandy beach edge, and 3D Rocky Cliffs)
             # Compute island outline vertices at top plateau (GROUND_Y) and water base (ISLAND_WATER_Y)
@@ -835,34 +834,7 @@ def main() -> None:
                 # Lush green plateau fill slightly inset
                 pygame.draw.polygon(screen, ISLAND_TOP_COLOR, valid_top)
 
-            # Render island cliff sides facing the camera (drawn after top so cliffs overlap shoreline)
-            cliff_quads: list[tuple[float, list[tuple[int, int]], tuple[int, int, int]]] = []
-            for i in range(ISLAND_SEGMENTS):
-                next_i = (i + 1) % ISLAND_SEGMENTS
-                t0, t1 = top_rim_cam[i], top_rim_cam[next_i]
-                b0, b1 = bot_rim_cam[i], bot_rim_cam[next_i]
-                ts0, ts1 = top_rim_scr[i], top_rim_scr[next_i]
-                bs0, bs1 = bot_rim_scr[i], bot_rim_scr[next_i]
-
-                if ts0 is None or ts1 is None or bs0 is None or bs1 is None:
-                    continue
-
-                avg_z = (t0[2] + t1[2] + b0[2] + b1[2]) * 0.25
-                # Cliff face normal check (front-facing to camera)
-                ang_mid = (2.0 * math.pi * (i + 0.5)) / ISLAND_SEGMENTS
-                on_x = math.sin(ang_mid)
-                on_z = math.cos(ang_mid)
-                cam_dir_x = (OVERVIEW_CAM_X if not is_online else cam_x) - on_x * ISLAND_RADIUS
-                cam_dir_z = (OVERVIEW_CAM_Z if not is_online else cam_z) - on_z * ISLAND_RADIUS
-                facing = (cam_dir_x * on_x + cam_dir_z * on_z)
-                if facing > 0:
-                    cliff_col = ISLAND_CLIFF_LIGHT if (i % 2 == 0) else ISLAND_CLIFF_DARK
-                    cliff_quads.append((avg_z, [ts0, ts1, bs1, bs0], cliff_col))
-
-            cliff_quads.sort(key=lambda item: item[0], reverse=True)
-            for _, quad_pts, col in cliff_quads:
-                pygame.draw.polygon(screen, col, quad_pts)
-                pygame.draw.polygon(screen, ISLAND_SHADOW, quad_pts, 1)
+            # (Sides of the island are omitted so only the lush top of the island is seen)
 
         # 1c. Render 3D grass blades across the island
         base_sway = math.sin(anim_time * 2.2) * 0.045
