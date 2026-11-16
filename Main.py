@@ -608,6 +608,8 @@ def main() -> None:
 
     fullscreen = not args.windowed
     screen = create_window(fullscreen)
+    if hasattr(pygame.key, "start_text_input"):
+        pygame.key.start_text_input()
     clock = pygame.time.Clock()
     pygame.mouse.set_visible(True)
 
@@ -679,8 +681,6 @@ def main() -> None:
                         # Cancel typing
                         is_typing_chat = False
                         chat_input_text = ""
-                        if hasattr(pygame.key, "stop_text_input"):
-                            pygame.key.stop_text_input()
                     elif is_enter_key:
                         # Pressing ENTER/RETURN sends chat and creates a chat bubble over the player!
                         clean = chat_input_text.strip()
@@ -695,8 +695,6 @@ def main() -> None:
                         chat_bubbles[-1] = chat_bubbles[-1][-4:]  # Limit to 4 stacked bubbles
                         is_typing_chat = False
                         chat_input_text = ""
-                        if hasattr(pygame.key, "stop_text_input"):
-                            pygame.key.stop_text_input()
                     elif event.key == pygame.K_BACKSPACE:
                         chat_input_text = chat_input_text[:-1]
                 else:
@@ -709,8 +707,6 @@ def main() -> None:
                         # Pressing RETURN/ENTER while in game opens the typing box
                         is_typing_chat = True
                         chat_input_text = ""
-                        if hasattr(pygame.key, "start_text_input"):
-                            pygame.key.start_text_input()
                     elif is_online and event.key == pygame.K_u:
                         # Toggle mouth open / close
                         mouth_open = not mouth_open
