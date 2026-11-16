@@ -957,6 +957,8 @@ class Carmelito3D:
         run_weight: float = 0.0,
         walk_weight: float = 0.0,
         character: str = "carmelito",
+        kick_amount: float = 0.0,
+        kick_side: float = 1.0,
     ) -> tuple[list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]], list[tuple[float, float, float]]]:
         char_l = character.lower()
         if char_l in ("carmen", "卡门"):
@@ -1065,6 +1067,19 @@ class Carmelito3D:
             knee_m = lerp_vec3(knee_sw, run_knee, rw)
             ankle_m = lerp_vec3(ankle_sw, run_ankle, rw)
             foot_angle = fa_sw + (r_fa - fa_sw) * rw
+
+            # Martial arts karate kick when player presses 'K'
+            # The kicking leg kicks high and forward right into view of the camera!
+            if kick_amount > 0.001 and side == kick_side:
+                k_ext = max(0.0, min(1.0, kick_amount))
+                # High forward karate kick into full camera view (prominently visible even when looking forward)
+                k_ankle = (leg_x * 0.7, hip_attach_y + 0.88 * k_ext, 0.18 + 0.78 * k_ext)
+                k_knee = (leg_x * 0.85, hip_attach_y + 0.48 * k_ext, 0.14 + 0.42 * k_ext)
+                k_foot_ang = 0.85 * k_ext
+
+                knee_m = lerp_vec3(knee_m, k_knee, k_ext)
+                ankle_m = lerp_vec3(ankle_m, k_ankle, k_ext)
+                foot_angle = foot_angle * (1.0 - k_ext) + k_foot_ang * k_ext
 
             hip_w = to_world_unit(*hip_pt_m)
             knee_w = to_world_unit(*knee_m)

@@ -673,6 +673,12 @@ def main() -> None:
     near_belino = False
     action_banner_text = ""
     dust_sparks: list[dict[str, Any]] = []
+
+    # First-person kick action (triggered with 'K' key)
+    is_kicking = False
+    kick_timer = 0.0
+    kick_duration = 0.48
+    kick_side = 1.0  # 1.0 for right leg, -1.0 for left leg
     selected_character = "carmelito"
     selected_chick_name = CHICK_NAME
     has_selected_character = False
@@ -770,6 +776,11 @@ def main() -> None:
                         # Trigger a blink on demand (and holding B keeps eyes closed)
                         blink_hold_timer = 0.16
                         auto_blink_timer = random.uniform(2.8, 5.0)
+                    elif is_online and not is_fighting and event.key == pygame.K_k:
+                        # Pressing 'K' triggers a forward martial arts karate kick!
+                        is_kicking = True
+                        kick_timer = 0.0
+                        kick_side = -kick_side  # alternate between right and left leg!
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # Menu navigation and joining in offline mode
                 if not is_online:
@@ -1014,6 +1025,21 @@ def main() -> None:
                 cos_b = math.cos(cam_yaw)
                 cam_x += (sin_b * fwd_n + cos_b * side_n) * speed * dt
                 cam_z += (cos_b * fwd_n - sin_b * side_n) * speed * dt
+
+            # Kick animation progress (triggered with 'K')
+            kick_amount = 0.0
+            if is_kicking:
+                kick_timer += dt
+                if kick_timer >= kick_duration:
+                    is_kicking = False
+                    kick_timer = 0.0
+                else:
+                    kp = kick_timer / kick_duration
+                    # Smooth attack and retract curve (peaks at kp=0.38)
+                    if kp < 0.38:
+                        kick_amount = math.sin((kp / 0.38) * (math.pi / 2))
+                    else:
+                        kick_amount = math.cos(((kp - 0.38) / 0.62) * (math.pi / 2))
 
             if is_fighting:
                 eye_y = 1.65
@@ -1590,8 +1616,8 @@ def main() -> None:
                     chick_badge = get_nameplate_surface(c_name, bucket_px)
                     screen.blit(chick_badge, (lsx - chick_badge.get_width() // 2, lsy - chick_badge.get_height() // 2))
 
-        # 1e. RENDER OWN FEET ONLY WHEN ONLINE
-        if is_online and head_pitch < -0.35:
+        # 1e. RENDER OWN FEET ONLY WHEN ONLINE (visible when looking down OR when kicking with 'K'!)
+        if is_online and not is_fighting and (head_pitch < -0.35 or kick_amount > 0.001):
             cos_body = math.cos(cam_yaw)
             sin_body = math.sin(cam_yaw)
 
@@ -1606,6 +1632,8 @@ def main() -> None:
                 run_weight=run_weight,
                 walk_weight=walk_weight,
                 character=selected_character,
+                kick_amount=kick_amount,
+                kick_side=kick_side,
             )
 
             for sbx, sby, sbz in foot_shadows:
