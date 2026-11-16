@@ -671,6 +671,7 @@ def main() -> None:
     belino_fight_button_rect = pygame.Rect(-100, -100, 0, 0)
     fight_leave_button_rect = pygame.Rect(-100, -100, 0, 0)
     near_belino = False
+    action_banner_text = ""
     dust_sparks: list[dict[str, Any]] = []
     selected_character = "carmelito"
     selected_chick_name = CHICK_NAME
@@ -1391,77 +1392,174 @@ def main() -> None:
                         )
                         cur_bottom -= b_h
 
-        # 1d-battle. DEDICATED 3D BATTLE CLASH BETWEEN CARMELITO & BELINO
+        # 1d-battle. DEDICATED 3D BATTLE: PUSHING, KICKING & KNOCKING DOWN EACH OTHER
         if is_fighting:
-            # Battle midpoint and separation vector
+            # Battle midpoint and separation direction
             dx_fight = fight_belino_x - fight_carmelito_x
             dz_fight = fight_belino_z - fight_carmelito_z
             fight_dist = max(0.8, math.hypot(dx_fight, dz_fight))
             dir_x = dx_fight / fight_dist
             dir_z = dz_fight / fight_dist
+            mid_x = (fight_carmelito_x + fight_belino_x) * 0.5
+            mid_z = (fight_carmelito_z + fight_belino_z) * 0.5
 
-            # Fast comedic bouncing & charges towards each other
-            carm_clash_hop = abs(math.sin(fight_timer * 11.0)) * 0.32
-            bel_clash_hop = abs(math.sin(fight_timer * 9.5 + 1.1)) * 0.28
-            clash_surge = math.sin(fight_timer * 6.5) * 0.35
+            # 11-second looping martial arts choreography
+            cycle_time = 11.0
+            phase = fight_timer % cycle_time
 
-            carm_wx = (fight_carmelito_x + dir_x * (0.65 + clash_surge))
-            carm_wz = (fight_carmelito_z + dir_z * (0.65 + clash_surge))
-            carm_wy = current_ground_y + carm_clash_hop
+            carm_rot_x = 0.05
+            bel_rot_x = 0.05
+            carm_wy = current_ground_y
+            bel_wy = current_ground_y
+            carm_mouth = False
+            bel_mouth = False
+            carm_run_cycle = fight_timer * 4.0
+            bel_run_cycle = fight_timer * 4.0
+            carm_head_yaw = 0.0
+            bel_head_yaw = 0.0
+            action_banner_text = ""
 
-            bel_wx = (fight_belino_x - dir_x * (0.65 + clash_surge))
-            bel_wz = (fight_belino_z - dir_z * (0.65 + clash_surge))
-            bel_wy = current_ground_y + bel_clash_hop
+            if phase < 2.8:
+                # PHASE 1: CHEST PUSH & TACKLE CONTEST (Head-to-head wrestling and pushing!)
+                push_wobble = math.sin(phase * 15.0) * 0.16
+                carm_wx = mid_x - dir_x * (0.42 + push_wobble)
+                carm_wz = mid_z - dir_z * (0.42 + push_wobble)
+                bel_wx = mid_x + dir_x * (0.42 - push_wobble)
+                bel_wz = mid_z + dir_z * (0.42 - push_wobble)
+                carm_rot_x = 0.28   # Leaning forward pushing
+                bel_rot_x = 0.34    # Heavy chest forward pushing
+                carm_mouth = True
+                bel_mouth = True
+                carm_head_yaw = math.sin(phase * 16.0) * 0.18
+                bel_head_yaw = -math.sin(phase * 16.0) * 0.18
+                action_banner_text = "PUSH & SHOVE!"
 
-            # Spawn impact dust sparks
-            if random.random() < 0.35:
-                mid_x = (carm_wx + bel_wx) * 0.5 + random.uniform(-0.25, 0.25)
-                mid_z = (carm_wz + bel_wz) * 0.5 + random.uniform(-0.25, 0.25)
-                mid_y = current_ground_y + random.uniform(0.3, 1.4)
-                dust_sparks.append({
-                    "x": mid_x, "y": mid_y, "z": mid_z,
-                    "life": 0.45,
-                    "color": random.choice([(255, 230, 80), (255, 120, 50), (240, 245, 255), (255, 180, 40)]),
-                    "r": random.uniform(4.0, 9.0),
-                })
+            elif phase < 5.8:
+                # PHASE 2: CARMELITO FLYING KICK & KNOCKS DOWN BELINO!
+                p = (phase - 2.8) / 3.0
+                if p < 0.32:
+                    # Carmelito leaps into the air with legs forward
+                    jump_p = p / 0.32
+                    jump_arc = math.sin(jump_p * math.pi)
+                    carm_wy = current_ground_y + jump_arc * 0.95
+                    carm_wx = mid_x - dir_x * (0.85 - jump_p * 0.42)
+                    carm_wz = mid_z - dir_z * (0.85 - jump_p * 0.42)
+                    carm_rot_x = 0.50  # Kick forward posture!
+                    carm_mouth = True
+                    bel_wx = mid_x + dir_x * 0.55
+                    bel_wz = mid_z + dir_z * 0.55
+                    action_banner_text = "FLYING KICK!"
+                elif p < 0.72:
+                    # IMPACT: Kick hits! Belino is knocked down flat on his back!
+                    fall_p = (p - 0.32) / 0.40
+                    carm_wy = current_ground_y
+                    carm_wx = mid_x - dir_x * 0.35
+                    carm_wz = mid_z - dir_z * 0.35
+                    carm_rot_x = 0.12
+                    bel_wx = mid_x + dir_x * (0.60 + fall_p * 0.90)
+                    bel_wz = mid_z + dir_z * (0.60 + fall_p * 0.90)
+                    # Belino knocked down onto the grass on his back:
+                    bel_rot_x = -1.30  # Knocked flat onto back!
+                    bel_wy = current_ground_y - 0.24
+                    bel_mouth = True
+                    bel_run_cycle = fight_timer * 6.0  # Legs kicking comically in the air
+                    bel_head_yaw = math.sin(fight_timer * 14.0) * 0.25
+                    action_banner_text = "BELINO KNOCKED DOWN!"
+                else:
+                    # Belino rolls back up onto his feet
+                    rec_p = (p - 0.72) / 0.28
+                    carm_wx = mid_x - dir_x * 0.65
+                    carm_wz = mid_z - dir_z * 0.65
+                    bel_wx = mid_x + dir_x * 1.50
+                    bel_wz = mid_z + dir_z * 1.50
+                    bel_rot_x = -1.30 * (1.0 - rec_p) + 0.10 * rec_p
+                    bel_wy = current_ground_y - 0.24 * (1.0 - rec_p)
+                    action_banner_text = "RECOVERING..."
 
-            # Update & render sparks
-            for spark in dust_sparks:
-                spark["life"] -= dt
-            dust_sparks = [sp for sp in dust_sparks if sp["life"] > 0.0]
+            elif phase < 8.8:
+                # PHASE 3: BELINO CHARGES & KNOCKS DOWN CARMELITO!
+                p = (phase - 5.8) / 3.0
+                if p < 0.32:
+                    # Belino charges forward with heavy push
+                    charge_p = p / 0.32
+                    bel_wx = mid_x + dir_x * (1.50 - charge_p * 1.15)
+                    bel_wz = mid_z + dir_z * (1.50 - charge_p * 1.15)
+                    bel_rot_x = 0.40  # Head-down charge
+                    bel_mouth = True
+                    carm_wx = mid_x - dir_x * 0.65
+                    carm_wz = mid_z - dir_z * 0.65
+                    action_banner_text = "HEAVY BELLY CHARGE!"
+                elif p < 0.72:
+                    # IMPACT: Belino knocks Carmelito down onto his back!
+                    knock_p = (p - 0.32) / 0.40
+                    bel_wx = mid_x + dir_x * 0.25
+                    bel_wz = mid_z + dir_z * 0.25
+                    bel_rot_x = 0.22
+                    bel_mouth = True
+                    carm_wx = mid_x - dir_x * (0.65 + knock_p * 0.90)
+                    carm_wz = mid_z - dir_z * (0.65 + knock_p * 0.90)
+                    # Carmelito knocked down onto the grass on his back:
+                    carm_rot_x = -1.30  # Knocked flat onto back!
+                    carm_wy = current_ground_y - 0.22
+                    carm_mouth = True
+                    carm_run_cycle = fight_timer * 6.0  # Legs kicking comically in air
+                    carm_head_yaw = math.sin(fight_timer * 14.0) * 0.25
+                    action_banner_text = "CARMELITO KNOCKED DOWN!"
+                else:
+                    # Carmelito springs back up onto his feet
+                    rec_p = (p - 0.72) / 0.28
+                    carm_wx = mid_x - dir_x * 1.55
+                    carm_wz = mid_z - dir_z * 1.55
+                    carm_rot_x = -1.30 * (1.0 - rec_p) + 0.06 * rec_p
+                    carm_wy = current_ground_y - 0.22 * (1.0 - rec_p)
+                    bel_wx = mid_x + dir_x * 0.55
+                    bel_wz = mid_z + dir_z * 0.55
+                    action_banner_text = "GETTING UP!"
 
-            for sp in dust_sparks:
-                sp_cam = to_cam(sp["x"], sp["y"], sp["z"])
-                if sp_cam[2] > near_z:
-                    sp_sx = round(hw + (sp_cam[0] / sp_cam[2]) * focal)
-                    sp_sy = round(hh - (sp_cam[1] / sp_cam[2]) * focal)
-                    sp_rad = max(2, round((sp["r"] / sp_cam[2]) * 0.15 * focal))
-                    pygame.draw.circle(screen, sp["color"], (sp_sx, sp_sy), sp_rad)
+            else:
+                # PHASE 4: MID-AIR JUMP KICKS & HIGH CLASH!
+                p = (phase - 8.8) / 2.2
+                jump_arc = math.sin(p * math.pi)
+                carm_wy = current_ground_y + jump_arc * 0.88
+                bel_wy = current_ground_y + jump_arc * 0.82
+                carm_wx = mid_x - dir_x * (0.80 - jump_arc * 0.35)
+                carm_wz = mid_z - dir_z * (0.80 - jump_arc * 0.35)
+                bel_wx = mid_x + dir_x * (0.80 - jump_arc * 0.35)
+                bel_wz = mid_z + dir_z * (0.80 - jump_arc * 0.35)
+                carm_rot_x = 0.42  # Flying rooster kick!
+                bel_rot_x = 0.38   # Flying rooster kick!
+                carm_mouth = True
+                bel_mouth = True
+                action_banner_text = "ROOSTER KICK CLASH!"
 
             # Sort Carmelito and Belino by camera depth
             carm_cam = to_cam(carm_wx, carm_wy, carm_wz)
             bel_cam = to_cam(bel_wx, bel_wy, bel_wz)
 
             combatants = [
-                (carm_cam[2], "carmelito", carm_wx, carm_wy, carm_wz, carm_cam, math.atan2(dir_x, dir_z), CARMELITO_WORLD_SCALE, CHICK_NAME),
-                (bel_cam[2], "pangdun", bel_wx, bel_wy, bel_wz, bel_cam, math.atan2(-dir_x, -dir_z), CARMELITO_WORLD_SCALE * 1.15, PANGDUN_NAME),
+                (carm_cam[2], "carmelito", carm_wx, carm_wy, carm_wz, carm_cam, math.atan2(dir_x, dir_z), carm_rot_x, carm_mouth, carm_run_cycle, carm_head_yaw, CARMELITO_WORLD_SCALE, CHICK_NAME),
+                (bel_cam[2], "pangdun", bel_wx, bel_wy, bel_wz, bel_cam, math.atan2(-dir_x, -dir_z), bel_rot_x, bel_mouth, bel_run_cycle, bel_head_yaw, CARMELITO_WORLD_SCALE * 1.15, PANGDUN_NAME),
             ]
             combatants.sort(key=lambda item: item[0], reverse=True)
 
-            for depth, c_char, c_wx, c_wy, c_wz, c_cam, face_ang, c_scale, c_name in combatants:
+            for depth, c_char, c_wx, c_wy, c_wz, c_cam, face_ang, c_rot_x, c_mouth, c_rcycle, c_hyaw, c_scale, c_name in combatants:
                 if c_cam[2] <= near_z:
                     continue
                 csx = hw + (c_cam[0] / c_cam[2]) * focal
                 csy = hh - (c_cam[1] / c_cam[2]) * focal
 
-                # Shadow beneath chick
-                c_sh_w = max(10, round((1.2 * (c_scale / CARMELITO_WORLD_SCALE) / c_cam[2]) * focal))
-                c_sh_h = max(4, round((0.40 * (c_scale / CARMELITO_WORLD_SCALE) / c_cam[2]) * focal))
-                pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, pygame.Rect(round(csx - c_sh_w * 0.5), round(csy - c_sh_h * 0.4), c_sh_w, c_sh_h))
+                # Shadow beneath chick (moves slightly if in mid-air jump)
+                ground_cam = to_cam(c_wx, current_ground_y, c_wz)
+                if ground_cam[2] > near_z:
+                    gsx = hw + (ground_cam[0] / ground_cam[2]) * focal
+                    gsy = hh - (ground_cam[1] / ground_cam[2]) * focal
+                    c_sh_w = max(10, round((1.2 * (c_scale / CARMELITO_WORLD_SCALE) / ground_cam[2]) * focal))
+                    c_sh_h = max(4, round((0.40 * (c_scale / CARMELITO_WORLD_SCALE) / ground_cam[2]) * focal))
+                    pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, pygame.Rect(round(gsx - c_sh_w * 0.5), round(gsy - c_sh_h * 0.4), c_sh_w, c_sh_h))
 
                 c_mscale = (c_scale / c_cam[2]) * focal
                 rel_rot_y = math.pi - (face_ang - total_yaw)
-                rel_rot_x = max(-0.55, min(0.65, 0.04 - total_pitch))
+                rel_rot_x = max(-1.45, min(0.95, c_rot_x - total_pitch))
 
                 model_3d.render(
                     surface=screen,
@@ -1469,10 +1567,10 @@ def main() -> None:
                     scale=c_mscale,
                     rot_y=rel_rot_y,
                     rot_x=rel_rot_x,
-                    head_yaw=math.sin(fight_timer * 12.0) * 0.22,
-                    head_pitch=math.cos(fight_timer * 10.0) * 0.18,
-                    mouth_open=True,
-                    run_cycle=fight_timer * 3.8,
+                    head_yaw=c_hyaw,
+                    head_pitch=-0.12 if c_rot_x < -0.5 else 0.10,
+                    mouth_open=c_mouth,
+                    run_cycle=c_rcycle,
                     is_running=True,
                     run_weight=1.0,
                     is_walking=False,
@@ -1482,7 +1580,8 @@ def main() -> None:
                 )
 
                 # Name badge floating above battling chick
-                lbl_cam = to_cam(c_wx, c_wy + 2.38 * c_scale, c_wz)
+                lbl_y = c_wy + (1.2 if c_rot_x < -0.5 else 2.38) * c_scale
+                lbl_cam = to_cam(c_wx, lbl_y, c_wz)
                 if lbl_cam[2] > near_z:
                     lsx = round(hw + (lbl_cam[0] / lbl_cam[2]) * focal)
                     lsy = round(hh - (lbl_cam[1] / lbl_cam[2]) * focal)
@@ -1641,7 +1740,8 @@ def main() -> None:
                     btn_outline = max(2, round(btn_px * 0.07))
 
                     # 1. Fight banner button at bottom center
-                    f_surf = get_outlined_text_surface("FIGHTING!", btn_px, outline_px=btn_outline)
+                    banner_txt = action_banner_text if action_banner_text else "FIGHTING!"
+                    f_surf = get_outlined_text_surface(banner_txt, btn_px, outline_px=btn_outline)
                     f_w = f_surf.get_width() + 40
                     f_h = f_surf.get_height() + 18
                     f_x = (win_w - f_w) // 2
