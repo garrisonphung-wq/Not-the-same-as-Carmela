@@ -537,6 +537,11 @@ def main() -> None:
     head_yaw = 0.0
     head_pitch = OVERVIEW_CAM_PITCH
 
+    # Offline overview rotation state (turned by dragging left mouse)
+    overview_yaw = 0.0
+    is_dragging_island = False
+    drag_start_pos: tuple[int, int] | None = None
+
     mouth_open = False
 
     # Natural automatic blinking + manual 'B' key blinking (for online player mode)
@@ -577,25 +582,37 @@ def main() -> None:
                     auto_blink_timer = random.uniform(2.8, 5.0)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # When clicking the PLAY button in offline mode: equip Carmelito and join the game!
-                if not is_online and play_button_rect.collidepoint(event.pos):
-                    is_online = True
-                    net.set_online(True)
-                    # Transition camera to ground-level Carmelito first-person view
-                    cam_x = ground_cam_x
-                    cam_z = ground_cam_z
-                    cam_yaw = ground_cam_yaw
-                    head_yaw = 0.0
-                    head_pitch = 0.0
+                if not is_online:
+                    if play_button_rect.collidepoint(event.pos):
+                        is_online = True
+                        net.set_online(True)
+                        # Transition camera to ground-level Carmelito first-person view
+                        cam_x = ground_cam_x
+                        cam_z = ground_cam_z
+                        cam_yaw = ground_cam_yaw
+                        head_yaw = 0.0
+                        head_pitch = 0.0
+                        is_dragging_island = False
+                    else:
+                        is_dragging_island = True
+                        drag_start_pos = event.pos
+            elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                is_dragging_island = False
+                drag_start_pos = None
+            elif event.type == pygame.MOUSEMOTION:
+                if not is_online and is_dragging_island:
+                    # Dragging mouse rotates the island view around its center
+                    overview_yaw += event.rel[0] * 0.008
 
         keys = pygame.key.get_pressed()
         win_w, win_h = screen.get_size()
 
-        # In offline mode: cannot move or turn, stare at the chick's giant island
+        # In offline mode: top-down view of the island, rotated by dragging mouse
         if not is_online:
             cam_x = OVERVIEW_CAM_X
             cam_y = OVERVIEW_CAM_Y
             cam_z = OVERVIEW_CAM_Z
-            cam_yaw = OVERVIEW_CAM_YAW
+            cam_yaw = overview_yaw
             head_yaw = 0.0
             head_pitch = OVERVIEW_CAM_PITCH
             total_yaw = cam_yaw
