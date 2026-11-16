@@ -58,6 +58,7 @@ class AICodeCompanion:
         self.is_walking = False
         self.is_running = False
         self.mouth_open = False
+        self.is_blinking = False
 
         # Independent AI decision state machine
         self.mode = "idle"
@@ -66,6 +67,7 @@ class AICodeCompanion:
         self.dest_z = self.wz
         self.head_timer = 1.0
         self.mouth_timer = 2.5
+        self.blink_timer = random.uniform(2.0, 4.5)
 
         self._host_started = False
 
@@ -149,9 +151,18 @@ class AICodeCompanion:
         self.mode_timer -= dt
         self.head_timer -= dt
         self.mouth_timer -= dt
+        self.blink_timer -= dt
 
         if self.mode_timer <= 0.0:
             self._choose_next_action()
+
+        if self.blink_timer <= 0.0:
+            if self.is_blinking:
+                self.is_blinking = False
+                self.blink_timer = random.uniform(0.16, 0.24) if random.random() < 0.18 else random.uniform(2.6, 5.0)
+            else:
+                self.is_blinking = True
+                self.blink_timer = 0.16
 
         if self.mouth_timer <= 0.0:
             if self.mouth_open:
@@ -318,6 +329,7 @@ class AICodeCompanion:
                     "running": self.is_running,
                     "walking": self.is_walking,
                     "mouth": self.mouth_open,
+                    "blink": self.is_blinking,
                     "rot_y": round(self.rot_y, 4),
                     "head_yaw": round(self.head_yaw, 4),
                     "head_pitch": round(self.head_pitch, 4),

@@ -3,7 +3,7 @@ carmelito_3d.py
 Faithful real-time 3D Polygonal Mesh Renderer for Carmelito (卡梅利多).
 Modeled meticulously to match the official illustrations from Christian Jolibois & Christian Heinrich:
 1. Expressive round head with prominent red 4-scalloped crown crest.
-2. Large white cartoon eyes with cute, small/medium dark pupils (not oversized).
+2. Large white cartoon eyes with cute, small/medium dark pupils (not oversized) + smooth blinking.
 3. Wide, short, blunt, rounded, bulbous duck/banana beak curving downward with a warm smile crease.
 4. SMOOTH LOCOMOTION BLENDING:
    - Standing: Relaxed arms hanging downward along torso, legs straight.
@@ -274,11 +274,12 @@ class Carmelito3D:
         walk_weight: float = 0.0,
         head_yaw: float = 0.0,
         head_pitch: float = 0.0,
+        blink: float = 0.0,
     ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
         """
         Builds Carmelito 3D model with 100% faithful storybook geometry:
         - Slender pear chick body (trim, upright, NOT fat)
-        - Big cartoon eyes with cute, small/medium dark pupils (not oversized)
+        - Big cartoon eyes with cute, small/medium dark pupils (not oversized) + blink
         - Wide, short, blunt, rounded banana beak
         - DISTINCT WALKING & RUNNING ANIMATIONS:
           * Walking: Natural relaxed stride, gentle arm pendulum swing, mild knee flex.
@@ -292,6 +293,7 @@ class Carmelito3D:
             rw = max(0.0, min(1.0, run_weight))
 
         ww = max(0.0, min(1.0, walk_weight))
+        blink_amt = max(0.0, min(1.0, blink))
         # Effective locomotion weights:
         loco_weight = max(rw, ww)
 
@@ -364,31 +366,63 @@ class Carmelito3D:
             )
             head_faces.extend(lobe)
 
-        # --- 3. EYES & PUPILS (Big white eyes with cute, small/medium dark pupils) ---
+        # --- 3. EYES & PUPILS (Big white eyes with cute dark pupils + smooth blink) ---
         eye_y = head_center_y + 0.11
         for eye_side in (-1, 1):
             ex = eye_side * 0.13
-            # White eye oval
-            eye_white = create_cube_grid(
-                center=(ex, eye_y, 0.29),
-                size=(0.20, 0.26, 0.12),
-                subdivisions=(4, 5, 2),
-                base_color=COLOR_EYE_WHITE,
-                roundness=0.8,
-                draw_contour=True,
-            )
-            head_faces.extend(eye_white)
+            if blink_amt < 0.82:
+                eye_h = max(0.045, 0.26 * (1.0 - 0.80 * blink_amt))
+                eye_r = max(0.20, 0.80 * (1.0 - 0.65 * blink_amt))
+                eye_white = create_cube_grid(
+                    center=(ex, eye_y, 0.29),
+                    size=(0.20, eye_h, 0.12),
+                    subdivisions=(4, 5, 2),
+                    base_color=COLOR_EYE_WHITE,
+                    roundness=eye_r,
+                    draw_contour=True,
+                )
+                head_faces.extend(eye_white)
 
-            # Cute, small/medium dark pupil (properly proportioned like the illustrations)
-            pupil = create_cube_grid(
-                center=(ex + eye_side * 0.012, eye_y - 0.01, 0.36),
-                size=(0.065, 0.085, 0.03),
-                subdivisions=(2, 2, 1),
-                base_color=COLOR_PUPIL_DARK,
-                roundness=0.6,
-                draw_contour=False,
-            )
-            head_faces.extend(pupil)
+                pupil_h = max(0.022, 0.085 * (1.0 - 0.76 * blink_amt))
+                pupil_r = max(0.18, 0.60 * (1.0 - 0.55 * blink_amt))
+                pupil = create_cube_grid(
+                    center=(ex + eye_side * 0.012, eye_y - 0.01, 0.36),
+                    size=(0.065, pupil_h, 0.03),
+                    subdivisions=(2, 2, 1),
+                    base_color=COLOR_PUPIL_DARK,
+                    roundness=pupil_r,
+                    draw_contour=False,
+                )
+                head_faces.extend(pupil)
+            else:
+                # Closed eyelid pad + cute curved dark blink crease
+                eyelid_pad = create_cube_grid(
+                    center=(ex, eye_y, 0.275),
+                    size=(0.19, 0.20, 0.10),
+                    subdivisions=(3, 3, 2),
+                    base_color=COLOR_BODY_PINK,
+                    roundness=0.55,
+                    draw_contour=False,
+                )
+                head_faces.extend(eyelid_pad)
+
+                lid_pts = [
+                    (ex - 0.075, eye_y + 0.008, 0.325),
+                    (ex - 0.028, eye_y - 0.014, 0.342),
+                    (ex + 0.028, eye_y - 0.014, 0.342),
+                    (ex + 0.075, eye_y + 0.008, 0.325),
+                ]
+                for i in range(len(lid_pts) - 1):
+                    head_faces.extend(
+                        create_oriented_box(
+                            lid_pts[i],
+                            lid_pts[i + 1],
+                            thickness=(0.022, 0.022),
+                            base_color=COLOR_PUPIL_DARK,
+                            subdiv_length=1,
+                            draw_contour=False,
+                        )
+                    )
 
         # --- 4. BEAK (HINGED V-JAW BANANA BEAK + INNER THROAT & TONGUE) ---
         beak_base_y = head_center_y - 0.16
@@ -1048,6 +1082,7 @@ class Carmelito3D:
         is_walking: bool = False,
         walk_weight: float = 0.0,
         draw_wireframe: bool = False,
+        blink: float = 0.0,
     ) -> None:
         """
         Projects and renders Carmelito in authentic storybook 3D.
@@ -1063,6 +1098,7 @@ class Carmelito3D:
             walk_weight=walk_weight,
             head_yaw=head_yaw,
             head_pitch=head_pitch,
+            blink=blink,
         )
 
         cos_y = math.cos(rot_y)
@@ -1124,7 +1160,7 @@ class Carmelito3D:
 
             avg_z = sum_z / len(trans_verts)
 
-            # Priority offset for pupils so they are guaranteed to render on top of eyes
+            # Priority offset for pupils / closed blink lines so they render cleanly on top of eyes
             if base_col == COLOR_PUPIL_DARK:
                 avg_z += 0.20
 

@@ -86,6 +86,7 @@ class GameRelayServer:
             "running": False,
             "walking": False,
             "mouth": False,
+            "blink": False,
             "rot_y": 0.0,
             "head_yaw": 0.0,
             "head_pitch": 0.0,
@@ -117,6 +118,7 @@ class GameRelayServer:
                     "running": False,
                     "walking": False,
                     "mouth": False,
+                    "blink": False,
                     "rot_y": 0.0,
                     "head_yaw": 0.0,
                     "head_pitch": 0.0,
@@ -148,6 +150,7 @@ class GameRelayServer:
                     p["running"] = bool(data.get("running", False))
                     p["walking"] = bool(data.get("walking", False))
                     p["mouth"] = bool(data.get("mouth", False))
+                    p["blink"] = bool(data.get("blink", False))
                     p["rot_y"] = safe_float(data.get("rot_y", p["rot_y"]), p["rot_y"], limit=100.0)
                     p["head_yaw"] = safe_float(data.get("head_yaw", p["head_yaw"]), p["head_yaw"], limit=10.0)
                     p["head_pitch"] = safe_float(data.get("head_pitch", p["head_pitch"]), p["head_pitch"], limit=10.0)
@@ -168,6 +171,7 @@ class GameRelayServer:
                         "running": p["running"],
                         "walking": p["walking"],
                         "mouth": p["mouth"],
+                        "blink": p["blink"],
                         "rot_y": p["rot_y"],
                         "head_yaw": p["head_yaw"],
                         "head_pitch": p["head_pitch"],
@@ -216,8 +220,14 @@ async def run_server(
             await asyncio.Future()
 
 
-if __name__ == "__main__":
+def main() -> None:
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", "8765"))
     try:
-        asyncio.run(run_server(port=int(os.environ.get("PORT", "8765"))))
+        asyncio.run(run_server(host=host, port=port))
     except KeyboardInterrupt:
         print("\nServer stopped.")
+
+
+if __name__ == "__main__":
+    main()
