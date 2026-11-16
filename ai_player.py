@@ -11,7 +11,7 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
 import server as game_server
-from carmelito_ai_brain import CarmelitoBrain
+from carmelito_ai_brain import CarmelitoBrain, PangdunBrain
 
 CHICK_NAME = "卡梅利多"
 
@@ -36,12 +36,16 @@ class AICodeCompanion:
     def __init__(
         self,
         server_url: str = "ws://127.0.0.1:8765",
-        name: str = "Antigravity (AI)",
+        name: str = "小胖墩 (AI)",
         auto_host: bool = True,
+        character: str = "pangdun",
+        chick_name: str = "小胖墩",
     ) -> None:
         self.server_url = server_url
         self.name = name
         self.auto_host = auto_host
+        self.character = character
+        self.chick_name = chick_name
 
         self.my_id: int | None = None
         self.my_color: list[int] = [120, 195, 255]
@@ -72,7 +76,7 @@ class AICodeCompanion:
         self.blink_timer = random.uniform(2.0, 4.5)
         self.chat_timer = random.uniform(6.0, 14.0)
         self._pending_chats: list[tuple[float, str]] = []  # (send_time, chat_text)
-        self.brain = CarmelitoBrain()
+        self.brain = PangdunBrain() if (character.lower() in ("pangdun", "小胖墩", "belino")) else CarmelitoBrain()
 
         self._host_started = False
 
@@ -240,14 +244,14 @@ class AICodeCompanion:
         self.head_pitch += (self.target_head_pitch - self.head_pitch) * head_alpha
 
     async def run(self) -> None:
-        print(f"🤖 {self.name} ({CHICK_NAME}) connecting to {self.server_url}...", flush=True)
+        print(f"🤖 {self.name} ({self.chick_name}) connecting to {self.server_url}...", flush=True)
         is_local, port = is_local_server_url(self.server_url)
 
         first_retry = True
         while True:
             try:
                 async with connect(self.server_url, ping_interval=15, ping_timeout=15) as ws:
-                    print(f"🤖 {self.name} ({CHICK_NAME}) connected!", flush=True)
+                    print(f"🤖 {self.name} ({self.chick_name}) connected!", flush=True)
                     first_retry = True
                     send_task = asyncio.create_task(self._motion_loop(ws))
                     recv_task = asyncio.create_task(self._listen_loop(ws))
@@ -376,7 +380,8 @@ class AICodeCompanion:
                     "head_yaw": round(self.head_yaw, 4),
                     "head_pitch": round(self.head_pitch, 4),
                     "is_carmelito": True,
-                    "chick_name": CHICK_NAME,
+                    "chick_name": self.chick_name,
+                    "character": self.character,
                     "name": self.name,
                 },
                 separators=(",", ":"),
@@ -392,7 +397,9 @@ class AICodeCompanion:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Antigravity AI companion")
     parser.add_argument("--server", default="ws://127.0.0.1:8765")
-    parser.add_argument("--name", default="Antigravity (AI)")
+    parser.add_argument("--name", default="小胖墩 (AI)")
+    parser.add_argument("--character", default="pangdun")
+    parser.add_argument("--chick", default="小胖墩")
     parser.add_argument("--no-auto-host", action="store_true")
     args = parser.parse_args()
 
@@ -400,6 +407,8 @@ def main() -> None:
         server_url=args.server,
         name=args.name,
         auto_host=not args.no_auto_host,
+        character=args.character,
+        chick_name=args.chick,
     )
     try:
         asyncio.run(bot.run())

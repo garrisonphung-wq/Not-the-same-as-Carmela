@@ -37,6 +37,13 @@ COLOR_CARMEN_BEAK = (248, 156, 38)      # Carmen's warm orange-yellow beak
 COLOR_CARMEN_LEG = (238, 148, 35)       # Carmen's slender orange-yellow legs
 COLOR_CARMEN_INK = (72, 44, 18)         # Warm storybook brown-ink outline
 
+# Belino / Coquenpâte (小胖墩) Palette - Fat white rooster rival:
+COLOR_PANGDUN_WHITE = (246, 247, 252)   # Plump white down feathers
+COLOR_PANGDUN_COMB = (222, 38, 34)      # Bright prominent rooster comb
+COLOR_PANGDUN_BEAK = (242, 168, 40)     # Sturdy orange-yellow beak
+COLOR_PANGDUN_LEG = (235, 152, 36)      # Chunky yellow-orange legs
+COLOR_PANGDUN_INK = (42, 40, 52)        # Sharp comic ink outline
+
 
 def create_cube_grid(
     center: tuple[float, float, float],
@@ -295,12 +302,30 @@ class Carmelito3D:
           * Standing: Fully relaxed arms and straight posture.
         - 4-lobe red crown comb.
         """
-        # Pick palette according to character: Carmen (yellow chick) vs Carmelito (pink chick)
-        is_carmen = (character.lower() in ("carmen", "卡门"))
-        body_col = COLOR_CARMEN_YELLOW if is_carmen else COLOR_BODY_PINK
-        comb_col = COLOR_CARMEN_COMB if is_carmen else COLOR_COMB_RED
-        beak_col = COLOR_CARMEN_BEAK if is_carmen else COLOR_BEAK_YELLOW
-        leg_col = COLOR_CARMEN_LEG if is_carmen else COLOR_LEG_YELLOW
+        # Pick palette and proportions according to character
+        char_lower = character.lower()
+        is_carmen = (char_lower in ("carmen", "卡门"))
+        is_pangdun = (char_lower in ("pangdun", "小胖墩", "belino", "coquenpate"))
+
+        if is_carmen:
+            body_col = COLOR_CARMEN_YELLOW
+            comb_col = COLOR_CARMEN_COMB
+            beak_col = COLOR_CARMEN_BEAK
+            leg_col = COLOR_CARMEN_LEG
+        elif is_pangdun:
+            body_col = COLOR_PANGDUN_WHITE
+            comb_col = COLOR_PANGDUN_COMB
+            beak_col = COLOR_PANGDUN_BEAK
+            leg_col = COLOR_PANGDUN_LEG
+        else:
+            body_col = COLOR_BODY_PINK
+            comb_col = COLOR_COMB_RED
+            beak_col = COLOR_BEAK_YELLOW
+            leg_col = COLOR_LEG_YELLOW
+
+        # Extra plumpness for 小胖墩 (fat white chicken)
+        fat_w = 1.26 if is_pangdun else 1.0
+        fat_d = 1.20 if is_pangdun else 1.0
 
         if run_weight is None:
             rw = 1.0 if is_running else 0.0
@@ -329,7 +354,7 @@ class Carmelito3D:
         head_center_y = 1.56 + bob_y
         head = create_cube_grid(
             center=(0.0, head_center_y, 0.0),
-            size=(0.58, 0.58, 0.58),
+            size=(0.58 * fat_w, 0.58, 0.58 * fat_d),
             subdivisions=(7, 6, 6),
             base_color=body_col,
             taper_y=0.15,
@@ -572,7 +597,7 @@ class Carmelito3D:
         body_center_y = 0.88 + bob_y
         body = create_cube_grid(
             center=(0.0, body_center_y, -0.02),
-            size=(0.54, 0.74, 0.52),
+            size=(0.54 * fat_w, 0.74, 0.52 * fat_d),
             subdivisions=(7, 6, 6),
             base_color=body_col,
             taper_y=-0.22,
@@ -582,8 +607,8 @@ class Carmelito3D:
         all_faces.extend(body)
 
         belly = create_cube_grid(
-            center=(0.0, body_center_y - 0.06, 0.12),
-            size=(0.40, 0.40, 0.18),
+            center=(0.0, body_center_y - 0.06, 0.12 * fat_d),
+            size=(0.40 * fat_w, 0.40, 0.18 * fat_d),
             subdivisions=(4, 4, 3),
             base_color=body_col,
             roundness=0.75,
@@ -898,10 +923,19 @@ class Carmelito3D:
         walk_weight: float = 0.0,
         character: str = "carmelito",
     ) -> tuple[list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]], list[tuple[float, float, float]]]:
-        is_carmen = (character.lower() in ("carmen", "卡门"))
-        body_col = COLOR_CARMEN_YELLOW if is_carmen else COLOR_BODY_PINK
-        leg_col = COLOR_CARMEN_LEG if is_carmen else COLOR_LEG_YELLOW
-        char_scale_mult = 0.82 if is_carmen else 1.0
+        char_l = character.lower()
+        if char_l in ("carmen", "卡门"):
+            body_col = COLOR_CARMEN_YELLOW
+            leg_col = COLOR_CARMEN_LEG
+            char_scale_mult = 0.82
+        elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
+            body_col = COLOR_PANGDUN_WHITE
+            leg_col = COLOR_PANGDUN_LEG
+            char_scale_mult = 1.15
+        else:
+            body_col = COLOR_BODY_PINK
+            leg_col = COLOR_LEG_YELLOW
+            char_scale_mult = 1.0
         """
         Builds Carmelito's lower pink torso + drumstick thigh cuffs connected through
         2-link IK yellow legs (thigh, knee, shank, ankle) into his 3-toed feet on the
@@ -1109,8 +1143,13 @@ class Carmelito3D:
         Projects and renders Carmelito in authentic storybook 3D.
         Uses Painter's algorithm with soft cel lighting and inked contour line art.
         """
-        is_carmen = (character.lower() in ("carmen", "卡门"))
-        char_scale_mult = 0.82 if is_carmen else 1.0
+        char_l = character.lower()
+        if char_l in ("carmen", "卡门"):
+            char_scale_mult = 0.82
+        elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
+            char_scale_mult = 1.15  # Plump fat chicken is larger!
+        else:
+            char_scale_mult = 1.0
         scale = scale * char_scale_mult
 
         cx_screen, cy_screen = screen_pos
@@ -1200,7 +1239,13 @@ class Carmelito3D:
             if len(pts) >= 3:
                 pygame.draw.polygon(surface, f_col, pts)
                 if draw_ink:
-                    ink_color = COLOR_CARMEN_INK if (character.lower() in ("carmen", "卡门")) else COLOR_INK_LINE
+                    char_l = character.lower()
+                    if char_l in ("carmen", "卡门"):
+                        ink_color = COLOR_CARMEN_INK
+                    elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
+                        ink_color = COLOR_PANGDUN_INK
+                    else:
+                        ink_color = COLOR_INK_LINE
                     pygame.draw.polygon(surface, ink_color, pts, 1)
                 elif draw_wireframe:
                     pygame.draw.polygon(surface, COLOR_INK_LINE, pts, 1)
@@ -1224,9 +1269,21 @@ class Carmelito3D:
         """
         w, h = surface.get_size()
         cx_screen = w * 0.5
-        is_carmen = (character.lower() in ("carmen", "卡门"))
-        cy_screen = h * (0.90 if is_carmen else 0.88) + head_bob_y * 120.0
-        scale = h * (0.45 if is_carmen else 0.55)
+        char_l = character.lower()
+        is_carmen = (char_l in ("carmen", "卡门"))
+        is_pangdun = (char_l in ("pangdun", "小胖墩", "belino", "coquenpate"))
+        if is_carmen:
+            cy_screen = h * 0.90 + head_bob_y * 120.0
+            scale = h * 0.45
+            beak_color = COLOR_CARMEN_BEAK
+        elif is_pangdun:
+            cy_screen = h * 0.86 + head_bob_y * 120.0
+            scale = h * 0.62  # Chunky prominent beak for 小胖墩
+            beak_color = COLOR_PANGDUN_BEAK
+        else:
+            cy_screen = h * 0.88 + head_bob_y * 120.0
+            scale = h * 0.55
+            beak_color = COLOR_BEAK_YELLOW
 
         # Build Beak & Mouth faces in POV local coords
         # Eye camera is at (0, 0, 0), looking down +Z with slight downward pitch

@@ -20,6 +20,7 @@ from carmelito_3d import COLOR_INK_LINE, Carmelito3D
 WINDOW_TITLE = "不一样的卡梅拉"
 CHICK_NAME = "卡梅利多"
 CARMEN_NAME = "卡门"
+PANGDUN_NAME = "小胖墩"
 DEFAULT_SERVER_URL = os.environ.get("GAME_SERVER_URL", "ws://127.0.0.1:8765")
 
 # Pure white sky/background, seamless lush green grass ground (no grid)
@@ -536,7 +537,7 @@ class NetworkClient:
             "color": tuple(int(c) for c in raw_color),
             "name": pdata.get("name"),
             "chick_name": pdata.get("chick_name") or CHICK_NAME,
-            "character": pdata.get("character") or ("carmen" if pdata.get("chick_name") in ("卡门", "Carmen") else "carmelito"),
+            "character": pdata.get("character") or ("carmen" if pdata.get("chick_name") in ("卡门", "Carmen") else ("pangdun" if pdata.get("chick_name") in ("小胖墩", "Belino", "Coquenpâte") else "carmelito")),
             "is_carmelito": bool(pdata.get("is_carmelito", True)),
         }
 
@@ -653,6 +654,7 @@ def main() -> None:
     menu_state = "title"  # "title" -> "character_select" -> "character_used"
     use_carmelito_rect = pygame.Rect(-100, -100, 0, 0)
     use_carmen_rect = pygame.Rect(-100, -100, 0, 0)
+    use_pangdun_rect = pygame.Rect(-100, -100, 0, 0)
     selected_character = "carmelito"
     selected_chick_name = CHICK_NAME
     has_selected_character = False
@@ -774,6 +776,14 @@ def main() -> None:
                             # Select Carmen (yellow chick)
                             selected_character = "carmen"
                             selected_chick_name = CARMEN_NAME
+                            has_selected_character = True
+                            menu_state = "character_used"
+                            net.set_character(selected_character, selected_chick_name)
+                            is_dragging_island = False
+                        elif use_pangdun_rect.collidepoint(event.pos):
+                            # Select Belino / 小胖墩 (fat white chicken)
+                            selected_character = "pangdun"
+                            selected_chick_name = PANGDUN_NAME
                             has_selected_character = True
                             menu_state = "character_used"
                             net.set_character(selected_character, selected_chick_name)
@@ -1017,10 +1027,17 @@ def main() -> None:
         near_z = 0.25
         half_fov_tan = hw / focal
 
-        # Carmen is Carmelito's shorter younger sister, so her vision height is noticeably lower!
-        # When online as Carmen, ground is closer to eyes (eye height = 2.25 vs Carmelito's 3.0)
+        # Eye height adjustments:
+        # Carmen (younger sister): shorter eye level (eye height = 2.25 vs 3.0)
+        # 小胖墩 (fat chicken): slightly taller/heavier stance (eye height = 3.30)
         is_playing_carmen = (is_online and selected_character == "carmen")
-        current_ground_y = (GROUND_Y * 0.75) if is_playing_carmen else GROUND_Y
+        is_playing_pangdun = (is_online and selected_character == "pangdun")
+        if is_playing_carmen:
+            current_ground_y = GROUND_Y * 0.75
+        elif is_playing_pangdun:
+            current_ground_y = GROUND_Y * 1.10
+        else:
+            current_ground_y = GROUND_Y
 
         def to_cam(wx: float, wy: float, wz: float) -> tuple[float, float, float]:
             dx = wx - cam_x
@@ -1173,7 +1190,7 @@ def main() -> None:
                 shadow_rect = pygame.Rect(round(sx - sh_w * 0.5), round(sy - sh_h * 0.4), sh_w, sh_h)
                 pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, shadow_rect)
 
-                model_scale = (CARMELITO_WORLD_SCALE / rz_p) * focal
+                model_scale = (rem_scale / rz_p) * focal
                 rel_rot_y = math.pi - (rs["rot_y"] - total_yaw)
                 rel_rot_x = max(-0.55, min(0.65, 0.04 - total_pitch))
 
@@ -1199,7 +1216,12 @@ def main() -> None:
                 # Floating nameplates above Carmelito's comb:
                 # 1) Chicken's Chinese name ("卡梅利多")
                 # 2) AI / player's name (e.g. "Antigravity (AI)") stacked right above it
-                rem_scale = CARMELITO_WORLD_SCALE * (0.82 if remote_char == "carmen" else 1.0)
+                if remote_char == "carmen":
+                    rem_scale = CARMELITO_WORLD_SCALE * 0.82
+                elif remote_char in ("pangdun", "小胖墩", "belino"):
+                    rem_scale = CARMELITO_WORLD_SCALE * 1.15
+                else:
+                    rem_scale = CARMELITO_WORLD_SCALE
                 label_cam = to_cam(rs["wx"], current_ground_y + 2.38 * rem_scale, rs["wz"])
                 if label_cam[2] > near_z:
                     lsx = round(hw + (label_cam[0] / label_cam[2]) * focal)
@@ -1464,26 +1486,26 @@ def main() -> None:
                 screen.blit(play_surf, (play_x, play_y))
 
             elif menu_state in ("character_select", "character_used"):
-                # Initial buttons below title disappear, replaced by side-by-side cards: Carmelito & Carmen!
+                # Initial buttons below title disappear, replaced by cards: Carmelito, Carmen & 小胖墩!
                 play_button_rect = pygame.Rect(-100, -100, 0, 0)
 
-                card_w = min(160, round(win_h * 0.20))
-                card_h = min(175, round(win_h * 0.22))
-                card_gap = max(28, round(win_w * 0.04))
-                total_w = card_w * 2 + card_gap
-                left_x = (win_w - total_w) // 2
-                right_x = left_x + card_w + card_gap
-                card_y = title_y + title_surf.get_height() + max(12, round(win_h * 0.02))
+                card_w = min(150, round(win_h * 0.18))
+                card_h = min(168, round(win_h * 0.20))
+                card_gap = max(18, round(win_w * 0.025))
+                total_w = card_w * 3 + card_gap * 2
+                start_x = (win_w - total_w) // 2
+                card_y = title_y + title_surf.get_height() + max(10, round(win_h * 0.018))
 
                 characters_data = [
-                    ("carmelito", CHICK_NAME, left_x),
-                    ("carmen", CARMEN_NAME, right_x),
+                    ("carmelito", CHICK_NAME, start_x),
+                    ("carmen", CARMEN_NAME, start_x + card_w + card_gap),
+                    ("pangdun", PANGDUN_NAME, start_x + (card_w + card_gap) * 2),
                 ]
 
                 spin_yaw = anim_time * 1.6
-                name_px = max(20, min(36, ((round(title_px * 0.50)) // 2) * 2))
+                name_px = max(18, min(34, ((round(title_px * 0.46)) // 2) * 2))
                 name_outline_px = max(2, round(name_px * 0.07))
-                use_px = max(18, min(32, ((round(title_px * 0.44)) // 2) * 2))
+                use_px = max(16, min(30, ((round(title_px * 0.40)) // 2) * 2))
                 use_outline_px = max(2, round(use_px * 0.07))
 
                 bottom_use_y = card_y
@@ -1499,8 +1521,8 @@ def main() -> None:
                     # Render 3D chick spinning inside card
                     model_3d.render(
                         surface=screen,
-                        screen_pos=(cx + card_w // 2, card_y + card_h - 16),
-                        scale=round(card_h * 0.44),
+                        screen_pos=(cx + card_w // 2, card_y + card_h - 14),
+                        scale=round(card_h * 0.42),
                         rot_y=spin_yaw,
                         rot_x=0.08,
                         head_yaw=0.0,
@@ -1518,7 +1540,7 @@ def main() -> None:
                     # Character name below picture
                     n_surf = get_outlined_text_surface(char_name, name_px, outline_px=name_outline_px)
                     nx = cx + (card_w - n_surf.get_width()) // 2
-                    ny = card_y + card_h + max(8, round(win_h * 0.014))
+                    ny = card_y + card_h + max(6, round(win_h * 0.012))
                     screen.blit(n_surf, (nx, ny))
 
                     # USE button below name: green if equipped, red if unequipped (white text with black outline)
@@ -1532,7 +1554,7 @@ def main() -> None:
                         outline_color=(0, 0, 0),
                     )
                     ux = cx + (card_w - u_surf.get_width()) // 2
-                    uy = ny + n_surf.get_height() + max(8, round(win_h * 0.014))
+                    uy = ny + n_surf.get_height() + max(6, round(win_h * 0.012))
                     u_rect = pygame.Rect(
                         ux - 12,
                         uy - 5,
@@ -1545,16 +1567,18 @@ def main() -> None:
 
                     if char_id == "carmelito":
                         use_carmelito_rect = u_rect
-                    else:
+                    elif char_id == "carmen":
                         use_carmen_rect = u_rect
+                    else:
+                        use_pangdun_rect = u_rect
 
-                # When a character is equipped, spawn the PLAY button centered below both cards
+                # When a character is equipped, spawn the PLAY button centered below the cards
                 if menu_state == "character_used":
                     play_px = max(24, min(44, ((round(title_px * 0.54)) // 2) * 2))
                     play_outline_px = max(2, round(play_px * 0.07))
                     play_surf = get_outlined_text_surface("PLAY", play_px, outline_px=play_outline_px)
                     play_x = (win_w - play_surf.get_width()) // 2
-                    play_y = bottom_use_y + max(12, round(win_h * 0.022))
+                    play_y = bottom_use_y + max(10, round(win_h * 0.018))
                     play_button_rect = pygame.Rect(
                         play_x - 14,
                         play_y - 6,

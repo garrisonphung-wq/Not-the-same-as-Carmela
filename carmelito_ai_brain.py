@@ -316,3 +316,125 @@ class CarmelitoBrain:
             "Haha, cluck cluck! Having you here makes this island so much fun!",
         ]
         return random.choice(generic_replies)
+
+
+class PangdunBrain:
+    """
+    Conversational AI engine for Belino / Coquenpâte (小胖墩).
+    Personality:
+    - Fat, boastful, competitive white chicken.
+    - Constant rival to Carmelito: loves to bicker, challenge him to fights/wrestling,
+      brag about his strength/size, and fight over food and turf!
+    """
+
+    def __init__(self) -> None:
+        self.gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        self.openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+        self.ollama_url = os.environ.get("OLLAMA_HOST", "").strip()
+
+    def generate_reply(self, message: str, player_name: str = "Carmelito") -> str:
+        msg = message.strip()
+        if not msg:
+            return "咕咕！看什么看？" if is_chinese_text(player_name) else "Cluck! What are you looking at?"
+
+        is_cn = is_chinese_text(msg) or is_chinese_text(player_name)
+        return self._reply_chinese(msg, player_name) if is_cn else self._reply_english(msg, player_name)
+
+    def _reply_chinese(self, msg: str, player_name: str) -> str:
+        t = clean_text(msg).lower()
+
+        # Fighting / Challenging
+        if any(w in t for w in ["打", "架", "决斗", "挑战", "打架", "单挑", "比试", "撞", "踢", "推", "揍", "fight", "duel", "battle"]):
+            return random.choice([
+                f"哼！{player_name}，想跟我小胖墩打架？来啊，看我不把你撞翻！",
+                "看我的铁公鸡飞扑！我这一屁股坐下去，你可别哭鼻子！咕咕！",
+                f"哈哈！{player_name}，别以为你羽毛红就神气，有种跟我大战三百回合！",
+                "来啊！今天谁先退后一步，谁就是软脚鸡！吃我一记飞踢！",
+                "怕你我就不是小胖墩！看招——泰山压顶！咕咕咕！",
+            ])
+
+        # Food / Eating
+        if any(w in t for w in ["吃", "玉米", "米", "虫", "好吃的", "胖", "肥", "肉", "饭", "粮"]):
+            return random.choice([
+                "今天这片草地上最肥的虫子和最大颗的玉米粒，全是我小胖墩的！",
+                "说我胖？我这叫强壮！懂不懂什么叫公鸡的力量！咕咕！",
+                "别想跟我抢吃的！谁敢动我的玉米，我就跟谁决斗！",
+                "等我吃饱了这袋麦粒，浑身都是力气，随时奉陪！",
+            ])
+
+        # Speed / Racing / Running
+        if any(w in t for w in ["跑", "快", "慢", "比", "赛跑", "追", "跑步"]):
+            return random.choice([
+                f"跑得快有什么用？比力气你根本不是我的对手！哼！",
+                "敢笑我跑得慢？看我全力冲撞，冲起来像个大雪球！",
+                "有本事别躲，正面跟我撞一下试试！咕咕！",
+            ])
+
+        # Carmelito / Sister Carmen mentions
+        if any(w in t for w in ["卡梅利多", "卡门", "妹妹", "红", "黄"]):
+            return random.choice([
+                "卡梅利多，又是你！天天想看什么大海，老老实实在草地上跟我分个胜负！",
+                "哼，你们兄妹俩加在一起，也休想在力气上赢过我小胖墩！",
+                "卡梅利多你别神气！下一次鸡舍摔跤大赛冠军肯定是我！",
+            ])
+
+        # Greetings
+        if any(w in t for w in ["你好", "嗨", "哈喽", "hello", "hi", "早", "在吗"]):
+            return random.choice([
+                f"喂，{player_name}！鬼鬼祟祟的干嘛？想找我小胖墩比划比划吗？",
+                "咕咕！又是你！今天别想抢我的地盘！",
+                "哼！本大爷在此，有什么事快说，打架随时奉陪！",
+            ])
+
+        # Generic Rivalry / Banter Fallback
+        return random.choice([
+            f"哼！'{msg}'？听起来像是在挑衅！有本事手底下见真章！",
+            f"{player_name}，别光动嘴皮子！敢跟我小胖墩比比力气吗？咕咕！",
+            "看什么看？这片草地现在归我小胖墩管！不服就来撞！",
+            "咕咕咕！我的大肚子可不是摆设，一撞就能把你弹到海里去！",
+            "少啰嗦！今天我小胖墩就要证明谁才是鸡舍最强的公鸡！",
+        ])
+
+    def _reply_english(self, msg: str, player_name: str) -> str:
+        t = clean_text(msg).lower()
+
+        # Fighting / Challenging
+        if any(w in t for w in ["fight", "duel", "hit", "punch", "kick", "tackle", "brawl", "challenge", "battle"]):
+            return random.choice([
+                f"Hmph! You wanna fight me, Belino?! Square up, {player_name}!",
+                "Watch out for my heavy belly-flop tackle! Cluck cluck!",
+                f"Think you can take me down, {player_name}? I weigh twice as much as you!",
+                "Bring it on! First one to hit the grass loses! Cluck!",
+                "Eat my flying rooster charge! Nobody messes with Belino!",
+            ])
+
+        # Food / Fat / Weight
+        if any(w in t for w in ["fat", "chubby", "eat", "food", "corn", "worm", "grain", "heavy"]):
+            return random.choice([
+                "I'm not fat, I'm pure rooster muscle and power! Cluck!",
+                "All the tastiest corn and juiciest worms on this island belong to ME!",
+                "Touch my stash of grains and you're getting tackled!",
+            ])
+
+        # Speed / Running
+        if any(w in t for w in ["run", "slow", "fast", "race", "speed"]):
+            return random.choice([
+                "Speed means nothing! One direct body slam from me and you're flying!",
+                "Laugh at my waddle? When I charge, I hit like a cannonball! Cluck cluck!",
+            ])
+
+        # Greetings
+        if any(w in t for w in ["hi", "hello", "hey", "sup", "yo"]):
+            return random.choice([
+                f"Hey, {player_name}! What are you staring at? Looking for a fight?",
+                "Hmph! Steer clear of my territory unless you want a wrestling match!",
+                "Cluck! Big Belino is here! Don't get in my way!",
+            ])
+
+        # Fallback banter
+        return random.choice([
+            f"Hmph! '{msg}'? Sounds like fighting words to me!",
+            f"{player_name}, stop chirping and let's see who's tougher! Cluck cluck!",
+            "Nobody pushes Belino around! I'm the strongest rooster on this island!",
+            "Cluck! One belly bump from me will send you rolling right into the grass!",
+        ])
