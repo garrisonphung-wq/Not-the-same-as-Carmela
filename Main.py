@@ -697,10 +697,6 @@ def main() -> None:
                             pygame.key.stop_text_input()
                     elif event.key == pygame.K_BACKSPACE:
                         chat_input_text = chat_input_text[:-1]
-                    else:
-                        # Fallback for key unicode if TEXTINPUT event was not fired
-                        if event.unicode and ord(event.unicode) >= 32 and len(chat_input_text) < 60:
-                            chat_input_text += event.unicode
                 else:
                     if event.key == pygame.K_ESCAPE:
                         running = False
