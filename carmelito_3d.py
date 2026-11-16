@@ -415,13 +415,17 @@ class Carmelito3D:
             )
             head_faces.extend(neck)
 
-        # --- 2. COMB / CREST (Carmelito's distinctive 4-lobed red rooster comb) ---
-        comb_y = head_center_y + 0.29
+        # --- 2. COMB / CREST (Red rooster comb on top of head) ---
+        # Belino's red comb is distinctly shorter and sits compactly on his skull
+        comb_h_mult = 0.52 if is_pangdun else 1.0
+        comb_y_shift = -0.05 if is_pangdun else 0.0
+        comb_y = head_center_y + 0.29 + comb_y_shift
+
         lobe_data = [
-            ((0.0, 0.12, 0.10), (0.13, 0.30, 0.16), (2, 4, 3)),   # Lobe 1 (tall front)
-            ((0.0, 0.08, -0.01), (0.13, 0.28, 0.16), (2, 4, 3)),  # Lobe 2
-            ((0.0, 0.03, -0.12), (0.12, 0.24, 0.15), (2, 3, 3)),  # Lobe 3
-            ((0.0, -0.04, -0.21), (0.11, 0.18, 0.13), (2, 3, 3)), # Lobe 4 (back small)
+            ((0.0, 0.12 * comb_h_mult, 0.10), (0.13, 0.30 * comb_h_mult, 0.16), (2, 4, 3)),   # Lobe 1
+            ((0.0, 0.08 * comb_h_mult, -0.01), (0.13, 0.28 * comb_h_mult, 0.16), (2, 4, 3)),  # Lobe 2
+            ((0.0, 0.03 * comb_h_mult, -0.12), (0.12, 0.24 * comb_h_mult, 0.15), (2, 3, 3)),  # Lobe 3
+            ((0.0, -0.04 * comb_h_mult, -0.21), (0.11, 0.18 * comb_h_mult, 0.13), (2, 3, 3)), # Lobe 4
         ]
         for (dx, dy, dz), (lsx, lsy, lsz), ldiv in lobe_data:
             lobe = create_cube_grid(
