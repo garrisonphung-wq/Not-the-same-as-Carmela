@@ -141,6 +141,65 @@ def get_nameplate_surface(
     return badge
 
 
+def draw_chat_bubble(
+    surface: pygame.Surface,
+    text: str,
+    center_x: int,
+    bottom_y: int,
+    font_size: int,
+    alpha: float,
+    tail_direction: str = "down",
+) -> int:
+    """
+    Draws a cute storybook chat bubble with rounded corners and a small tail.
+    Returns the total height of the bubble so stacked bubbles can offset upward.
+    """
+    if alpha <= 0.01:
+        return 0
+
+    font = get_chinese_font(font_size)
+    txt_surf = font.render(text, True, (35, 42, 50))
+    pad_x = max(12, round(font_size * 0.6))
+    pad_y = max(8, round(font_size * 0.4))
+    bw = txt_surf.get_width() + pad_x * 2
+    bh = txt_surf.get_height() + pad_y * 2
+    tail_h = max(6, round(font_size * 0.28))
+    tail_w = max(8, round(font_size * 0.38))
+
+    bubble_surf = pygame.Surface((bw + 8, bh + tail_h + 8), pygame.SRCALPHA)
+    rect = pygame.Rect(4, 4, bw, bh)
+    alpha_byte = max(0, min(255, round(255 * alpha)))
+
+    # Bubble background & outline
+    pygame.draw.rect(bubble_surf, (255, 255, 255, min(245, alpha_byte)), rect, border_radius=max(8, bh // 3))
+    pygame.draw.rect(bubble_surf, (70, 85, 105, min(230, alpha_byte)), rect, width=2, border_radius=max(8, bh // 3))
+
+    # Tail pointing toward speaker
+    if tail_direction == "down":
+        tail_tip = (4 + bw // 2, 4 + bh + tail_h)
+        tail_left = (4 + bw // 2 - tail_w, 4 + bh - 1)
+        tail_right = (4 + bw // 2 + tail_w, 4 + bh - 1)
+        pygame.draw.polygon(bubble_surf, (255, 255, 255, min(245, alpha_byte)), [tail_left, tail_tip, tail_right])
+        pygame.draw.line(bubble_surf, (70, 85, 105, min(230, alpha_byte)), tail_left, tail_tip, 2)
+        pygame.draw.line(bubble_surf, (70, 85, 105, min(230, alpha_byte)), tail_tip, tail_right, 2)
+    elif tail_direction == "up":
+        tail_tip = (4 + bw // 2, 4 - tail_h + 2)
+        tail_left = (4 + bw // 2 - tail_w, 4 + 1)
+        tail_right = (4 + bw // 2 + tail_w, 4 + 1)
+        pygame.draw.polygon(bubble_surf, (255, 255, 255, min(245, alpha_byte)), [tail_left, tail_tip, tail_right])
+        pygame.draw.line(bubble_surf, (70, 85, 105, min(230, alpha_byte)), tail_left, tail_tip, 2)
+        pygame.draw.line(bubble_surf, (70, 85, 105, min(230, alpha_byte)), tail_tip, tail_right, 2)
+
+    # Text blit with alpha
+    txt_surf.set_alpha(alpha_byte)
+    bubble_surf.blit(txt_surf, (4 + pad_x, 4 + pad_y))
+
+    blit_x = center_x - bubble_surf.get_width() // 2
+    blit_y = bottom_y - bubble_surf.get_height()
+    surface.blit(bubble_surf, (blit_x, blit_y))
+    return bh + tail_h + 6
+
+
 def get_outlined_text_surface(text: str, font_size: int, outline_px: int = 4) -> pygame.Surface:
     key = (text, font_size, outline_px)
     cached = _OUTLINED_TEXT_CACHE.get(key)
@@ -223,6 +282,9 @@ class NetworkClient:
         self._local_head_yaw = 0.0
         self._local_head_pitch = 0.0
         self._pos_dirty = True
+
+        self._outgoing_chats: list[str] = []
+        self._incoming_chats: list[dict[str, Any]] = []
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -307,6 +369,20 @@ class NetworkClient:
             }
             return self.connected, self.is_host, self.my_id, self.my_color, players_copy
 
+    def send_chat(self, text: str) -> None:
+        clean_text = str(text).strip()[:100]
+        if clean_text:
+            with self._lock:
+                self._outgoing_chats.append(clean_text)
+
+    def fetch_new_chats(self) -> list[dict[str, Any]]:
+        with self._lock:
+            if not self._incoming_chats:
+                return []
+            chats = list(self._incoming_chats)
+            self._incoming_chats.clear()
+            return chats
+
     def stop(self) -> None:
         self._stop_event.set()
 
@@ -370,6 +446,18 @@ class NetworkClient:
     async def _sender_loop(self, ws: Any) -> None:
         interval = 1.0 / NETWORK_SEND_HZ
         while not self._stop_event.is_set():
+            out_chats = []
+            with self._lock:
+                if self._outgoing_chats:
+                    out_chats = list(self._outgoing_chats)
+                    self._outgoing_chats.clear()
+
+            for c_text in out_chats:
+                try:
+                    await ws.send(json.dumps({"type": "chat", "text": c_text, "name": CHICK_NAME}))
+                except Exception:
+                    pass
+
             payload = None
             with self._lock:
                 if self._is_online and self._pos_dirty:
@@ -487,6 +575,10 @@ class NetworkClient:
                 with self._lock:
                     self.remote_players.pop(pid, None)
 
+            elif msg_type == "chat":
+                with self._lock:
+                    self._incoming_chats.append(msg)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Carmelito 3D Game")
@@ -559,6 +651,13 @@ def main() -> None:
 
     play_button_rect = pygame.Rect(0, 0, 10, 10)
 
+    # Chat system state
+    is_typing_chat = False
+    chat_input_text = ""
+    # Active chat bubbles per player: {player_id: [{"text": str, "timer": float, "duration": float}]}
+    # Player id -1 represents local player
+    chat_bubbles: dict[int, list[dict[str, Any]]] = {}
+
     running = True
     while running:
         dt = min(clock.tick(TARGET_FPS) / 1000.0, 0.05)
@@ -568,18 +667,44 @@ def main() -> None:
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    running = False
-                elif event.key in (pygame.K_F11, pygame.K_f):
-                    fullscreen = not fullscreen
-                    screen = create_window(fullscreen)
-                elif is_online and event.key == pygame.K_u:
-                    # Toggle mouth open / close
-                    mouth_open = not mouth_open
-                elif is_online and event.key == pygame.K_b:
-                    # Trigger a blink on demand (and holding B keeps eyes closed)
-                    blink_hold_timer = 0.16
-                    auto_blink_timer = random.uniform(2.8, 5.0)
+                if is_online and is_typing_chat:
+                    if event.key == pygame.K_ESCAPE:
+                        # Cancel typing
+                        is_typing_chat = False
+                        chat_input_text = ""
+                    elif event.key == pygame.K_RETURN:
+                        # Pressing ENTER sends chat and creates a chat bubble over the player!
+                        clean = chat_input_text.strip()
+                        if clean:
+                            net.send_chat(clean)
+                            # Create local chat bubble (duration 5.5s)
+                            if -1 not in chat_bubbles:
+                                chat_bubbles[-1] = []
+                            chat_bubbles[-1].append({"text": clean, "timer": 5.5, "duration": 5.5})
+                        is_typing_chat = False
+                        chat_input_text = ""
+                    elif event.key == pygame.K_BACKSPACE:
+                        chat_input_text = chat_input_text[:-1]
+                    else:
+                        if event.unicode and len(chat_input_text) < 60:
+                            chat_input_text += event.unicode
+                else:
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
+                    elif event.key in (pygame.K_F11, pygame.K_f):
+                        fullscreen = not fullscreen
+                        screen = create_window(fullscreen)
+                    elif is_online and event.key == pygame.K_SPACE:
+                        # Pressing SPACE while in game opens the typing box
+                        is_typing_chat = True
+                        chat_input_text = ""
+                    elif is_online and event.key == pygame.K_u:
+                        # Toggle mouth open / close
+                        mouth_open = not mouth_open
+                    elif is_online and event.key == pygame.K_b:
+                        # Trigger a blink on demand (and holding B keeps eyes closed)
+                        blink_hold_timer = 0.16
+                        auto_blink_timer = random.uniform(2.8, 5.0)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # When clicking the PLAY button in offline mode: equip Carmelito and join the game!
                 if not is_online:
@@ -655,10 +780,11 @@ def main() -> None:
 
             # --- VIEW TURNING CONTROLS ---
             turn_input = 0.0
-            if keys[pygame.K_LEFT]:
-                turn_input -= 1.0
-            if keys[pygame.K_RIGHT]:
-                turn_input += 1.0
+            if not is_typing_chat:
+                if keys[pygame.K_LEFT]:
+                    turn_input -= 1.0
+                if keys[pygame.K_RIGHT]:
+                    turn_input += 1.0
             cam_yaw += turn_input * TURN_SPEED * dt
 
             total_yaw = cam_yaw + head_yaw
@@ -667,20 +793,22 @@ def main() -> None:
             # --- MOVEMENT CONTROLS (Arrow Up/Down + WASD) ---
             move_fwd = 0.0
             move_side = 0.0
-            if keys[pygame.K_UP] or keys[pygame.K_w]:
-                move_fwd += 1.0
-            if keys[pygame.K_DOWN] or keys[pygame.K_s]:
-                move_fwd -= 1.0
-            if keys[pygame.K_d]:
-                move_side += 1.0
-            if keys[pygame.K_a]:
-                move_side -= 1.0
+            if not is_typing_chat:
+                if keys[pygame.K_UP] or keys[pygame.K_w]:
+                    move_fwd += 1.0
+                if keys[pygame.K_DOWN] or keys[pygame.K_s]:
+                    move_fwd -= 1.0
+                if keys[pygame.K_d]:
+                    move_side += 1.0
+                if keys[pygame.K_a]:
+                    move_side -= 1.0
 
             move_mag = math.hypot(move_fwd, move_side)
             is_moving = move_mag > 0.0
-            space_pressed = keys[pygame.K_SPACE]
-            is_running = is_moving and space_pressed
-            is_walking = is_moving and not space_pressed
+            # Run when shift is held or while moving; space opens chat box
+            shift_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+            is_running = is_moving and shift_pressed
+            is_walking = is_moving and not shift_pressed
 
             target_run_weight = 1.0 if is_running else 0.0
             target_walk_weight = 1.0 if is_walking else 0.0
@@ -730,6 +858,26 @@ def main() -> None:
             )
 
         connected, is_host, my_id, my_color, remote_players = net.get_snapshot()
+
+        # Fetch and dispatch incoming chats from remote chickens / players
+        for chat_msg in net.fetch_new_chats():
+            sender_id = int(chat_msg.get("id", -1))
+            c_text = str(chat_msg.get("text", "")).strip()
+            if not c_text:
+                continue
+            # If from someone else or local
+            target_pid = -1 if (my_id is not None and sender_id == my_id) else sender_id
+            if target_pid not in chat_bubbles:
+                chat_bubbles[target_pid] = []
+            chat_bubbles[target_pid].append({"text": c_text, "timer": 5.5, "duration": 5.5})
+
+        # Update timers and fade out chat bubbles
+        for pid in list(chat_bubbles.keys()):
+            for b in chat_bubbles[pid]:
+                b["timer"] -= dt
+            chat_bubbles[pid] = [b for b in chat_bubbles[pid] if b["timer"] > 0.0]
+            if not chat_bubbles[pid]:
+                chat_bubbles.pop(pid, None)
 
         # Update remote player world positions and smooth animation weights
         for pid in list(remote_states.keys()):
@@ -981,6 +1129,7 @@ def main() -> None:
                     chick_y = lsy - chick_badge.get_height() // 2
                     screen.blit(chick_badge, (lsx - chick_badge.get_width() // 2, chick_y))
 
+                    top_badge_y = chick_y
                     player_name = pdata.get("name")
                     if player_name:
                         name_px = max(10, min(24, ((round(bucket_px * 0.78)) // 2) * 2))
@@ -993,6 +1142,26 @@ def main() -> None:
                         gap = max(3, bucket_px // 5)
                         name_y = chick_y - gap - name_badge.get_height()
                         screen.blit(name_badge, (lsx - name_badge.get_width() // 2, name_y))
+                        top_badge_y = name_y
+
+                    # Stacking chat bubbles above remote chicken
+                    if pid in chat_bubbles:
+                        cur_bottom = top_badge_y - 8
+                        bubble_font_size = max(14, min(24, bucket_px))
+                        # Newer bubbles are at the bottom, older bubbles pushed above
+                        for b in reversed(chat_bubbles[pid]):
+                            progress = b["timer"] / b["duration"]
+                            alpha = min(1.0, progress * 3.0)
+                            b_h = draw_chat_bubble(
+                                screen,
+                                b["text"],
+                                center_x=lsx,
+                                bottom_y=cur_bottom,
+                                font_size=bubble_font_size,
+                                alpha=alpha,
+                                tail_direction="down",
+                            )
+                            cur_bottom -= b_h
             else:
                 radius = max(6, int((0.45 / rz_p) * focal))
                 color = pdata.get("color", REMOTE_DOT_COLOR)
@@ -1101,6 +1270,52 @@ def main() -> None:
                 walk_weight=walk_weight,
                 blink=blink_amount,
             )
+
+        # --- 2b. CHAT BUBBLES & TYPING BOX FOR LOCAL PLAYER (ON TOP OF ME, NOT THE PICTURE) ---
+        if is_online:
+            # Stacking chat bubbles for local player (-1):
+            # Floating above Carmelito's view (in upper-middle screen area, not over portrait)
+            if -1 in chat_bubbles:
+                cur_bottom = max(70, round(win_h * 0.28))
+                local_font_size = max(18, min(28, round(win_h * 0.032)))
+                for b in reversed(chat_bubbles[-1]):
+                    progress = b["timer"] / b["duration"]
+                    alpha = min(1.0, progress * 3.0)
+                    b_h = draw_chat_bubble(
+                        screen,
+                        b["text"],
+                        center_x=win_w // 2,
+                        bottom_y=cur_bottom,
+                        font_size=local_font_size,
+                        alpha=alpha,
+                        tail_direction="down",
+                    )
+                    cur_bottom -= b_h
+
+            # Typing input box at bottom center of screen (opened with Space)
+            if is_typing_chat:
+                box_w = min(600, win_w - 40)
+                box_h = 44
+                box_x = (win_w - box_w) // 2
+                box_y = win_h - box_h - 24
+
+                # Box background & outline
+                box_rect = pygame.Rect(box_x, box_y, box_w, box_h)
+                s_rect = pygame.Rect(box_x + 2, box_y + 2, box_w, box_h)
+                pygame.draw.rect(screen, (0, 0, 0, 50), s_rect, border_radius=12)
+                pygame.draw.rect(screen, (255, 255, 255, 245), box_rect, border_radius=12)
+                pygame.draw.rect(screen, (70, 130, 210), box_rect, width=2, border_radius=12)
+
+                # Cursor blinking
+                cursor_visible = (int(anim_time * 2.5) % 2) == 0
+                display_txt = chat_input_text + ("|" if cursor_visible else "")
+                font_chat = get_chinese_font(20)
+                if not chat_input_text:
+                    prompt_surf = font_chat.render("说点什么... (按Enter发送，Esc取消)", True, (155, 165, 175))
+                    screen.blit(prompt_surf, (box_x + 14, box_y + (box_h - prompt_surf.get_height()) // 2))
+                else:
+                    txt_surf = font_chat.render(display_txt, True, (25, 30, 40))
+                    screen.blit(txt_surf, (box_x + 14, box_y + (box_h - txt_surf.get_height()) // 2))
 
         # --- 3. TITLE SCREEN UI OVERLAYS (ONLY VISIBLE WHEN OFFLINE, DISAPPEARS ON JOIN) ---
         if not is_online:

@@ -185,6 +185,18 @@ class GameRelayServer:
                         bcast_msg["name"] = name_str
 
                     await self.broadcast(bcast_msg, exclude_id=player_id)
+                elif data.get("type") == "chat":
+                    text = str(data.get("text", "")).strip()[:100]
+                    if text:
+                        p = self._players.get(player_id, {})
+                        sender_name = str(data.get("name") or p.get("name") or p.get("chick_name") or "卡梅利多")[:32]
+                        chat_msg = {
+                            "type": "chat",
+                            "id": player_id,
+                            "name": sender_name,
+                            "text": text,
+                        }
+                        await self.broadcast(chat_msg)
         except ConnectionClosed:
             pass
         finally:

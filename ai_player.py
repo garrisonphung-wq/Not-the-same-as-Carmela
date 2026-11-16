@@ -68,6 +68,8 @@ class AICodeCompanion:
         self.head_timer = 1.0
         self.mouth_timer = 2.5
         self.blink_timer = random.uniform(2.0, 4.5)
+        self.chat_timer = random.uniform(5.0, 12.0)
+        self._pending_chats: list[str] = []
 
         self._host_started = False
 
@@ -163,6 +165,21 @@ class AICodeCompanion:
             else:
                 self.is_blinking = True
                 self.blink_timer = 0.16
+
+        self.chat_timer -= dt
+        if self.chat_timer <= 0.0:
+            self.chat_timer = random.uniform(9.0, 18.0)
+            phrases = [
+                "咕咕！天气真好！",
+                "看我的，跑得飞快！",
+                "我想去看海！",
+                "卡梅利多最勇敢啦！",
+                "草地真舒服！",
+                "来抓我呀！",
+                "今天也是元气满满的一天！",
+                "呼呼，跑累了歇会儿~",
+            ]
+            self._pending_chats.append(random.choice(phrases))
 
         if self.mouth_timer <= 0.0:
             if self.mouth_open:
@@ -309,6 +326,20 @@ class AICodeCompanion:
                 self.other_players.pop(pid, None)
                 self.other_player_labels.pop(pid, None)
 
+            elif mtype == "chat":
+                sender_id = int(msg.get("id", -1))
+                chat_text = str(msg.get("text", ""))
+                if sender_id != self.my_id and chat_text:
+                    # AI occasionally responds to chat!
+                    if random.random() < 0.70:
+                        responses = [
+                            f"你好呀！收到啦：'{chat_text}'",
+                            "哈哈，太棒啦！",
+                            "咕咕！我也这么觉得！",
+                            "快跟我一起在草地上奔跑吧！",
+                        ]
+                        self._pending_chats.append(random.choice(responses))
+
     async def _motion_loop(self, ws) -> None:
         tick_rate = 30.0
         dt = 1.0 / tick_rate
@@ -318,6 +349,13 @@ class AICodeCompanion:
 
             norm_x = max(0.05, min(0.95, (self.wx + self.WORLD_LIMIT) / (2.0 * self.WORLD_LIMIT) * 0.9 + 0.05))
             norm_y = max(0.05, min(0.95, (self.wz + self.WORLD_LIMIT) / (2.0 * self.WORLD_LIMIT) * 0.9 + 0.05))
+
+            while self._pending_chats:
+                c_text = self._pending_chats.pop(0)
+                try:
+                    await ws.send(json.dumps({"type": "chat", "text": c_text, "name": self.name}))
+                except Exception:
+                    pass
 
             payload = json.dumps(
                 {
