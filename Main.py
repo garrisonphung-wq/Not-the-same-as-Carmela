@@ -1277,6 +1277,7 @@ def main() -> None:
                 run_cycle=motion_cycle,
                 run_weight=run_weight,
                 walk_weight=walk_weight,
+                character=selected_character,
             )
 
             for sbx, sby, sbz in foot_shadows:

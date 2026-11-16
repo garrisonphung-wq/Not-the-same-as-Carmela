@@ -896,14 +896,19 @@ class Carmelito3D:
         run_cycle: float = 0.0,
         run_weight: float = 0.0,
         walk_weight: float = 0.0,
+        character: str = "carmelito",
     ) -> tuple[list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]], list[tuple[float, float, float]]]:
+        is_carmen = (character.lower() in ("carmen", "卡门"))
+        body_col = COLOR_CARMEN_YELLOW if is_carmen else COLOR_BODY_PINK
+        leg_col = COLOR_CARMEN_LEG if is_carmen else COLOR_LEG_YELLOW
+        char_scale_mult = 0.82 if is_carmen else 1.0
         """
         Builds Carmelito's lower pink torso + drumstick thigh cuffs connected through
         2-link IK yellow legs (thigh, knee, shank, ankle) into his 3-toed feet on the
         grass, tucked behind the eye plumb line so looking down shows feet firmly
         attached to legs without the belly blocking view.
         """
-        scale = 1.85
+        scale = 1.85 * char_scale_mult
         rw = max(0.0, min(1.0, run_weight))
         ww = max(0.0, min(1.0, walk_weight))
         swing = math.sin(run_cycle * 2.0 * math.pi)
@@ -1104,6 +1109,10 @@ class Carmelito3D:
         Projects and renders Carmelito in authentic storybook 3D.
         Uses Painter's algorithm with soft cel lighting and inked contour line art.
         """
+        is_carmen = (character.lower() in ("carmen", "卡门"))
+        char_scale_mult = 0.82 if is_carmen else 1.0
+        scale = scale * char_scale_mult
+
         cx_screen, cy_screen = screen_pos
         faces = self.build_model_faces(
             mouth_open=mouth_open,
