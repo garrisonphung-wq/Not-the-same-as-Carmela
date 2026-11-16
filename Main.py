@@ -705,8 +705,8 @@ def main() -> None:
                     elif event.key == pygame.K_F11:
                         fullscreen = not fullscreen
                         screen = create_window(fullscreen)
-                    elif is_online and (event.key == pygame.K_SPACE or is_enter_key):
-                        # Pressing SPACE or ENTER while in game opens the typing box
+                    elif is_online and is_enter_key:
+                        # Pressing RETURN/ENTER while in game opens the typing box
                         is_typing_chat = True
                         chat_input_text = ""
                         if hasattr(pygame.key, "start_text_input"):
@@ -819,7 +819,7 @@ def main() -> None:
 
             move_mag = math.hypot(move_fwd, move_side)
             is_moving = move_mag > 0.0
-            # Run when shift is held or while moving; space opens chat box
+            # Run when shift is held or while moving
             shift_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
             is_running = is_moving and shift_pressed
             is_walking = is_moving and not shift_pressed
@@ -1342,7 +1342,7 @@ def main() -> None:
                         )
                         cur_bottom -= b_h
 
-            # Typing input box at bottom center of screen (opened with Space)
+            # Typing input box at bottom center of screen (opened with Return/Enter)
             if is_typing_chat:
                 box_w = min(600, win_w - 40)
                 box_h = 44
