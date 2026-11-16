@@ -813,10 +813,10 @@ def main() -> None:
 
             move_mag = math.hypot(move_fwd, move_side)
             is_moving = move_mag > 0.0
-            # Run when shift is held or while moving
-            shift_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
-            is_running = is_moving and shift_pressed
-            is_walking = is_moving and not shift_pressed
+            # Run when shift or space is held while moving (arrow keys or WASD)
+            run_key_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT] or keys[pygame.K_SPACE]
+            is_running = is_moving and run_key_pressed
+            is_walking = is_moving and not run_key_pressed
 
             target_run_weight = 1.0 if is_running else 0.0
             target_walk_weight = 1.0 if is_walking else 0.0
