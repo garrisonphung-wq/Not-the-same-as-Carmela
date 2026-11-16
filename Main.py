@@ -200,15 +200,21 @@ def draw_chat_bubble(
     return bh + tail_h + 6
 
 
-def get_outlined_text_surface(text: str, font_size: int, outline_px: int = 4) -> pygame.Surface:
-    key = (text, font_size, outline_px)
+def get_outlined_text_surface(
+    text: str,
+    font_size: int,
+    outline_px: int = 4,
+    fill_color: tuple[int, int, int] = (255, 255, 255),
+    outline_color: tuple[int, int, int] = (0, 0, 0),
+) -> pygame.Surface:
+    key = (text, font_size, outline_px, fill_color, outline_color)
     cached = _OUTLINED_TEXT_CACHE.get(key)
     if cached is not None:
         return cached
 
     font = get_chinese_font(font_size)
-    fill_surf = font.render(text, True, (255, 255, 255))
-    outline_surf = font.render(text, True, (0, 0, 0))
+    fill_surf = font.render(text, True, fill_color)
+    outline_surf = font.render(text, True, outline_color)
 
     w = fill_surf.get_width() + outline_px * 2
     h = fill_surf.get_height() + outline_px * 2
@@ -1456,10 +1462,17 @@ def main() -> None:
                 name_y = card_y + card_h + max(8, round(win_h * 0.015))
                 screen.blit(name_surf, (name_x, name_y))
 
-                # USE button under his name: white text with black outline
+                # USE button under his name: red fill before pressing USE, green fill after pressing USE (both with black outline)
                 use_px = max(20, min(36, ((round(title_px * 0.48)) // 2) * 2))
                 use_outline_px = max(2, round(use_px * 0.07))
-                use_surf = get_outlined_text_surface("USE", use_px, outline_px=use_outline_px)
+                use_fill_color = (68, 204, 88) if menu_state == "character_used" else (235, 52, 52)
+                use_surf = get_outlined_text_surface(
+                    "USE",
+                    use_px,
+                    outline_px=use_outline_px,
+                    fill_color=use_fill_color,
+                    outline_color=(0, 0, 0),
+                )
                 use_x = (win_w - use_surf.get_width()) // 2
                 use_y = name_y + name_surf.get_height() + max(8, round(win_h * 0.015))
                 use_button_rect = pygame.Rect(
