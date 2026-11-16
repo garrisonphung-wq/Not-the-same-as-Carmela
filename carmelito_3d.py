@@ -1224,8 +1224,9 @@ class Carmelito3D:
         """
         w, h = surface.get_size()
         cx_screen = w * 0.5
-        cy_screen = h * 0.88 + head_bob_y * 120.0
-        scale = h * 0.55
+        is_carmen = (character.lower() in ("carmen", "卡门"))
+        cy_screen = h * (0.90 if is_carmen else 0.88) + head_bob_y * 120.0
+        scale = h * (0.45 if is_carmen else 0.55)
 
         # Build Beak & Mouth faces in POV local coords
         # Eye camera is at (0, 0, 0), looking down +Z with slight downward pitch

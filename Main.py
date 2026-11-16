@@ -1017,6 +1017,11 @@ def main() -> None:
         near_z = 0.25
         half_fov_tan = hw / focal
 
+        # Carmen is Carmelito's shorter younger sister, so her vision height is noticeably lower!
+        # When online as Carmen, ground is closer to eyes (eye height = 2.25 vs Carmelito's 3.0)
+        is_playing_carmen = (is_online and selected_character == "carmen")
+        current_ground_y = (GROUND_Y * 0.75) if is_playing_carmen else GROUND_Y
+
         def to_cam(wx: float, wy: float, wz: float) -> tuple[float, float, float]:
             dx = wx - cam_x
             dy = wy - eye_y
@@ -1105,7 +1110,7 @@ def main() -> None:
                     if math.hypot(cx, cz) > ISLAND_RADIUS - 1.5:
                         continue
 
-                    c_cam = to_cam(cx, GROUND_Y, cz)
+                    c_cam = to_cam(cx, current_ground_y, cz)
                     if c_cam[2] < near_z - step:
                         continue
                     if abs(c_cam[0]) > max(near_z, c_cam[2]) * half_fov_tan + step * 1.5:
@@ -1120,7 +1125,7 @@ def main() -> None:
                         if math.hypot(bx, bz) > ISLAND_RADIUS - 1.5:
                             continue
 
-                        b_cam = to_cam(bx, GROUND_Y, bz)
+                        b_cam = to_cam(bx, current_ground_y, bz)
                         if b_cam[2] > near_z and abs(b_cam[0]) <= b_cam[2] * half_fov_tan + 0.5:
                             blades.append((b_cam[2], bx, bz, b_cam, th, b_scale, sway_amp))
 
@@ -1128,7 +1133,7 @@ def main() -> None:
         for bz_cam, bx, bz, b_cam, th, b_scale, sway_amp in blades:
             height = (0.22 + ((th >> 4) & 7) * 0.02) * b_scale
             local_sway = (base_sway + math.sin(anim_time * 2.6 + bx * 0.9 + bz * 0.7) * 0.03) * sway_amp
-            t_cam = to_cam(bx + local_sway, GROUND_Y + height, bz)
+            t_cam = to_cam(bx + local_sway, current_ground_y + height, bz)
             if t_cam[2] <= near_z:
                 continue
 
@@ -1149,7 +1154,7 @@ def main() -> None:
             rs = remote_states[pid]
             rwx, rwz = rs["wx"], rs["wz"]
             is_carmelito = pdata.get("is_carmelito", True)
-            rwy = GROUND_Y if is_carmelito else (0.0 + 0.12 * math.sin(anim_time * 2.8))
+            rwy = current_ground_y if is_carmelito else (0.0 + 0.12 * math.sin(anim_time * 2.8))
 
             rx_p, ry_p, rz_p = to_cam(rwx, rwy, rwz)
             min_z = 0.65 if is_carmelito else 0.25
@@ -1194,7 +1199,8 @@ def main() -> None:
                 # Floating nameplates above Carmelito's comb:
                 # 1) Chicken's Chinese name ("卡梅利多")
                 # 2) AI / player's name (e.g. "Antigravity (AI)") stacked right above it
-                label_cam = to_cam(rs["wx"], GROUND_Y + 2.38 * CARMELITO_WORLD_SCALE, rs["wz"])
+                rem_scale = CARMELITO_WORLD_SCALE * (0.82 if remote_char == "carmen" else 1.0)
+                label_cam = to_cam(rs["wx"], current_ground_y + 2.38 * rem_scale, rs["wz"])
                 if label_cam[2] > near_z:
                     lsx = round(hw + (label_cam[0] / label_cam[2]) * focal)
                     lsy = round(hh - (label_cam[1] / label_cam[2]) * focal)
@@ -1273,7 +1279,7 @@ def main() -> None:
                 return to_cam(wx, by, wz)
 
             feet_faces, foot_shadows = model_3d.build_first_person_feet_faces(
-                ground_y=GROUND_Y,
+                ground_y=current_ground_y,
                 run_cycle=motion_cycle,
                 run_weight=run_weight,
                 walk_weight=walk_weight,
@@ -1379,7 +1385,7 @@ def main() -> None:
                 local_bz = 0.95
                 local_wx = cam_x + local_bx * cos_body + local_bz * sin_body
                 local_wz = cam_z - local_bx * sin_body + local_bz * cos_body
-                local_wy = eye_y + 1.35  # Above head & comb
+                local_wy = eye_y + (1.08 if is_playing_carmen else 1.35)  # Above head & comb
 
                 bubble_cam = to_cam(local_wx, local_wy, local_wz)
                 # Ensure safe distance in front of camera plane (0.35)
