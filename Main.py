@@ -618,6 +618,8 @@ def main() -> None:
     anim_time = 0.0
     is_online = False     # You start offline staring down at the island until you click Play
     has_entered_game = False
+    menu_state = "title"  # "title" -> "character_select" -> "character_used"
+    use_button_rect = pygame.Rect(-100, -100, 0, 0)
 
     # Carmelito's ground-level gameplay coordinates
     ground_cam_x = 0.0
@@ -713,22 +715,43 @@ def main() -> None:
                         blink_hold_timer = 0.16
                         auto_blink_timer = random.uniform(2.8, 5.0)
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                # When clicking the PLAY button in offline mode: equip Carmelito and join the game!
+                # Menu navigation and joining in offline mode
                 if not is_online:
-                    if play_button_rect.collidepoint(event.pos):
-                        is_online = True
-                        has_entered_game = True
-                        net.set_online(True)
-                        # Transition camera to ground-level Carmelito first-person view
-                        cam_x = ground_cam_x
-                        cam_z = ground_cam_z
-                        cam_yaw = ground_cam_yaw
-                        head_yaw = 0.0
-                        head_pitch = 0.0
-                        is_dragging_island = False
-                    else:
-                        is_dragging_island = True
-                        drag_start_pos = event.pos
+                    if menu_state == "title":
+                        if play_button_rect.collidepoint(event.pos):
+                            # Clicking PLAY opens character select: Carmelito appears spinning, with name and USE button
+                            menu_state = "character_select"
+                            is_dragging_island = False
+                        else:
+                            is_dragging_island = True
+                            drag_start_pos = event.pos
+                    elif menu_state == "character_select":
+                        if use_button_rect.collidepoint(event.pos):
+                            # Clicking USE selects Carmelito and spawns PLAY button under USE button
+                            menu_state = "character_used"
+                            is_dragging_island = False
+                        else:
+                            is_dragging_island = True
+                            drag_start_pos = event.pos
+                    elif menu_state == "character_used":
+                        if play_button_rect.collidepoint(event.pos):
+                            # Clicking PLAY launches the game!
+                            is_online = True
+                            has_entered_game = True
+                            net.set_online(True)
+                            # Transition camera to ground-level Carmelito first-person view
+                            cam_x = ground_cam_x
+                            cam_z = ground_cam_z
+                            cam_yaw = ground_cam_yaw
+                            head_yaw = 0.0
+                            head_pitch = 0.0
+                            is_dragging_island = False
+                        elif use_button_rect.collidepoint(event.pos):
+                            # Clicking USE again stays in used state
+                            is_dragging_island = False
+                        else:
+                            is_dragging_island = True
+                            drag_start_pos = event.pos
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 is_dragging_island = False
                 drag_start_pos = None
@@ -1364,29 +1387,103 @@ def main() -> None:
         # --- 3. TITLE SCREEN UI OVERLAYS (ONLY VISIBLE WHEN OFFLINE, DISAPPEARS ON JOIN) ---
         if not is_online and not has_entered_game:
             # 3a. Game title at top center: white text with black outline
-            title_px = max(36, min(88, ((round(win_h * 0.085)) // 2) * 2))
+            title_px = max(32, min(76, ((round(win_h * 0.075)) // 2) * 2))
             title_outline_px = max(2, round(title_px * 0.065))
             title_surf = get_outlined_text_surface(WINDOW_TITLE, title_px, outline_px=title_outline_px)
             title_x = (win_w - title_surf.get_width()) // 2
-            title_y = max(14, round(win_h * 0.03))
+            title_y = max(12, round(win_h * 0.025))
             screen.blit(title_surf, (title_x, title_y))
 
-            # 3b. PLAY button: white text with black outline positioned neatly below the title text
-            play_px = max(24, min(52, ((round(title_px * 0.52)) // 2) * 2))
-            play_outline_px = max(2, round(play_px * 0.07))
-            play_surf = get_outlined_text_surface("PLAY", play_px, outline_px=play_outline_px)
-            play_x = (win_w - play_surf.get_width()) // 2
-            play_gap = max(24, round(win_h * 0.05))
-            play_y = title_y + title_surf.get_height() + play_gap
+            if menu_state == "title":
+                # Initial PLAY button: white text with black outline below title
+                play_px = max(24, min(48, ((round(title_px * 0.54)) // 2) * 2))
+                play_outline_px = max(2, round(play_px * 0.07))
+                play_surf = get_outlined_text_surface("PLAY", play_px, outline_px=play_outline_px)
+                play_x = (win_w - play_surf.get_width()) // 2
+                play_gap = max(24, round(win_h * 0.05))
+                play_y = title_y + title_surf.get_height() + play_gap
 
-            # Store the clickable boundary of the PLAY text button
-            play_button_rect = pygame.Rect(
-                play_x - 10,
-                play_y - 6,
-                play_surf.get_width() + 20,
-                play_surf.get_height() + 12,
-            )
-            screen.blit(play_surf, (play_x, play_y))
+                play_button_rect = pygame.Rect(
+                    play_x - 12,
+                    play_y - 6,
+                    play_surf.get_width() + 24,
+                    play_surf.get_height() + 12,
+                )
+                use_button_rect = pygame.Rect(-100, -100, 0, 0)
+                screen.blit(play_surf, (play_x, play_y))
+
+            elif menu_state in ("character_select", "character_used"):
+                # Initial buttons below title disappear, replaced by Carmelito card, name, USE, and PLAY
+                play_button_rect = pygame.Rect(-100, -100, 0, 0)
+
+                # Card with picture of Carmelito: not moving (no walk/run cycle) and spinning
+                card_w = min(170, round(win_h * 0.22))
+                card_h = min(185, round(win_h * 0.24))
+                card_x = (win_w - card_w) // 2
+                card_y = title_y + title_surf.get_height() + max(12, round(win_h * 0.02))
+
+                # Draw card frame with rounded corners & shadow
+                card_shadow = pygame.Rect(card_x + 3, card_y + 3, card_w, card_h)
+                card_rect = pygame.Rect(card_x, card_y, card_w, card_h)
+                pygame.draw.rect(screen, (190, 205, 220), card_shadow, border_radius=14)
+                pygame.draw.rect(screen, (255, 255, 255), card_rect, border_radius=14)
+                pygame.draw.rect(screen, (215, 225, 235), card_rect, width=2, border_radius=14)
+
+                # Render Carmelito inside card: standing still, not moving, slowly spinning
+                spin_yaw = anim_time * 1.6
+                model_3d.render(
+                    surface=screen,
+                    screen_pos=(card_x + card_w // 2, card_y + card_h - 18),
+                    scale=round(card_h * 0.45),
+                    rot_y=spin_yaw,
+                    rot_x=0.08,
+                    head_yaw=0.0,
+                    head_pitch=0.0,
+                    mouth_open=False,
+                    run_cycle=0.0,
+                    is_running=False,
+                    run_weight=0.0,
+                    is_walking=False,
+                    walk_weight=0.0,
+                    blink=0.0,
+                )
+
+                # Name under picture of him: white text with black outline
+                name_px = max(22, min(40, ((round(title_px * 0.54)) // 2) * 2))
+                name_outline_px = max(2, round(name_px * 0.07))
+                name_surf = get_outlined_text_surface(CHICK_NAME, name_px, outline_px=name_outline_px)
+                name_x = (win_w - name_surf.get_width()) // 2
+                name_y = card_y + card_h + max(8, round(win_h * 0.015))
+                screen.blit(name_surf, (name_x, name_y))
+
+                # USE button under his name: white text with black outline
+                use_px = max(20, min(36, ((round(title_px * 0.48)) // 2) * 2))
+                use_outline_px = max(2, round(use_px * 0.07))
+                use_surf = get_outlined_text_surface("USE", use_px, outline_px=use_outline_px)
+                use_x = (win_w - use_surf.get_width()) // 2
+                use_y = name_y + name_surf.get_height() + max(8, round(win_h * 0.015))
+                use_button_rect = pygame.Rect(
+                    use_x - 12,
+                    use_y - 6,
+                    use_surf.get_width() + 24,
+                    use_surf.get_height() + 12,
+                )
+                screen.blit(use_surf, (use_x, use_y))
+
+                # When USE is pressed, spawn PLAY button under the USE button
+                if menu_state == "character_used":
+                    play_px = max(22, min(42, ((round(title_px * 0.52)) // 2) * 2))
+                    play_outline_px = max(2, round(play_px * 0.07))
+                    play_surf = get_outlined_text_surface("PLAY", play_px, outline_px=play_outline_px)
+                    play_x = (win_w - play_surf.get_width()) // 2
+                    play_y = use_y + use_surf.get_height() + max(10, round(win_h * 0.018))
+                    play_button_rect = pygame.Rect(
+                        play_x - 14,
+                        play_y - 6,
+                        play_surf.get_width() + 28,
+                        play_surf.get_height() + 12,
+                    )
+                    screen.blit(play_surf, (play_x, play_y))
 
         pygame.display.flip()
 
