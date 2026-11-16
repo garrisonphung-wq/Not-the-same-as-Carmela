@@ -682,17 +682,15 @@ def main() -> None:
                         is_typing_chat = False
                         chat_input_text = ""
                     elif is_enter_key:
-                        # Pressing ENTER/RETURN sends chat and creates a chat bubble over the player!
+                        # Pressing ENTER/RETURN sends chat if text is typed, or closes without saying anything
                         clean = chat_input_text.strip()
-                        # If empty, default to a cute chick chirping sound so something always happens
-                        if not clean:
-                            clean = "咕咕！"
-                        net.send_chat(clean)
-                        # Create local chat bubble (duration 5.5s)
-                        if -1 not in chat_bubbles:
-                            chat_bubbles[-1] = []
-                        chat_bubbles[-1].append({"text": clean, "timer": 5.5, "duration": 5.5})
-                        chat_bubbles[-1] = chat_bubbles[-1][-4:]  # Limit to 4 stacked bubbles
+                        if clean:
+                            net.send_chat(clean)
+                            # Create local chat bubble (duration 5.5s)
+                            if -1 not in chat_bubbles:
+                                chat_bubbles[-1] = []
+                            chat_bubbles[-1].append({"text": clean, "timer": 5.5, "duration": 5.5})
+                            chat_bubbles[-1] = chat_bubbles[-1][-4:]  # Limit to 4 stacked bubbles
                         is_typing_chat = False
                         chat_input_text = ""
                     elif event.key == pygame.K_BACKSPACE:
