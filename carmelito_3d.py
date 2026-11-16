@@ -324,8 +324,8 @@ class Carmelito3D:
             leg_col = COLOR_LEG_YELLOW
 
         # Proportions for characters:
-        # 小胖墩 (fat white chicken): body more bigger, head a little smaller!
-        head_s = 0.80 if is_pangdun else 1.0
+        # 小胖墩 (fat white chicken): plump round body with head completely connected to torso!
+        head_s = 0.94 if is_pangdun else 1.0
         body_w = 1.58 if is_pangdun else 1.0
         body_h = 1.25 if is_pangdun else 1.0
         body_d = 1.50 if is_pangdun else 1.0
@@ -353,24 +353,25 @@ class Carmelito3D:
         # Blended bob
         bob_y = run_bob * rw + walk_bob * (ww * (1.0 - rw))
 
-        # --- 1. HEAD & NECK (Trim, cute rounded head with smooth neck) ---
-        head_center_y = 1.56 + bob_y
+        # --- 1. HEAD & NECK (Trim for Carmelito/Carmen; seamlessly merged for 小胖墩) ---
+        head_center_y = (1.46 if is_pangdun else 1.56) + bob_y
+        # Head cube: for Belino, lower taper flares outward directly into the shoulders/torso
         head = create_cube_grid(
             center=(0.0, head_center_y, 0.0),
-            size=(0.58, 0.58, 0.58),
+            size=(0.62 if is_pangdun else 0.58, 0.58, 0.60 if is_pangdun else 0.58),
             subdivisions=(7, 6, 6),
             base_color=body_col,
-            taper_y=0.15,
-            roundness=0.76,
+            taper_y=-0.12 if is_pangdun else 0.15,
+            roundness=0.78,
             draw_contour=True,
         )
         head_faces.extend(head)
 
-        # Cheeks:
+        # Cheeks / Jowls:
         for side in (-1, 1):
             cheek = create_cube_grid(
-                center=(side * 0.20, head_center_y - 0.10, 0.10),
-                size=(0.20, 0.18, 0.20),
+                center=(side * (0.24 if is_pangdun else 0.20), head_center_y - 0.10, 0.10),
+                size=(0.24 if is_pangdun else 0.20, 0.20 if is_pangdun else 0.18, 0.22 if is_pangdun else 0.20),
                 subdivisions=(3, 3, 3),
                 base_color=body_col,
                 roundness=0.75,
@@ -378,16 +379,41 @@ class Carmelito3D:
             )
             head_faces.extend(cheek)
 
-        # Smooth neck connecting head to torso:
-        neck = create_cube_grid(
-            center=(0.0, head_center_y - 0.28, -0.02),
-            size=(0.42, 0.26, 0.42),
-            subdivisions=(5, 3, 5),
-            base_color=body_col,
-            roundness=0.6,
-            draw_contour=False,
-        )
-        head_faces.extend(neck)
+        # Solid connection between bottom of head and body:
+        # For Belino, the entire bottom of the head is fully merged into the torso with no slender neck gap!
+        if is_pangdun:
+            # Broad, solid collar connecting the entire perimeter of the head bottom into the body
+            neck = create_cube_grid(
+                center=(0.0, head_center_y - 0.22, 0.0),
+                size=(0.68, 0.32, 0.66),
+                subdivisions=(6, 4, 6),
+                base_color=body_col,
+                taper_y=-0.18,
+                roundness=0.76,
+                draw_contour=False,
+            )
+            head_faces.extend(neck)
+            # Front throat / double-chin bridge
+            chin_bridge = create_cube_grid(
+                center=(0.0, head_center_y - 0.25, 0.15),
+                size=(0.52, 0.26, 0.34),
+                subdivisions=(4, 3, 3),
+                base_color=body_col,
+                roundness=0.78,
+                draw_contour=False,
+            )
+            head_faces.extend(chin_bridge)
+        else:
+            # Slender neck for Carmelito & Carmen
+            neck = create_cube_grid(
+                center=(0.0, head_center_y - 0.28, -0.02),
+                size=(0.42, 0.26, 0.42),
+                subdivisions=(5, 3, 5),
+                base_color=body_col,
+                roundness=0.6,
+                draw_contour=False,
+            )
+            head_faces.extend(neck)
 
         # --- 2. COMB / CREST (Carmelito's distinctive 4-lobed red rooster comb) ---
         comb_y = head_center_y + 0.29
