@@ -405,6 +405,20 @@ class NetworkClient:
 
         thread = threading.Thread(target=server_runner, daemon=True)
         thread.start()
+
+        # Also launch embedded AI Code Companion to join the server
+        def ai_runner() -> None:
+            time.sleep(0.6)
+            try:
+                import ai_player
+                bot = ai_player.AICodeCompanion(server_url=f"ws://127.0.0.1:{port}", auto_host=False)
+                asyncio.run(bot.run())
+            except Exception:
+                pass
+
+        ai_thread = threading.Thread(target=ai_runner, daemon=True)
+        ai_thread.start()
+
         with self._lock:
             self.is_host = True
 

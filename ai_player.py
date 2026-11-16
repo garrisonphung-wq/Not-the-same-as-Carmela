@@ -4,6 +4,7 @@ import json
 import math
 import random
 import threading
+import time
 from urllib.parse import urlparse
 
 from websockets.asyncio.client import connect
@@ -68,8 +69,8 @@ class AICodeCompanion:
         self.head_timer = 1.0
         self.mouth_timer = 2.5
         self.blink_timer = random.uniform(2.0, 4.5)
-        self.chat_timer = random.uniform(5.0, 12.0)
-        self._pending_chats: list[str] = []
+        self.chat_timer = random.uniform(6.0, 14.0)
+        self._pending_chats: list[tuple[float, str]] = []  # (send_time, chat_text)
 
         self._host_started = False
 
@@ -179,7 +180,7 @@ class AICodeCompanion:
                 "今天也是元气满满的一天！",
                 "呼呼，跑累了歇会儿~",
             ]
-            self._pending_chats.append(random.choice(phrases))
+            self._pending_chats.append((time.time() + 0.2, random.choice(phrases)))
 
         if self.mouth_timer <= 0.0:
             if self.mouth_open:
@@ -328,17 +329,37 @@ class AICodeCompanion:
 
             elif mtype == "chat":
                 sender_id = int(msg.get("id", -1))
-                chat_text = str(msg.get("text", ""))
+                chat_text = str(msg.get("text", "")).strip()
                 if sender_id != self.my_id and chat_text:
-                    # AI occasionally responds to chat!
-                    if random.random() < 0.70:
-                        responses = [
-                            f"你好呀！收到啦：'{chat_text}'",
-                            "哈哈，太棒啦！",
-                            "咕咕！我也这么觉得！",
-                            "快跟我一起在草地上奔跑吧！",
-                        ]
-                        self._pending_chats.append(random.choice(responses))
+                    # AI ALWAYS responds to player chat with a natural delay!
+                    t_lower = chat_text.lower()
+                    if any(w in t_lower for w in ["你好", "hello", "hi", "嗨", "哈喽"]):
+                        reply = "你好呀！很高兴和你一起玩！咕咕！"
+                    elif any(w in t_lower for w in ["跑", "快", "run", "追", "冲"]):
+                        reply = "看我的，我跑得飞快！快来追我呀！"
+                    elif any(w in t_lower for w in ["名字", "谁", "name", "who", "叫什么"]):
+                        reply = "我是卡梅利多，世界上最勇敢的小鸡！"
+                    elif any(w in t_lower for w in ["海", "ocean", "sea", "大火", "水"]):
+                        reply = "我也想去看大海！听说海里有神奇的大鲸鱼！"
+                    elif any(w in t_lower for w in ["咕咕", "chick", "啾", "叽"]):
+                        reply = "咕咕！咕咕咕！我们是好朋友！"
+                    elif any(w in t_lower for w in ["抓", "捉", "catch", "玩", "play"]):
+                        reply = "来抓我呀！看谁先跑到岛边！"
+                    elif any(w in t_lower for w in ["帅", "酷", "可爱", "cute", "棒", "good"]):
+                        reply = "嘿嘿，谢谢夸奖！你也超级棒！"
+                    else:
+                        reply = random.choice([
+                            f"收到啦：'{chat_text}'！咕咕！",
+                            f"哈哈，太好玩啦！'{chat_text}'！",
+                            "咕咕！我也这么觉得！快跟我来！",
+                            "今天天气真好，我们一起在草地上奔跑吧！",
+                            "卡梅利多最勇敢啦！冲呀！",
+                            "咕咕！你太聪明啦！",
+                        ])
+                    # Natural typing delay between 0.6 and 1.4 seconds
+                    delay_send = time.time() + random.uniform(0.6, 1.4)
+                    self._pending_chats.append((delay_send, reply))
+                    print(f"🤖 AI replying to player {sender_id} with: '{reply}'", flush=True)
 
     async def _motion_loop(self, ws) -> None:
         tick_rate = 30.0
@@ -350,10 +371,12 @@ class AICodeCompanion:
             norm_x = max(0.05, min(0.95, (self.wx + self.WORLD_LIMIT) / (2.0 * self.WORLD_LIMIT) * 0.9 + 0.05))
             norm_y = max(0.05, min(0.95, (self.wz + self.WORLD_LIMIT) / (2.0 * self.WORLD_LIMIT) * 0.9 + 0.05))
 
-            while self._pending_chats:
-                c_text = self._pending_chats.pop(0)
+            now = time.time()
+            ready_chats = [item for item in self._pending_chats if now >= item[0]]
+            for item in ready_chats:
+                self._pending_chats.remove(item)
                 try:
-                    await ws.send(json.dumps({"type": "chat", "text": c_text, "name": self.name}))
+                    await ws.send(json.dumps({"type": "chat", "text": item[1], "name": self.name}))
                 except Exception:
                     pass
 
