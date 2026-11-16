@@ -1184,9 +1184,17 @@ def main() -> None:
             sy = hh - (ry_p / rz_p) * focal
 
             if pdata.get("is_carmelito", True):
-                # Soft shadow on the grass right beneath the Carmelito chick's feet
-                sh_w = max(8, round((1.15 / rz_p) * focal))
-                sh_h = max(3, round((0.36 / rz_p) * focal))
+                remote_char = pdata.get("character") or ("carmen" if pdata.get("chick_name") in ("卡门", "Carmen") else ("pangdun" if pdata.get("chick_name") in ("小胖墩", "Belino", "Coquenpâte") else "carmelito"))
+                if remote_char == "carmen":
+                    rem_scale = CARMELITO_WORLD_SCALE * 0.82
+                elif remote_char in ("pangdun", "小胖墩", "belino", "coquenpate"):
+                    rem_scale = CARMELITO_WORLD_SCALE * 1.15
+                else:
+                    rem_scale = CARMELITO_WORLD_SCALE
+
+                # Soft shadow on the grass right beneath the chick's feet
+                sh_w = max(8, round((1.15 * (rem_scale / CARMELITO_WORLD_SCALE) / rz_p) * focal))
+                sh_h = max(3, round((0.36 * (rem_scale / CARMELITO_WORLD_SCALE) / rz_p) * focal))
                 shadow_rect = pygame.Rect(round(sx - sh_w * 0.5), round(sy - sh_h * 0.4), sh_w, sh_h)
                 pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, shadow_rect)
 
@@ -1194,7 +1202,6 @@ def main() -> None:
                 rel_rot_y = math.pi - (rs["rot_y"] - total_yaw)
                 rel_rot_x = max(-0.55, min(0.65, 0.04 - total_pitch))
 
-                remote_char = pdata.get("character") or ("carmen" if pdata.get("chick_name") in ("卡门", "Carmen") else "carmelito")
                 model_3d.render(
                     surface=screen,
                     screen_pos=(sx, sy),
@@ -1213,15 +1220,9 @@ def main() -> None:
                     character=remote_char,
                 )
 
-                # Floating nameplates above Carmelito's comb:
-                # 1) Chicken's Chinese name ("卡梅利多")
-                # 2) AI / player's name (e.g. "Antigravity (AI)") stacked right above it
-                if remote_char == "carmen":
-                    rem_scale = CARMELITO_WORLD_SCALE * 0.82
-                elif remote_char in ("pangdun", "小胖墩", "belino"):
-                    rem_scale = CARMELITO_WORLD_SCALE * 1.15
-                else:
-                    rem_scale = CARMELITO_WORLD_SCALE
+                # Floating nameplates above chicken's comb:
+                # 1) Chicken's Chinese name (e.g. "小胖墩", "卡梅利多", "卡门")
+                # 2) AI / player's name stacked right above it
                 label_cam = to_cam(rs["wx"], current_ground_y + 2.38 * rem_scale, rs["wz"])
                 if label_cam[2] > near_z:
                     lsx = round(hw + (label_cam[0] / label_cam[2]) * focal)
