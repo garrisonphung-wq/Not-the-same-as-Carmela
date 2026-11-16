@@ -30,6 +30,13 @@ COLOR_PUPIL_DARK = (20, 12, 14)         # Rich dark cartoon pupil
 COLOR_LEG_YELLOW = (225, 172, 52)       # Chicken leg yellow
 COLOR_INK_LINE = (68, 24, 28)           # Hand-drawn ink outline
 
+# Carmen (卡门) Palette - Carmelito's little yellow sister:
+COLOR_CARMEN_YELLOW = (252, 214, 66)    # Carmen's fluffy sunny-golden yellow down feathers
+COLOR_CARMEN_COMB = (215, 48, 45)       # Carmen's cute little red chick comb
+COLOR_CARMEN_BEAK = (248, 156, 38)      # Carmen's warm orange-yellow beak
+COLOR_CARMEN_LEG = (238, 148, 35)       # Carmen's slender orange-yellow legs
+COLOR_CARMEN_INK = (72, 44, 18)         # Warm storybook brown-ink outline
+
 
 def create_cube_grid(
     center: tuple[float, float, float],
@@ -275,6 +282,7 @@ class Carmelito3D:
         head_yaw: float = 0.0,
         head_pitch: float = 0.0,
         blink: float = 0.0,
+        character: str = "carmelito",
     ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
         """
         Builds Carmelito 3D model with 100% faithful storybook geometry:
@@ -287,6 +295,13 @@ class Carmelito3D:
           * Standing: Fully relaxed arms and straight posture.
         - 4-lobe red crown comb.
         """
+        # Pick palette according to character: Carmen (yellow chick) vs Carmelito (pink chick)
+        is_carmen = (character.lower() in ("carmen", "卡门"))
+        body_col = COLOR_CARMEN_YELLOW if is_carmen else COLOR_BODY_PINK
+        comb_col = COLOR_CARMEN_COMB if is_carmen else COLOR_COMB_RED
+        beak_col = COLOR_CARMEN_BEAK if is_carmen else COLOR_BEAK_YELLOW
+        leg_col = COLOR_CARMEN_LEG if is_carmen else COLOR_LEG_YELLOW
+
         if run_weight is None:
             rw = 1.0 if is_running else 0.0
         else:
@@ -316,7 +331,7 @@ class Carmelito3D:
             center=(0.0, head_center_y, 0.0),
             size=(0.58, 0.58, 0.58),
             subdivisions=(7, 6, 6),
-            base_color=COLOR_BODY_PINK,
+            base_color=body_col,
             taper_y=0.15,
             roundness=0.76,
             draw_contour=True,
@@ -329,7 +344,7 @@ class Carmelito3D:
                 center=(side * 0.20, head_center_y - 0.10, 0.10),
                 size=(0.20, 0.18, 0.20),
                 subdivisions=(3, 3, 3),
-                base_color=COLOR_BODY_PINK,
+                base_color=body_col,
                 roundness=0.75,
                 draw_contour=False,
             )
@@ -340,7 +355,7 @@ class Carmelito3D:
             center=(0.0, head_center_y - 0.28, -0.02),
             size=(0.42, 0.26, 0.42),
             subdivisions=(5, 3, 5),
-            base_color=COLOR_BODY_PINK,
+            base_color=body_col,
             roundness=0.6,
             draw_contour=False,
         )
@@ -359,7 +374,7 @@ class Carmelito3D:
                 center=(dx, comb_y + dy, dz),
                 size=(lsx, lsy, lsz),
                 subdivisions=ldiv,
-                base_color=COLOR_COMB_RED,
+                base_color=comb_col,
                 taper_y=-0.2,
                 roundness=0.65,
                 draw_contour=True,
@@ -400,7 +415,7 @@ class Carmelito3D:
                     center=(ex, eye_y, 0.275),
                     size=(0.19, 0.20, 0.10),
                     subdivisions=(3, 3, 2),
-                    base_color=COLOR_BODY_PINK,
+                    base_color=body_col,
                     roundness=0.55,
                     draw_contour=False,
                 )
@@ -434,7 +449,7 @@ class Carmelito3D:
             center=(0.0, beak_base_y + 0.025, 0.28),
             size=(0.38, 0.12, 0.14),
             subdivisions=(5, 3, 3),
-            base_color=COLOR_BEAK_YELLOW,
+            base_color=beak_col,
             taper_y=0.10,
             roundness=0.35,
             draw_contour=True,
@@ -443,7 +458,7 @@ class Carmelito3D:
             center=(0.0, beak_base_y + 0.015, 0.37),
             size=(0.34, 0.11, 0.14),
             subdivisions=(5, 3, 3),
-            base_color=COLOR_BEAK_YELLOW,
+            base_color=beak_col,
             taper_y=0.12,
             roundness=0.38,
             draw_contour=True,
@@ -452,7 +467,7 @@ class Carmelito3D:
             center=(0.0, beak_base_y + 0.005, 0.45),
             size=(0.28, 0.10, 0.12),
             subdivisions=(4, 3, 2),
-            base_color=COLOR_BEAK_YELLOW,
+            base_color=beak_col,
             taper_y=0.15,
             roundness=0.42,
             draw_contour=True,
@@ -489,7 +504,7 @@ class Carmelito3D:
                 center=(0.0, beak_base_y - 0.055, 0.29),
                 size=(0.32, 0.075, 0.14),
                 subdivisions=(4, 2, 3),
-                base_color=COLOR_BEAK_YELLOW,
+                base_color=beak_col,
                 taper_y=0.10,
                 roundness=0.22,
                 draw_contour=True,
@@ -498,7 +513,7 @@ class Carmelito3D:
                 center=(0.0, beak_base_y - 0.06, 0.38),
                 size=(0.28, 0.07, 0.13),
                 subdivisions=(4, 2, 2),
-                base_color=COLOR_BEAK_YELLOW,
+                base_color=beak_col,
                 taper_y=0.15,
                 roundness=0.28,
                 draw_contour=True,
@@ -507,7 +522,7 @@ class Carmelito3D:
                 center=(0.0, beak_base_y - 0.06, 0.44),
                 size=(0.22, 0.065, 0.10),
                 subdivisions=(3, 2, 2),
-                base_color=COLOR_BEAK_YELLOW,
+                base_color=beak_col,
                 taper_y=0.20,
                 roundness=0.32,
                 draw_contour=True,
@@ -519,7 +534,7 @@ class Carmelito3D:
                 center=(0.0, beak_base_y - 0.045, 0.34),
                 size=(0.32, 0.08, 0.16),
                 subdivisions=(4, 2, 3),
-                base_color=COLOR_BEAK_YELLOW,
+                base_color=beak_col,
                 taper_y=0.15,
                 roundness=0.30,
                 draw_contour=True,
@@ -559,7 +574,7 @@ class Carmelito3D:
             center=(0.0, body_center_y, -0.02),
             size=(0.54, 0.74, 0.52),
             subdivisions=(7, 6, 6),
-            base_color=COLOR_BODY_PINK,
+            base_color=body_col,
             taper_y=-0.22,
             roundness=0.75,
             draw_contour=True,
@@ -570,7 +585,7 @@ class Carmelito3D:
             center=(0.0, body_center_y - 0.06, 0.12),
             size=(0.40, 0.40, 0.18),
             subdivisions=(4, 4, 3),
-            base_color=COLOR_BODY_PINK,
+            base_color=body_col,
             roundness=0.75,
             draw_contour=False,
         )
@@ -586,7 +601,7 @@ class Carmelito3D:
                 center=(tdx, body_center_y + tdy, tdz),
                 size=(tsx, tsy, tsz),
                 subdivisions=(2, 3, 2),
-                base_color=COLOR_BODY_PINK,
+                base_color=body_col,
                 taper_y=0.3,
                 roundness=0.6,
                 draw_contour=True,
@@ -640,7 +655,7 @@ class Carmelito3D:
             upper_arm = create_oriented_box(
                 shoulder_pt, elbow_pt,
                 thickness=(0.13, 0.18),
-                base_color=COLOR_BODY_PINK,
+                base_color=body_col,
                 subdiv_length=3,
                 draw_contour=True,
             )
@@ -651,7 +666,7 @@ class Carmelito3D:
                 center=elbow_pt,
                 size=(0.13, 0.13, 0.13),
                 subdivisions=(2, 2, 2),
-                base_color=COLOR_BODY_PINK,
+                base_color=body_col,
                 roundness=0.75,
                 draw_contour=True,
             )
@@ -661,7 +676,7 @@ class Carmelito3D:
             forearm = create_oriented_box(
                 elbow_pt, hand_pt,
                 thickness=(0.11, 0.15),
-                base_color=COLOR_BODY_PINK,
+                base_color=body_col,
                 subdiv_length=3,
                 draw_contour=True,
             )
@@ -679,7 +694,7 @@ class Carmelito3D:
                     center=(hx - side * 0.02, hy + f_dy, hz + f_dz),
                     size=(f_thick, 0.08, 0.09),
                     subdivisions=(2, 2, 2),
-                    base_color=COLOR_BODY_PINK,
+                    base_color=body_col,
                     roundness=0.62,
                     draw_contour=True,
                 )
@@ -696,7 +711,7 @@ class Carmelito3D:
                 center=hip_pt,
                 size=(0.19, 0.20, 0.19),
                 subdivisions=(3, 3, 3),
-                base_color=COLOR_BODY_PINK,
+                base_color=body_col,
                 taper_y=0.45,
                 roundness=0.75,
                 draw_contour=True,
@@ -777,7 +792,7 @@ class Carmelito3D:
             thigh = create_oriented_box(
                 hip_pt, knee_pt,
                 thickness=(0.075, 0.075),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
             )
@@ -788,7 +803,7 @@ class Carmelito3D:
                 center=knee_pt,
                 size=(0.08, 0.08, 0.08),
                 subdivisions=(2, 2, 2),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 roundness=0.5,
                 draw_contour=True,
             )
@@ -798,7 +813,7 @@ class Carmelito3D:
             shank = create_oriented_box(
                 knee_pt, ankle_pt,
                 thickness=(0.06, 0.06),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
             )
@@ -809,7 +824,7 @@ class Carmelito3D:
                 center=ankle_pt,
                 size=(0.07, 0.07, 0.07),
                 subdivisions=(2, 2, 2),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 roundness=0.4,
                 draw_contour=True,
             )
@@ -831,7 +846,7 @@ class Carmelito3D:
             toe_mid = create_oriented_box(
                 t_mid_start, t_mid_end,
                 thickness=(0.05, 0.05),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
             )
@@ -843,7 +858,7 @@ class Carmelito3D:
             toe_left = create_oriented_box(
                 t_left_start, t_left_end,
                 thickness=(0.045, 0.045),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
             )
@@ -855,7 +870,7 @@ class Carmelito3D:
             toe_right = create_oriented_box(
                 t_right_start, t_right_end,
                 thickness=(0.045, 0.045),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
             )
@@ -867,7 +882,7 @@ class Carmelito3D:
             toe_rear = create_oriented_box(
                 t_rear_start, t_rear_end,
                 thickness=(0.04, 0.04),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
             )
@@ -909,7 +924,7 @@ class Carmelito3D:
             center=(0.0, ground_y + (0.72 + bob_y) * scale, -0.22),
             size=(0.44 * scale, 0.52 * scale, 0.30 * scale),
             subdivisions=(4, 4, 3),
-            base_color=COLOR_BODY_PINK,
+            base_color=body_col,
             taper_y=-0.15,
             roundness=0.75,
             draw_contour=True,
@@ -929,7 +944,7 @@ class Carmelito3D:
                 center=to_world_unit(*hip_pt_m),
                 size=(0.18 * scale, 0.20 * scale, 0.18 * scale),
                 subdivisions=(3, 3, 3),
-                base_color=COLOR_BODY_PINK,
+                base_color=body_col,
                 taper_y=0.45,
                 roundness=0.75,
                 draw_contour=True,
@@ -987,7 +1002,7 @@ class Carmelito3D:
             faces.extend(create_oriented_box(
                 hip_w, knee_w,
                 thickness=(0.075 * scale, 0.075 * scale),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
             ))
@@ -996,7 +1011,7 @@ class Carmelito3D:
                 center=knee_w,
                 size=(0.08 * scale, 0.08 * scale, 0.08 * scale),
                 subdivisions=(2, 2, 2),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 roundness=0.5,
                 draw_contour=True,
             ))
@@ -1004,7 +1019,7 @@ class Carmelito3D:
             faces.extend(create_oriented_box(
                 knee_w, ankle_w,
                 thickness=(0.06 * scale, 0.06 * scale),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
             ))
@@ -1013,7 +1028,7 @@ class Carmelito3D:
                 center=ankle_w,
                 size=(0.07 * scale, 0.07 * scale, 0.07 * scale),
                 subdivisions=(2, 2, 2),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 roundness=0.45,
                 draw_contour=True,
             ))
@@ -1032,7 +1047,7 @@ class Carmelito3D:
                 toe_pt(0.0, -0.02, 0.0),
                 toe_pt(0.0, -0.02, 0.22),
                 thickness=(0.05 * scale, 0.05 * scale),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
             ))
@@ -1041,7 +1056,7 @@ class Carmelito3D:
                 toe_pt(0.0, -0.02, 0.0),
                 toe_pt(-0.08, -0.02, 0.18),
                 thickness=(0.045 * scale, 0.045 * scale),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
             ))
@@ -1050,7 +1065,7 @@ class Carmelito3D:
                 toe_pt(0.0, -0.02, 0.0),
                 toe_pt(0.08, -0.02, 0.18),
                 thickness=(0.045 * scale, 0.045 * scale),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
             ))
@@ -1059,7 +1074,7 @@ class Carmelito3D:
                 toe_pt(0.0, -0.01, 0.0),
                 toe_pt(0.0, 0.02, -0.10),
                 thickness=(0.04 * scale, 0.04 * scale),
-                base_color=COLOR_LEG_YELLOW,
+                base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
             ))
@@ -1083,6 +1098,7 @@ class Carmelito3D:
         walk_weight: float = 0.0,
         draw_wireframe: bool = False,
         blink: float = 0.0,
+        character: str = "carmelito",
     ) -> None:
         """
         Projects and renders Carmelito in authentic storybook 3D.
@@ -1099,6 +1115,7 @@ class Carmelito3D:
             head_yaw=head_yaw,
             head_pitch=head_pitch,
             blink=blink,
+            character=character,
         )
 
         cos_y = math.cos(rot_y)
@@ -1174,7 +1191,8 @@ class Carmelito3D:
             if len(pts) >= 3:
                 pygame.draw.polygon(surface, f_col, pts)
                 if draw_ink:
-                    pygame.draw.polygon(surface, COLOR_INK_LINE, pts, 1)
+                    ink_color = COLOR_CARMEN_INK if (character.lower() in ("carmen", "卡门")) else COLOR_INK_LINE
+                    pygame.draw.polygon(surface, ink_color, pts, 1)
                 elif draw_wireframe:
                     pygame.draw.polygon(surface, COLOR_INK_LINE, pts, 1)
 
@@ -1186,6 +1204,7 @@ class Carmelito3D:
         run_weight: float = 0.0,
         walk_weight: float = 0.0,
         head_bob_y: float = 0.0,
+        character: str = "carmelito",
     ) -> None:
         """
         Renders what Carmelito sees from his own eyes looking out into the world:
@@ -1213,7 +1232,7 @@ class Carmelito3D:
             center=(0.0, -0.22, 0.42),
             size=(0.42, 0.18, 0.22),
             subdivisions=(4, 3, 3),
-            base_color=COLOR_BEAK_YELLOW,
+            base_color=COLOR_CARMEN_BEAK if (character.lower() in ("carmen", "卡门")) else COLOR_BEAK_YELLOW,
             roundness=0.65,
             draw_contour=True,
         )
@@ -1224,7 +1243,7 @@ class Carmelito3D:
             center=(0.0, -0.26, 0.62),
             size=(0.38, 0.17, 0.22),
             subdivisions=(4, 3, 3),
-            base_color=COLOR_BEAK_YELLOW,
+            base_color=COLOR_CARMEN_BEAK if (character.lower() in ("carmen", "卡门")) else COLOR_BEAK_YELLOW,
             roundness=0.82,
             draw_contour=True,
         )
@@ -1236,7 +1255,7 @@ class Carmelito3D:
                 center=(0.0, -0.42, 0.48),
                 size=(0.34, 0.14, 0.24),
                 subdivisions=(4, 2, 3),
-                base_color=COLOR_BEAK_YELLOW,
+                base_color=COLOR_CARMEN_BEAK if (character.lower() in ("carmen", "卡门")) else COLOR_BEAK_YELLOW,
                 roundness=0.65,
                 draw_contour=True,
             )
@@ -1255,7 +1274,7 @@ class Carmelito3D:
                 center=(0.0, -0.32, 0.48),
                 size=(0.36, 0.12, 0.24),
                 subdivisions=(4, 2, 3),
-                base_color=COLOR_BEAK_YELLOW,
+                base_color=COLOR_CARMEN_BEAK if (character.lower() in ("carmen", "卡门")) else COLOR_BEAK_YELLOW,
                 roundness=0.65,
                 draw_contour=True,
             )

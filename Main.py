@@ -19,6 +19,7 @@ from carmelito_3d import COLOR_INK_LINE, Carmelito3D
 
 WINDOW_TITLE = "不一样的卡梅拉"
 CHICK_NAME = "卡梅利多"
+CARMEN_NAME = "卡门"
 DEFAULT_SERVER_URL = os.environ.get("GAME_SERVER_URL", "ws://127.0.0.1:8765")
 
 # Pure white sky/background, seamless lush green grass ground (no grid)
@@ -274,6 +275,8 @@ class NetworkClient:
         self.is_host = False
         self.my_id: int | None = None
         self.my_color = LOCAL_DOT_COLOR
+        self.chick_name = CHICK_NAME
+        self.character_id = "carmelito"
 
         self.remote_players: dict[int, dict[str, Any]] = {}
 
@@ -295,6 +298,12 @@ class NetworkClient:
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
+
+    def set_character(self, character_id: str, chick_name: str) -> None:
+        with self._lock:
+            self.character_id = character_id
+            self.chick_name = chick_name
+            self._pos_dirty = True
 
     def set_online(self, online: bool = True) -> None:
         with self._lock:
@@ -475,7 +484,7 @@ class NetworkClient:
 
             for c_text in out_chats:
                 try:
-                    await ws.send(json.dumps({"type": "chat", "text": c_text, "name": CHICK_NAME}))
+                    await ws.send(json.dumps({"type": "chat", "text": c_text, "name": self.chick_name}))
                 except Exception:
                     pass
 
@@ -497,7 +506,8 @@ class NetworkClient:
                             "head_yaw": round(self._local_head_yaw, 4),
                             "head_pitch": round(self._local_head_pitch, 4),
                             "is_carmelito": True,
-                            "chick_name": CHICK_NAME,
+                            "chick_name": self.chick_name,
+                            "character": self.character_id,
                         },
                         separators=(",", ":"),
                     )
@@ -526,6 +536,7 @@ class NetworkClient:
             "color": tuple(int(c) for c in raw_color),
             "name": pdata.get("name"),
             "chick_name": pdata.get("chick_name") or CHICK_NAME,
+            "character": pdata.get("character") or ("carmen" if pdata.get("chick_name") in ("卡门", "Carmen") else "carmelito"),
             "is_carmelito": bool(pdata.get("is_carmelito", True)),
         }
 
@@ -640,7 +651,11 @@ def main() -> None:
     is_online = False     # You start offline staring down at the island until you click Play
     has_entered_game = False
     menu_state = "title"  # "title" -> "character_select" -> "character_used"
-    use_button_rect = pygame.Rect(-100, -100, 0, 0)
+    use_carmelito_rect = pygame.Rect(-100, -100, 0, 0)
+    use_carmen_rect = pygame.Rect(-100, -100, 0, 0)
+    selected_character = "carmelito"
+    selected_chick_name = CHICK_NAME
+    has_selected_character = False
 
     # Carmelito's ground-level gameplay coordinates
     ground_cam_x = 0.0
@@ -746,29 +761,34 @@ def main() -> None:
                         else:
                             is_dragging_island = True
                             drag_start_pos = event.pos
-                    elif menu_state == "character_select":
-                        if use_button_rect.collidepoint(event.pos):
-                            # Clicking USE selects Carmelito and spawns PLAY button under USE button
+                    elif menu_state in ("character_select", "character_used"):
+                        if use_carmelito_rect.collidepoint(event.pos):
+                            # Select Carmelito (pink chick)
+                            selected_character = "carmelito"
+                            selected_chick_name = CHICK_NAME
+                            has_selected_character = True
                             menu_state = "character_used"
+                            net.set_character(selected_character, selected_chick_name)
                             is_dragging_island = False
-                        else:
-                            is_dragging_island = True
-                            drag_start_pos = event.pos
-                    elif menu_state == "character_used":
-                        if play_button_rect.collidepoint(event.pos):
-                            # Clicking PLAY launches the game!
+                        elif use_carmen_rect.collidepoint(event.pos):
+                            # Select Carmen (yellow chick)
+                            selected_character = "carmen"
+                            selected_chick_name = CARMEN_NAME
+                            has_selected_character = True
+                            menu_state = "character_used"
+                            net.set_character(selected_character, selected_chick_name)
+                            is_dragging_island = False
+                        elif menu_state == "character_used" and play_button_rect.collidepoint(event.pos):
+                            # Clicking spawned PLAY button launches the game with chosen chick!
                             is_online = True
                             has_entered_game = True
+                            net.set_character(selected_character, selected_chick_name)
                             net.set_online(True)
-                            # Transition camera to ground-level Carmelito first-person view
                             cam_x = ground_cam_x
                             cam_z = ground_cam_z
                             cam_yaw = ground_cam_yaw
                             head_yaw = 0.0
                             head_pitch = 0.0
-                            is_dragging_island = False
-                        elif use_button_rect.collidepoint(event.pos):
-                            # Clicking USE again stays in used state
                             is_dragging_island = False
                         else:
                             is_dragging_island = True
@@ -1152,6 +1172,7 @@ def main() -> None:
                 rel_rot_y = math.pi - (rs["rot_y"] - total_yaw)
                 rel_rot_x = max(-0.55, min(0.65, 0.04 - total_pitch))
 
+                remote_char = pdata.get("character") or ("carmen" if pdata.get("chick_name") in ("卡门", "Carmen") else "carmelito")
                 model_3d.render(
                     surface=screen,
                     screen_pos=(sx, sy),
@@ -1167,6 +1188,7 @@ def main() -> None:
                     is_walking=pdata.get("walking", False),
                     walk_weight=rs["walk_weight"],
                     blink=rs["blink_amount"],
+                    character=remote_char,
                 )
 
                 # Floating nameplates above Carmelito's comb:
@@ -1341,6 +1363,7 @@ def main() -> None:
                 is_walking=is_walking,
                 walk_weight=walk_weight,
                 blink=blink_amount,
+                character=selected_character,
             )
 
         # --- 2b. 3D CHAT BUBBLE ANCHORED DIRECTLY ABOVE LOCAL PLAYER (VISIBLE WHEN LOOKING UP) ---
@@ -1434,77 +1457,97 @@ def main() -> None:
                 screen.blit(play_surf, (play_x, play_y))
 
             elif menu_state in ("character_select", "character_used"):
-                # Initial buttons below title disappear, replaced by Carmelito card, name, USE, and PLAY
+                # Initial buttons below title disappear, replaced by side-by-side cards: Carmelito & Carmen!
                 play_button_rect = pygame.Rect(-100, -100, 0, 0)
 
-                # Card with picture of Carmelito: not moving (no walk/run cycle) and spinning
-                card_w = min(170, round(win_h * 0.22))
-                card_h = min(185, round(win_h * 0.24))
-                card_x = (win_w - card_w) // 2
+                card_w = min(160, round(win_h * 0.20))
+                card_h = min(175, round(win_h * 0.22))
+                card_gap = max(28, round(win_w * 0.04))
+                total_w = card_w * 2 + card_gap
+                left_x = (win_w - total_w) // 2
+                right_x = left_x + card_w + card_gap
                 card_y = title_y + title_surf.get_height() + max(12, round(win_h * 0.02))
 
-                # Draw card frame with rounded corners & shadow
-                card_shadow = pygame.Rect(card_x + 3, card_y + 3, card_w, card_h)
-                card_rect = pygame.Rect(card_x, card_y, card_w, card_h)
-                pygame.draw.rect(screen, (190, 205, 220), card_shadow, border_radius=14)
-                pygame.draw.rect(screen, (255, 255, 255), card_rect, border_radius=14)
-                pygame.draw.rect(screen, (215, 225, 235), card_rect, width=2, border_radius=14)
+                characters_data = [
+                    ("carmelito", CHICK_NAME, left_x),
+                    ("carmen", CARMEN_NAME, right_x),
+                ]
 
-                # Render Carmelito inside card: standing still, not moving, slowly spinning
                 spin_yaw = anim_time * 1.6
-                model_3d.render(
-                    surface=screen,
-                    screen_pos=(card_x + card_w // 2, card_y + card_h - 18),
-                    scale=round(card_h * 0.45),
-                    rot_y=spin_yaw,
-                    rot_x=0.08,
-                    head_yaw=0.0,
-                    head_pitch=0.0,
-                    mouth_open=False,
-                    run_cycle=0.0,
-                    is_running=False,
-                    run_weight=0.0,
-                    is_walking=False,
-                    walk_weight=0.0,
-                    blink=0.0,
-                )
-
-                # Name under picture of him: white text with black outline
-                name_px = max(22, min(40, ((round(title_px * 0.54)) // 2) * 2))
+                name_px = max(20, min(36, ((round(title_px * 0.50)) // 2) * 2))
                 name_outline_px = max(2, round(name_px * 0.07))
-                name_surf = get_outlined_text_surface(CHICK_NAME, name_px, outline_px=name_outline_px)
-                name_x = (win_w - name_surf.get_width()) // 2
-                name_y = card_y + card_h + max(8, round(win_h * 0.015))
-                screen.blit(name_surf, (name_x, name_y))
-
-                # USE button under his name: red fill before pressing USE, green fill after pressing USE (both with black outline)
-                use_px = max(20, min(36, ((round(title_px * 0.48)) // 2) * 2))
+                use_px = max(18, min(32, ((round(title_px * 0.44)) // 2) * 2))
                 use_outline_px = max(2, round(use_px * 0.07))
-                use_fill_color = (68, 204, 88) if menu_state == "character_used" else (235, 52, 52)
-                use_surf = get_outlined_text_surface(
-                    "USE",
-                    use_px,
-                    outline_px=use_outline_px,
-                    fill_color=use_fill_color,
-                    outline_color=(0, 0, 0),
-                )
-                use_x = (win_w - use_surf.get_width()) // 2
-                use_y = name_y + name_surf.get_height() + max(8, round(win_h * 0.015))
-                use_button_rect = pygame.Rect(
-                    use_x - 12,
-                    use_y - 6,
-                    use_surf.get_width() + 24,
-                    use_surf.get_height() + 12,
-                )
-                screen.blit(use_surf, (use_x, use_y))
 
-                # When USE is pressed, spawn PLAY button under the USE button
+                bottom_use_y = card_y
+
+                for char_id, char_name, cx in characters_data:
+                    # Draw picture card
+                    c_shadow = pygame.Rect(cx + 3, card_y + 3, card_w, card_h)
+                    c_rect = pygame.Rect(cx, card_y, card_w, card_h)
+                    pygame.draw.rect(screen, (190, 205, 220), c_shadow, border_radius=14)
+                    pygame.draw.rect(screen, (255, 255, 255), c_rect, border_radius=14)
+                    pygame.draw.rect(screen, (215, 225, 235), c_rect, width=2, border_radius=14)
+
+                    # Render 3D chick spinning inside card
+                    model_3d.render(
+                        surface=screen,
+                        screen_pos=(cx + card_w // 2, card_y + card_h - 16),
+                        scale=round(card_h * 0.44),
+                        rot_y=spin_yaw,
+                        rot_x=0.08,
+                        head_yaw=0.0,
+                        head_pitch=0.0,
+                        mouth_open=False,
+                        run_cycle=0.0,
+                        is_running=False,
+                        run_weight=0.0,
+                        is_walking=False,
+                        walk_weight=0.0,
+                        blink=0.0,
+                        character=char_id,
+                    )
+
+                    # Character name below picture
+                    n_surf = get_outlined_text_surface(char_name, name_px, outline_px=name_outline_px)
+                    nx = cx + (card_w - n_surf.get_width()) // 2
+                    ny = card_y + card_h + max(8, round(win_h * 0.014))
+                    screen.blit(n_surf, (nx, ny))
+
+                    # USE button below name: green if equipped, red if unequipped (white text with black outline)
+                    is_equipped = (has_selected_character and selected_character == char_id)
+                    u_fill = (68, 204, 88) if is_equipped else (235, 52, 52)
+                    u_surf = get_outlined_text_surface(
+                        "USE",
+                        use_px,
+                        outline_px=use_outline_px,
+                        fill_color=u_fill,
+                        outline_color=(0, 0, 0),
+                    )
+                    ux = cx + (card_w - u_surf.get_width()) // 2
+                    uy = ny + n_surf.get_height() + max(8, round(win_h * 0.014))
+                    u_rect = pygame.Rect(
+                        ux - 12,
+                        uy - 5,
+                        u_surf.get_width() + 24,
+                        u_surf.get_height() + 10,
+                    )
+                    screen.blit(u_surf, (ux, uy))
+
+                    bottom_use_y = max(bottom_use_y, uy + u_surf.get_height())
+
+                    if char_id == "carmelito":
+                        use_carmelito_rect = u_rect
+                    else:
+                        use_carmen_rect = u_rect
+
+                # When a character is equipped, spawn the PLAY button centered below both cards
                 if menu_state == "character_used":
-                    play_px = max(22, min(42, ((round(title_px * 0.52)) // 2) * 2))
+                    play_px = max(24, min(44, ((round(title_px * 0.54)) // 2) * 2))
                     play_outline_px = max(2, round(play_px * 0.07))
                     play_surf = get_outlined_text_surface("PLAY", play_px, outline_px=play_outline_px)
                     play_x = (win_w - play_surf.get_width()) // 2
-                    play_y = use_y + use_surf.get_height() + max(10, round(win_h * 0.018))
+                    play_y = bottom_use_y + max(12, round(win_h * 0.022))
                     play_button_rect = pygame.Rect(
                         play_x - 14,
                         play_y - 6,
