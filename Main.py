@@ -655,6 +655,23 @@ def main() -> None:
     use_carmelito_rect = pygame.Rect(-100, -100, 0, 0)
     use_carmen_rect = pygame.Rect(-100, -100, 0, 0)
     use_pangdun_rect = pygame.Rect(-100, -100, 0, 0)
+
+    # Fight System between Carmelito & Belino (小胖墩)
+    is_fighting = False
+    fight_player_pressed = False
+    fight_belino_pressed = False
+    belino_auto_press_timer = -1.0
+    fight_timer = 0.0
+    fight_carmelito_x = 0.0
+    fight_carmelito_z = 0.0
+    fight_belino_x = 0.0
+    fight_belino_z = 0.0
+    fight_opponent_pid: int | None = None
+    carmelito_fight_button_rect = pygame.Rect(-100, -100, 0, 0)
+    belino_fight_button_rect = pygame.Rect(-100, -100, 0, 0)
+    fight_leave_button_rect = pygame.Rect(-100, -100, 0, 0)
+    near_belino = False
+    dust_sparks: list[dict[str, Any]] = []
     selected_character = "carmelito"
     selected_chick_name = CHICK_NAME
     has_selected_character = False
@@ -803,6 +820,26 @@ def main() -> None:
                         else:
                             is_dragging_island = True
                             drag_start_pos = event.pos
+                else:
+                    # In-game interactive button clicks
+                    if is_fighting:
+                        if fight_leave_button_rect.collidepoint(event.pos):
+                            # Leave the fight, reset buttons, and return to 1st-person POV!
+                            is_fighting = False
+                            fight_player_pressed = False
+                            fight_belino_pressed = False
+                            belino_auto_press_timer = -1.0
+                            cam_x = fight_carmelito_x
+                            cam_z = fight_carmelito_z
+                            cam_yaw = ground_cam_yaw
+                    elif near_belino and selected_character == "carmelito":
+                        if carmelito_fight_button_rect.collidepoint(event.pos):
+                            fight_player_pressed = True
+                            # Belino AI rival excitedly accepts right after!
+                            if not fight_belino_pressed and belino_auto_press_timer < 0.0:
+                                belino_auto_press_timer = 0.35
+                        elif belino_fight_button_rect.collidepoint(event.pos):
+                            fight_belino_pressed = True
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 is_dragging_island = False
                 drag_start_pos = None
@@ -860,17 +897,75 @@ def main() -> None:
             head_yaw += (target_head_yaw - head_yaw) * head_alpha
             head_pitch += (target_head_pitch - head_pitch) * head_alpha
 
+            # Proximity to Belino (小胖墩) when player is Carmelito
+            near_belino = False
+            active_belino_pid: int | None = None
+            active_belino_wx = 0.0
+            active_belino_wz = 0.0
+
+            if selected_character == "carmelito" and not is_fighting:
+                for pid, pdata in remote_players.items():
+                    rs = remote_states.get(pid)
+                    if not rs:
+                        continue
+                    r_char = pdata.get("character") or ("carmen" if pdata.get("chick_name") in ("卡门", "Carmen") else ("pangdun" if pdata.get("chick_name") in ("小胖墩", "Belino", "Coquenpâte") else "carmelito"))
+                    if r_char in ("pangdun", "小胖墩", "belino", "coquenpate"):
+                        dist = math.hypot(rs["wx"] - cam_x, rs["wz"] - cam_z)
+                        if dist <= 5.8:
+                            near_belino = True
+                            active_belino_pid = pid
+                            active_belino_wx = rs["wx"]
+                            active_belino_wz = rs["wz"]
+                            break
+
+                if not near_belino:
+                    fight_player_pressed = False
+                    fight_belino_pressed = False
+                    belino_auto_press_timer = -1.0
+                else:
+                    if belino_auto_press_timer > 0.0:
+                        belino_auto_press_timer -= dt
+                        if belino_auto_press_timer <= 0.0:
+                            fight_belino_pressed = True
+
+                    # When BOTH buttons are pressed -> START THE FIGHT!
+                    if fight_player_pressed and fight_belino_pressed:
+                        is_fighting = True
+                        fight_timer = 0.0
+                        fight_carmelito_x = cam_x
+                        fight_carmelito_z = cam_z
+                        fight_belino_x = active_belino_wx
+                        fight_belino_z = active_belino_wz
+                        fight_opponent_pid = active_belino_pid
+
             # --- VIEW TURNING CONTROLS ---
             turn_input = 0.0
-            if not is_typing_chat:
+            if not is_typing_chat and not is_fighting:
                 if keys[pygame.K_LEFT]:
                     turn_input -= 1.0
                 if keys[pygame.K_RIGHT]:
                     turn_input += 1.0
             cam_yaw += turn_input * TURN_SPEED * dt
 
-            total_yaw = cam_yaw + head_yaw
-            total_pitch = head_pitch
+            if is_fighting:
+                fight_timer += dt
+                # Step out of Carmelito's sight: 3rd-person spectator battle cam orbiting both chickens!
+                battle_mid_x = (fight_carmelito_x + fight_belino_x) * 0.5
+                battle_mid_z = (fight_carmelito_z + fight_belino_z) * 0.5
+                base_angle = math.atan2(fight_belino_x - fight_carmelito_x, fight_belino_z - fight_carmelito_z) + math.pi * 0.5
+                orbit_angle = base_angle + math.sin(fight_timer * 0.8) * 0.35
+                orbit_dist = 5.2
+
+                cam_x = battle_mid_x + math.sin(orbit_angle) * orbit_dist
+                cam_z = battle_mid_z + math.cos(orbit_angle) * orbit_dist
+                cam_yaw = orbit_angle + math.pi
+                total_yaw = cam_yaw
+                total_pitch = -0.18
+                head_yaw = 0.0
+                head_pitch = 0.0
+            else:
+                total_yaw = cam_yaw + head_yaw
+                total_pitch = head_pitch
 
             # --- MOVEMENT CONTROLS (Arrow Up/Down + WASD) ---
             move_fwd = 0.0
@@ -910,7 +1005,7 @@ def main() -> None:
                 stride_speed = (3.2 * run_weight) + (1.8 * walk_weight * (1.0 - run_weight))
                 motion_cycle += dt * max(0.4, stride_speed)
 
-            if is_moving:
+            if is_moving and not is_fighting:
                 fwd_n = move_fwd / move_mag
                 side_n = move_side / move_mag
                 speed = RUN_SPEED if is_running else WALK_SPEED
@@ -919,8 +1014,11 @@ def main() -> None:
                 cam_x += (sin_b * fwd_n + cos_b * side_n) * speed * dt
                 cam_z += (cos_b * fwd_n - sin_b * side_n) * speed * dt
 
-            head_bob = math.sin(motion_cycle * 2.0 * math.pi) * (0.04 * run_weight + 0.02 * walk_weight)
-            eye_y = head_bob
+            if is_fighting:
+                eye_y = 1.65
+            else:
+                head_bob = math.sin(motion_cycle * 2.0 * math.pi) * (0.04 * run_weight + 0.02 * walk_weight)
+                eye_y = head_bob
 
             # Sync position & posture with network only if online
             norm_x = max(0.05, min(0.95, (cam_x + 42.0) / 84.0 * 0.9 + 0.05))
@@ -1180,6 +1278,8 @@ def main() -> None:
 
         visible_remotes.sort(key=lambda item: item[0], reverse=True)
         for _, pid, pdata, rs, rx_p, ry_p, rz_p in visible_remotes:
+            if is_fighting and pid == fight_opponent_pid:
+                continue  # Rendered in dedicated battle clash scene below!
             sx = hw + (rx_p / rz_p) * focal
             sy = hh - (ry_p / rz_p) * focal
 
@@ -1290,6 +1390,106 @@ def main() -> None:
                             tail_direction="down",
                         )
                         cur_bottom -= b_h
+
+        # 1d-battle. DEDICATED 3D BATTLE CLASH BETWEEN CARMELITO & BELINO
+        if is_fighting:
+            # Battle midpoint and separation vector
+            dx_fight = fight_belino_x - fight_carmelito_x
+            dz_fight = fight_belino_z - fight_carmelito_z
+            fight_dist = max(0.8, math.hypot(dx_fight, dz_fight))
+            dir_x = dx_fight / fight_dist
+            dir_z = dz_fight / fight_dist
+
+            # Fast comedic bouncing & charges towards each other
+            carm_clash_hop = abs(math.sin(fight_timer * 11.0)) * 0.32
+            bel_clash_hop = abs(math.sin(fight_timer * 9.5 + 1.1)) * 0.28
+            clash_surge = math.sin(fight_timer * 6.5) * 0.35
+
+            carm_wx = (fight_carmelito_x + dir_x * (0.65 + clash_surge))
+            carm_wz = (fight_carmelito_z + dir_z * (0.65 + clash_surge))
+            carm_wy = current_ground_y + carm_clash_hop
+
+            bel_wx = (fight_belino_x - dir_x * (0.65 + clash_surge))
+            bel_wz = (fight_belino_z - dir_z * (0.65 + clash_surge))
+            bel_wy = current_ground_y + bel_clash_hop
+
+            # Spawn impact dust sparks
+            if random.random() < 0.35:
+                mid_x = (carm_wx + bel_wx) * 0.5 + random.uniform(-0.25, 0.25)
+                mid_z = (carm_wz + bel_wz) * 0.5 + random.uniform(-0.25, 0.25)
+                mid_y = current_ground_y + random.uniform(0.3, 1.4)
+                dust_sparks.append({
+                    "x": mid_x, "y": mid_y, "z": mid_z,
+                    "life": 0.45,
+                    "color": random.choice([(255, 230, 80), (255, 120, 50), (240, 245, 255), (255, 180, 40)]),
+                    "r": random.uniform(4.0, 9.0),
+                })
+
+            # Update & render sparks
+            for spark in dust_sparks:
+                spark["life"] -= dt
+            dust_sparks = [sp for sp in dust_sparks if sp["life"] > 0.0]
+
+            for sp in dust_sparks:
+                sp_cam = to_cam(sp["x"], sp["y"], sp["z"])
+                if sp_cam[2] > near_z:
+                    sp_sx = round(hw + (sp_cam[0] / sp_cam[2]) * focal)
+                    sp_sy = round(hh - (sp_cam[1] / sp_cam[2]) * focal)
+                    sp_rad = max(2, round((sp["r"] / sp_cam[2]) * 0.15 * focal))
+                    pygame.draw.circle(screen, sp["color"], (sp_sx, sp_sy), sp_rad)
+
+            # Sort Carmelito and Belino by camera depth
+            carm_cam = to_cam(carm_wx, carm_wy, carm_wz)
+            bel_cam = to_cam(bel_wx, bel_wy, bel_wz)
+
+            combatants = [
+                (carm_cam[2], "carmelito", carm_wx, carm_wy, carm_wz, carm_cam, math.atan2(dir_x, dir_z), CARMELITO_WORLD_SCALE, CHICK_NAME),
+                (bel_cam[2], "pangdun", bel_wx, bel_wy, bel_wz, bel_cam, math.atan2(-dir_x, -dir_z), CARMELITO_WORLD_SCALE * 1.15, PANGDUN_NAME),
+            ]
+            combatants.sort(key=lambda item: item[0], reverse=True)
+
+            for depth, c_char, c_wx, c_wy, c_wz, c_cam, face_ang, c_scale, c_name in combatants:
+                if c_cam[2] <= near_z:
+                    continue
+                csx = hw + (c_cam[0] / c_cam[2]) * focal
+                csy = hh - (c_cam[1] / c_cam[2]) * focal
+
+                # Shadow beneath chick
+                c_sh_w = max(10, round((1.2 * (c_scale / CARMELITO_WORLD_SCALE) / c_cam[2]) * focal))
+                c_sh_h = max(4, round((0.40 * (c_scale / CARMELITO_WORLD_SCALE) / c_cam[2]) * focal))
+                pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, pygame.Rect(round(csx - c_sh_w * 0.5), round(csy - c_sh_h * 0.4), c_sh_w, c_sh_h))
+
+                c_mscale = (c_scale / c_cam[2]) * focal
+                rel_rot_y = math.pi - (face_ang - total_yaw)
+                rel_rot_x = max(-0.55, min(0.65, 0.04 - total_pitch))
+
+                model_3d.render(
+                    surface=screen,
+                    screen_pos=(csx, csy),
+                    scale=c_mscale,
+                    rot_y=rel_rot_y,
+                    rot_x=rel_rot_x,
+                    head_yaw=math.sin(fight_timer * 12.0) * 0.22,
+                    head_pitch=math.cos(fight_timer * 10.0) * 0.18,
+                    mouth_open=True,
+                    run_cycle=fight_timer * 3.8,
+                    is_running=True,
+                    run_weight=1.0,
+                    is_walking=False,
+                    walk_weight=0.0,
+                    blink=0.0,
+                    character=c_char,
+                )
+
+                # Name badge floating above battling chick
+                lbl_cam = to_cam(c_wx, c_wy + 2.38 * c_scale, c_wz)
+                if lbl_cam[2] > near_z:
+                    lsx = round(hw + (lbl_cam[0] / lbl_cam[2]) * focal)
+                    lsy = round(hh - (lbl_cam[1] / lbl_cam[2]) * focal)
+                    raw_px = max(14, min(32, round((0.48 / lbl_cam[2]) * focal)))
+                    bucket_px = max(12, min(32, (raw_px // 2) * 2))
+                    chick_badge = get_nameplate_surface(c_name, bucket_px)
+                    screen.blit(chick_badge, (lsx - chick_badge.get_width() // 2, lsy - chick_badge.get_height() // 2))
 
         # 1e. RENDER OWN FEET ONLY WHEN ONLINE
         if is_online and head_pitch < -0.35:
@@ -1432,6 +1632,93 @@ def main() -> None:
                             tail_direction="down",
                         )
                         cur_bottom -= b_h
+
+            # --- 2c. INTERACTIVE FIGHT UI (CARMELITO VS BELINO / 小胖墩) ---
+            if is_online:
+                if is_fighting:
+                    # During battle: FIGHT banner at bottom + LEAVE button directly above it
+                    btn_px = max(22, min(40, ((round(win_h * 0.052)) // 2) * 2))
+                    btn_outline = max(2, round(btn_px * 0.07))
+
+                    # 1. Fight banner button at bottom center
+                    f_surf = get_outlined_text_surface("FIGHTING!", btn_px, outline_px=btn_outline)
+                    f_w = f_surf.get_width() + 40
+                    f_h = f_surf.get_height() + 18
+                    f_x = (win_w - f_w) // 2
+                    f_y = win_h - f_h - 26
+
+                    f_rect = pygame.Rect(f_x, f_y, f_w, f_h)
+                    pygame.draw.rect(screen, (0, 0, 0, 80), pygame.Rect(f_x + 3, f_y + 3, f_w, f_h), border_radius=14)
+                    pygame.draw.rect(screen, (46, 175, 78), f_rect, border_radius=14)  # Green fighting fill
+                    pygame.draw.rect(screen, (0, 0, 0), f_rect, width=3, border_radius=14)
+                    screen.blit(f_surf, (f_x + (f_w - f_surf.get_width()) // 2, f_y + (f_h - f_surf.get_height()) // 2))
+
+                    # 2. LEAVE button spawned directly ABOVE the fight button
+                    l_px = max(20, min(36, ((round(btn_px * 0.88)) // 2) * 2))
+                    l_outline = max(2, round(l_px * 0.07))
+                    l_surf = get_outlined_text_surface("LEAVE", l_px, outline_px=l_outline)
+                    l_w = l_surf.get_width() + 36
+                    l_h = l_surf.get_height() + 14
+                    l_x = (win_w - l_w) // 2
+                    l_y = f_y - l_h - 14
+
+                    fight_leave_button_rect = pygame.Rect(l_x, l_y, l_w, l_h)
+                    pygame.draw.rect(screen, (0, 0, 0, 80), pygame.Rect(l_x + 3, l_y + 3, l_w, l_h), border_radius=12)
+                    pygame.draw.rect(screen, (226, 44, 44), fight_leave_button_rect, border_radius=12)  # Red leave button
+                    pygame.draw.rect(screen, (0, 0, 0), fight_leave_button_rect, width=3, border_radius=12)
+                    screen.blit(l_surf, (l_x + (l_w - l_surf.get_width()) // 2, l_y + (l_h - l_surf.get_height()) // 2))
+
+                elif near_belino and selected_character == "carmelito":
+                    # When close to Belino: both Carmelito and Belino have a button that says 'FIGHT'
+                    fight_leave_button_rect = pygame.Rect(-100, -100, 0, 0)
+                    btn_px = max(20, min(38, ((round(win_h * 0.048)) // 2) * 2))
+                    btn_outline = max(2, round(btn_px * 0.07))
+                    tag_px = max(14, min(24, ((round(btn_px * 0.65)) // 2) * 2))
+
+                    card_gap = max(24, round(win_w * 0.05))
+                    btn_w = max(140, round(win_w * 0.16))
+                    btn_h = max(48, round(win_h * 0.065))
+                    total_w = btn_w * 2 + card_gap
+                    start_x = (win_w - total_w) // 2
+                    btn_y = win_h - btn_h - 32
+
+                    # 1. Carmelito's FIGHT button (left)
+                    c_x = start_x
+                    c_col = (46, 175, 78) if fight_player_pressed else (226, 44, 44)
+                    c_rect = pygame.Rect(c_x, btn_y, btn_w, btn_h)
+                    carmelito_fight_button_rect = c_rect
+
+                    # Carmelito tag above button
+                    c_tag = get_nameplate_surface(CHICK_NAME, tag_px)
+                    screen.blit(c_tag, (c_x + (btn_w - c_tag.get_width()) // 2, btn_y - c_tag.get_height() - 6))
+
+                    pygame.draw.rect(screen, (0, 0, 0, 80), pygame.Rect(c_x + 3, btn_y + 3, btn_w, btn_h), border_radius=14)
+                    pygame.draw.rect(screen, c_col, c_rect, border_radius=14)
+                    pygame.draw.rect(screen, (0, 0, 0), c_rect, width=3, border_radius=14)
+
+                    c_txt_surf = get_outlined_text_surface("FIGHT", btn_px, outline_px=btn_outline)
+                    screen.blit(c_txt_surf, (c_x + (btn_w - c_txt_surf.get_width()) // 2, btn_y + (btn_h - c_txt_surf.get_height()) // 2))
+
+                    # 2. Belino's FIGHT button (right)
+                    b_x = start_x + btn_w + card_gap
+                    b_col = (46, 175, 78) if fight_belino_pressed else (226, 44, 44)
+                    b_rect = pygame.Rect(b_x, btn_y, btn_w, btn_h)
+                    belino_fight_button_rect = b_rect
+
+                    # Belino tag above button
+                    b_tag = get_nameplate_surface(PANGDUN_NAME, tag_px)
+                    screen.blit(b_tag, (b_x + (btn_w - b_tag.get_width()) // 2, btn_y - b_tag.get_height() - 6))
+
+                    pygame.draw.rect(screen, (0, 0, 0, 80), pygame.Rect(b_x + 3, btn_y + 3, btn_w, btn_h), border_radius=14)
+                    pygame.draw.rect(screen, b_col, b_rect, border_radius=14)
+                    pygame.draw.rect(screen, (0, 0, 0), b_rect, width=3, border_radius=14)
+
+                    b_txt_surf = get_outlined_text_surface("FIGHT", btn_px, outline_px=btn_outline)
+                    screen.blit(b_txt_surf, (b_x + (btn_w - b_txt_surf.get_width()) // 2, btn_y + (btn_h - b_txt_surf.get_height()) // 2))
+                else:
+                    carmelito_fight_button_rect = pygame.Rect(-100, -100, 0, 0)
+                    belino_fight_button_rect = pygame.Rect(-100, -100, 0, 0)
+                    fight_leave_button_rect = pygame.Rect(-100, -100, 0, 0)
 
             # Typing input box at bottom center of screen (opened with Return/Enter)
             if is_typing_chat:
