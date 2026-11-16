@@ -323,9 +323,12 @@ class Carmelito3D:
             beak_col = COLOR_BEAK_YELLOW
             leg_col = COLOR_LEG_YELLOW
 
-        # Extra plumpness for 小胖墩 (fat white chicken)
-        fat_w = 1.26 if is_pangdun else 1.0
-        fat_d = 1.20 if is_pangdun else 1.0
+        # Proportions for characters:
+        # 小胖墩 (fat white chicken): body more bigger, head a little smaller!
+        head_s = 0.80 if is_pangdun else 1.0
+        body_w = 1.58 if is_pangdun else 1.0
+        body_h = 1.25 if is_pangdun else 1.0
+        body_d = 1.50 if is_pangdun else 1.0
 
         if run_weight is None:
             rw = 1.0 if is_running else 0.0
@@ -354,7 +357,7 @@ class Carmelito3D:
         head_center_y = 1.56 + bob_y
         head = create_cube_grid(
             center=(0.0, head_center_y, 0.0),
-            size=(0.58 * fat_w, 0.58, 0.58 * fat_d),
+            size=(0.58, 0.58, 0.58),
             subdivisions=(7, 6, 6),
             base_color=body_col,
             taper_y=0.15,
@@ -566,52 +569,54 @@ class Carmelito3D:
             )
             head_faces.extend(lower_beak)
 
-        # Rotate head faces on neck pivot when Carmelito turns or tilts his head
-        if abs(head_yaw) > 1e-4 or abs(head_pitch) > 1e-4:
-            cos_hy = math.cos(head_yaw)
-            sin_hy = math.sin(head_yaw)
-            cos_hp = math.cos(head_pitch)
-            sin_hp = math.sin(head_pitch)
-            pivot_y = head_center_y - 0.28
+        # Transform head faces: apply head_s (scaled around head_center_y) and neck pivot rotation
+        pivot_y = head_center_y - 0.28
+        has_rot = (abs(head_yaw) > 1e-4 or abs(head_pitch) > 1e-4)
+        cos_hy = math.cos(head_yaw) if has_rot else 1.0
+        sin_hy = math.sin(head_yaw) if has_rot else 0.0
+        cos_hp = math.cos(head_pitch) if has_rot else 1.0
+        sin_hp = math.sin(head_pitch) if has_rot else 0.0
 
-            for quad_verts, base_col, has_contour in head_faces:
-                r_verts = []
-                for vx, vy, vz in quad_verts:
-                    dx = vx
-                    dy = vy - pivot_y
-                    dz = vz
-                    # Pitch first around local X axis (pitch > 0 tilts head UP, pitch < 0 tilts head DOWN)
-                    rx1 = dx
-                    ry1 = dy * cos_hp + dz * sin_hp
-                    rz1 = -dy * sin_hp + dz * cos_hp
-                    # Yaw around vertical Y axis
+        for quad_verts, base_col, has_contour in head_faces:
+            r_verts = []
+            for vx, vy, vz in quad_verts:
+                # Scale relative to head_center_y so head size adjusts cleanly
+                sx = vx * head_s
+                sy = head_center_y + (vy - head_center_y) * head_s
+                sz = vz * head_s
+
+                if has_rot:
+                    dy = sy - pivot_y
+                    rx1 = sx
+                    ry1 = dy * cos_hp + sz * sin_hp
+                    rz1 = -dy * sin_hp + sz * cos_hp
                     rx2 = rx1 * cos_hy + rz1 * sin_hy
                     ry2 = ry1
                     rz2 = -rx1 * sin_hy + rz1 * cos_hy
                     r_verts.append((rx2, ry2 + pivot_y, rz2))
-                all_faces.append((r_verts, base_col, has_contour))
-        else:
-            all_faces.extend(head_faces)
+                else:
+                    r_verts.append((sx, sy, sz))
+            all_faces.append((r_verts, base_col, has_contour))
 
-        # --- 5. BODY (TRIM, SLENDER PEAR-SHAPED CHICK BODY - NOT FAT) ---
+        # --- 5. BODY & FAT BELLY (Big, round, hefty body for 小胖墩) ---
         body_center_y = 0.88 + bob_y
         body = create_cube_grid(
             center=(0.0, body_center_y, -0.02),
-            size=(0.54 * fat_w, 0.74, 0.52 * fat_d),
+            size=(0.54 * body_w, 0.74 * body_h, 0.52 * body_d),
             subdivisions=(7, 6, 6),
             base_color=body_col,
-            taper_y=-0.22,
-            roundness=0.75,
+            taper_y=-0.18 if is_pangdun else -0.22,
+            roundness=0.82 if is_pangdun else 0.75,
             draw_contour=True,
         )
         all_faces.extend(body)
 
         belly = create_cube_grid(
-            center=(0.0, body_center_y - 0.06, 0.12 * fat_d),
-            size=(0.40 * fat_w, 0.40, 0.18 * fat_d),
-            subdivisions=(4, 4, 3),
+            center=(0.0, body_center_y - 0.06, 0.14 * body_d),
+            size=(0.48 * body_w, 0.48 * body_h, 0.24 * body_d),
+            subdivisions=(5, 5, 4) if is_pangdun else (4, 4, 3),
             base_color=body_col,
-            roundness=0.75,
+            roundness=0.85 if is_pangdun else 0.75,
             draw_contour=False,
         )
         all_faces.extend(belly)
