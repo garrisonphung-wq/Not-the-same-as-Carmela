@@ -290,6 +290,10 @@ class Carmelito3D:
         head_pitch: float = 0.0,
         blink: float = 0.0,
         character: str = "carmelito",
+        kick_amount: float = 0.0,
+        kick_side: float = 1.0,
+        punch_amount: float = 0.0,
+        punch_side: float = 1.0,
     ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
         """
         Builds Carmelito 3D model with 100% faithful storybook geometry:
@@ -711,6 +715,14 @@ class Carmelito3D:
             elbow_pt = lerp_vec3(elbow_stand_walk, run_elbow, rw)
             hand_pt = lerp_vec3(hand_stand_walk, run_hand, rw)
 
+            # Punch wing jab when player punches with 'P'
+            if punch_amount > 0.001 and side == punch_side:
+                p_ext = max(0.0, min(1.0, punch_amount))
+                p_elbow = (side * 0.36, body_center_y + 0.08 * p_ext, 0.02 + 0.42 * p_ext)
+                p_hand = (side * (0.30 - 0.14 * p_ext), body_center_y + 0.12 * p_ext, 0.06 + 0.78 * p_ext)
+                elbow_pt = lerp_vec3(elbow_pt, p_elbow, p_ext)
+                hand_pt = lerp_vec3(hand_pt, p_hand, p_ext)
+
             # Upper Arm
             upper_arm = create_oriented_box(
                 shoulder_pt, elbow_pt,
@@ -847,6 +859,16 @@ class Carmelito3D:
             knee_pt = lerp_vec3(knee_stand_walk, run_knee, rw)
             ankle_pt = lerp_vec3(ankle_stand_walk, run_ankle, rw)
             foot_angle = fa_stand_walk + (run_foot_angle - fa_stand_walk) * rw
+
+            # Martial arts karate kick when player kicks with 'K'
+            if kick_amount > 0.001 and side == kick_side:
+                k_ext = max(0.0, min(1.0, kick_amount))
+                k_knee = (leg_x * 0.85, hip_attach_y + 0.36 * k_ext, 0.14 + 0.45 * k_ext)
+                k_ankle = (leg_x * 0.70, hip_attach_y + 0.65 * k_ext, 0.18 + 0.75 * k_ext)
+                k_foot_ang = 0.85 * k_ext
+                knee_pt = lerp_vec3(knee_pt, k_knee, k_ext)
+                ankle_pt = lerp_vec3(ankle_pt, k_ankle, k_ext)
+                foot_angle = foot_angle * (1.0 - k_ext) + k_foot_ang * k_ext
 
             # Thigh / Femur
             thigh = create_oriented_box(
@@ -1283,6 +1305,10 @@ class Carmelito3D:
         draw_wireframe: bool = False,
         blink: float = 0.0,
         character: str = "carmelito",
+        kick_amount: float = 0.0,
+        kick_side: float = 1.0,
+        punch_amount: float = 0.0,
+        punch_side: float = 1.0,
     ) -> None:
         """
         Projects and renders Carmelito in authentic storybook 3D.
@@ -1309,6 +1335,10 @@ class Carmelito3D:
             head_pitch=head_pitch,
             blink=blink,
             character=character,
+            kick_amount=kick_amount,
+            kick_side=kick_side,
+            punch_amount=punch_amount,
+            punch_side=punch_side,
         )
 
         cos_y = math.cos(rot_y)

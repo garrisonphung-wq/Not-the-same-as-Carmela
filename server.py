@@ -91,6 +91,11 @@ class GameRelayServer:
             "head_yaw": 0.0,
             "head_pitch": 0.0,
             "is_carmelito": True,
+            "character": "carmelito",
+            "kick_amount": 0.0,
+            "kick_side": 1.0,
+            "punch_amount": 0.0,
+            "punch_side": 1.0,
         }
 
         try:
@@ -154,6 +159,16 @@ class GameRelayServer:
                     p["rot_y"] = safe_float(data.get("rot_y", p["rot_y"]), p["rot_y"], limit=100.0)
                     p["head_yaw"] = safe_float(data.get("head_yaw", p["head_yaw"]), p["head_yaw"], limit=10.0)
                     p["head_pitch"] = safe_float(data.get("head_pitch", p["head_pitch"]), p["head_pitch"], limit=10.0)
+                    if "kick_amount" in data:
+                        p["kick_amount"] = safe_float(data.get("kick_amount", 0.0), 0.0, limit=2.0)
+                    if "kick_side" in data:
+                        p["kick_side"] = safe_float(data.get("kick_side", 1.0), 1.0, limit=2.0)
+                    if "punch_amount" in data:
+                        p["punch_amount"] = safe_float(data.get("punch_amount", 0.0), 0.0, limit=2.0)
+                    if "punch_side" in data:
+                        p["punch_side"] = safe_float(data.get("punch_side", 1.0), 1.0, limit=2.0)
+                    if "character" in data and data["character"]:
+                        p["character"] = str(data["character"])[:32]
                     if "is_carmelito" in data:
                         p["is_carmelito"] = bool(data["is_carmelito"])
                     if "chick_name" in data and data["chick_name"]:
@@ -176,6 +191,11 @@ class GameRelayServer:
                         "head_yaw": p["head_yaw"],
                         "head_pitch": p["head_pitch"],
                         "is_carmelito": p["is_carmelito"],
+                        "character": p.get("character", "carmelito"),
+                        "kick_amount": p.get("kick_amount", 0.0),
+                        "kick_side": p.get("kick_side", 1.0),
+                        "punch_amount": p.get("punch_amount", 0.0),
+                        "punch_side": p.get("punch_side", 1.0),
                     }
                     if p["chick_name"]:
                         bcast_msg["chick_name"] = p["chick_name"]

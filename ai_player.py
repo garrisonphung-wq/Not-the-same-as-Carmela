@@ -66,6 +66,20 @@ class AICodeCompanion:
         self.mouth_open = False
         self.is_blinking = False
 
+        # Martial arts punch & kick actions
+        self.is_kicking = False
+        self.kick_timer = 0.0
+        self.kick_duration = 0.48
+        self.kick_side = 1.0
+        self.kick_amount = 0.0
+
+        self.is_punching = False
+        self.punch_timer = 0.0
+        self.punch_duration = 0.38
+        self.punch_side = 1.0
+        self.punch_amount = 0.0
+        self.action_cooldown = random.uniform(3.0, 7.0)
+
         # Independent AI decision state machine
         self.mode = "idle"
         self.mode_timer = 1.2
@@ -243,6 +257,41 @@ class AICodeCompanion:
         self.head_yaw += (self.target_head_yaw - self.head_yaw) * head_alpha
         self.head_pitch += (self.target_head_pitch - self.head_pitch) * head_alpha
 
+        # Update kick animation
+        if self.is_kicking:
+            self.kick_timer += dt
+            if self.kick_timer >= self.kick_duration:
+                self.is_kicking = False
+                self.kick_timer = 0.0
+                self.kick_amount = 0.0
+            else:
+                kp = self.kick_timer / self.kick_duration
+                self.kick_amount = math.sin((kp / 0.38) * (math.pi / 2)) if kp < 0.38 else math.cos(((kp - 0.38) / 0.62) * (math.pi / 2))
+
+        # Update punch animation
+        if self.is_punching:
+            self.punch_timer += dt
+            if self.punch_timer >= self.punch_duration:
+                self.is_punching = False
+                self.punch_timer = 0.0
+                self.punch_amount = 0.0
+            else:
+                pp = self.punch_timer / self.punch_duration
+                self.punch_amount = math.sin((pp / 0.32) * (math.pi / 2)) if pp < 0.32 else math.cos(((pp - 0.32) / 0.68) * (math.pi / 2))
+
+        # Occasional playful kicks / punches while roaming
+        self.action_cooldown -= dt
+        if self.action_cooldown <= 0.0 and not self.is_kicking and not self.is_punching:
+            self.action_cooldown = random.uniform(4.0, 9.0)
+            if random.random() < 0.5:
+                self.is_kicking = True
+                self.kick_timer = 0.0
+                self.kick_side = -self.kick_side
+            else:
+                self.is_punching = True
+                self.punch_timer = 0.0
+                self.punch_side = -self.punch_side
+
     async def run(self) -> None:
         print(f"🤖 {self.name} ({self.chick_name}) connecting to {self.server_url}...", flush=True)
         is_local, port = is_local_server_url(self.server_url)
@@ -383,6 +432,10 @@ class AICodeCompanion:
                     "chick_name": self.chick_name,
                     "character": self.character,
                     "name": self.name,
+                    "kick_amount": round(self.kick_amount, 3),
+                    "kick_side": round(self.kick_side, 1),
+                    "punch_amount": round(self.punch_amount, 3),
+                    "punch_side": round(self.punch_side, 1),
                 },
                 separators=(",", ":"),
             )

@@ -292,6 +292,10 @@ class NetworkClient:
         self._local_rot_y = 0.0
         self._local_head_yaw = 0.0
         self._local_head_pitch = 0.0
+        self._local_kick_amount = 0.0
+        self._local_kick_side = 1.0
+        self._local_punch_amount = 0.0
+        self._local_punch_side = 1.0
         self._pos_dirty = True
 
         self._outgoing_chats: list[str] = []
@@ -329,6 +333,10 @@ class NetworkClient:
         head_yaw: float = 0.0,
         head_pitch: float = 0.0,
         blink: bool = False,
+        kick_amount: float = 0.0,
+        kick_side: float = 1.0,
+        punch_amount: float = 0.0,
+        punch_side: float = 1.0,
     ) -> None:
         nx = max(0.05, min(0.95, nx))
         ny = max(0.05, min(0.95, ny))
@@ -347,6 +355,10 @@ class NetworkClient:
                 or (abs(rot_y - self._local_rot_y) > 0.01)
                 or (abs(head_yaw - self._local_head_yaw) > 0.01)
                 or (abs(head_pitch - self._local_head_pitch) > 0.01)
+                or (abs(kick_amount - self._local_kick_amount) > 0.02)
+                or (kick_side != self._local_kick_side)
+                or (abs(punch_amount - self._local_punch_amount) > 0.02)
+                or (punch_side != self._local_punch_side)
             )
             if pos_changed or state_changed:
                 self._local_nx = nx
@@ -360,6 +372,10 @@ class NetworkClient:
                 self._local_rot_y = rot_y
                 self._local_head_yaw = head_yaw
                 self._local_head_pitch = head_pitch
+                self._local_kick_amount = kick_amount
+                self._local_kick_side = kick_side
+                self._local_punch_amount = punch_amount
+                self._local_punch_side = punch_side
                 self._pos_dirty = True
 
     def get_snapshot(self) -> tuple[bool, bool, int | None, tuple[int, int, int], dict[int, dict[str, Any]]]:
@@ -380,7 +396,12 @@ class NetworkClient:
                     "color": data["color"],
                     "name": data.get("name"),
                     "chick_name": data.get("chick_name") or CHICK_NAME,
+                    "character": data.get("character"),
                     "is_carmelito": data.get("is_carmelito", True),
+                    "kick_amount": data.get("kick_amount", 0.0),
+                    "kick_side": data.get("kick_side", 1.0),
+                    "punch_amount": data.get("punch_amount", 0.0),
+                    "punch_side": data.get("punch_side", 1.0),
                 }
                 for pid, data in self.remote_players.items()
             }
@@ -509,6 +530,10 @@ class NetworkClient:
                             "is_carmelito": True,
                             "chick_name": self.chick_name,
                             "character": self.character_id,
+                            "kick_amount": round(self._local_kick_amount, 3),
+                            "kick_side": round(self._local_kick_side, 1),
+                            "punch_amount": round(self._local_punch_amount, 3),
+                            "punch_side": round(self._local_punch_side, 1),
                         },
                         separators=(",", ":"),
                     )
@@ -539,6 +564,10 @@ class NetworkClient:
             "chick_name": pdata.get("chick_name") or CHICK_NAME,
             "character": pdata.get("character") or ("carmen" if pdata.get("chick_name") in ("卡门", "Carmen") else ("pangdun" if pdata.get("chick_name") in ("小胖墩", "Belino", "Coquenpâte") else "carmelito")),
             "is_carmelito": bool(pdata.get("is_carmelito", True)),
+            "kick_amount": float(pdata.get("kick_amount", 0.0)),
+            "kick_side": float(pdata.get("kick_side", 1.0)),
+            "punch_amount": float(pdata.get("punch_amount", 0.0)),
+            "punch_side": float(pdata.get("punch_side", 1.0)),
         }
 
     async def _receiver_loop(self, ws: Any) -> None:
@@ -602,6 +631,16 @@ class NetworkClient:
                             rp["chick_name"] = msg["chick_name"]
                         if "name" in msg and msg["name"]:
                             rp["name"] = msg["name"]
+                        if "character" in msg and msg["character"]:
+                            rp["character"] = msg["character"]
+                        if "kick_amount" in msg:
+                            rp["kick_amount"] = float(msg["kick_amount"])
+                        if "kick_side" in msg:
+                            rp["kick_side"] = float(msg["kick_side"])
+                        if "punch_amount" in msg:
+                            rp["punch_amount"] = float(msg["punch_amount"])
+                        if "punch_side" in msg:
+                            rp["punch_side"] = float(msg["punch_side"])
 
             elif msg_type == "leave":
                 pid = int(msg["id"])
@@ -1088,6 +1127,10 @@ def main() -> None:
                 head_yaw=head_yaw,
                 head_pitch=head_pitch,
                 blink=is_blinking,
+                kick_amount=kick_amount,
+                kick_side=kick_side,
+                punch_amount=punch_amount,
+                punch_side=punch_side,
             )
 
         connected, is_host, my_id, my_color, remote_players = net.get_snapshot()
@@ -1135,6 +1178,11 @@ def main() -> None:
             t_walk = 1.0 if pdata.get("walking", False) else 0.0
             t_blink = 1.0 if pdata.get("blink", False) else 0.0
 
+            t_kick = float(pdata.get("kick_amount", 0.0))
+            t_kick_side = float(pdata.get("kick_side", 1.0))
+            t_punch = float(pdata.get("punch_amount", 0.0))
+            t_punch_side = float(pdata.get("punch_side", 1.0))
+
             if pid not in remote_states:
                 remote_states[pid] = {
                     "wx": tw_x,
@@ -1146,6 +1194,10 @@ def main() -> None:
                     "walk_weight": t_walk,
                     "blink_amount": t_blink,
                     "motion_cycle": 0.0,
+                    "kick_amount": t_kick,
+                    "kick_side": t_kick_side,
+                    "punch_amount": t_punch,
+                    "punch_side": t_punch_side,
                 }
             else:
                 rs = remote_states[pid]
@@ -1160,6 +1212,11 @@ def main() -> None:
                     rs["blink_amount"] = min(t_blink, rs["blink_amount"] + 18.0 * dt)
                 elif rs["blink_amount"] > t_blink:
                     rs["blink_amount"] = max(t_blink, rs["blink_amount"] - 14.0 * dt)
+                # Fast responsive interpolation for punches and kicks:
+                rs["kick_amount"] += (t_kick - rs.get("kick_amount", 0.0)) * min(1.0, 24.0 * dt)
+                rs["kick_side"] = t_kick_side
+                rs["punch_amount"] += (t_punch - rs.get("punch_amount", 0.0)) * min(1.0, 24.0 * dt)
+                rs["punch_side"] = t_punch_side
                 loco = max(rs["run_weight"], rs["walk_weight"])
                 if loco > 0.001:
                     stride_spd = (3.2 * rs["run_weight"]) + (1.8 * rs["walk_weight"] * (1.0 - rs["run_weight"]))
@@ -1371,6 +1428,10 @@ def main() -> None:
                     walk_weight=rs["walk_weight"],
                     blink=rs["blink_amount"],
                     character=remote_char,
+                    kick_amount=rs.get("kick_amount", 0.0),
+                    kick_side=rs.get("kick_side", 1.0),
+                    punch_amount=rs.get("punch_amount", 0.0),
+                    punch_side=rs.get("punch_side", 1.0),
                 )
 
                 # Floating nameplates above chicken's comb:
