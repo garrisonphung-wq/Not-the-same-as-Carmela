@@ -666,27 +666,40 @@ def main() -> None:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif is_online and is_typing_chat and event.type == pygame.TEXTINPUT:
+                # Standard modern Pygame text input (handles IME, full unicode, etc.)
+                if len(chat_input_text) < 60:
+                    chat_input_text += event.text
             elif event.type == pygame.KEYDOWN:
+                # Accept both standard Return/Enter and Numpad Enter:
+                is_enter_key = event.key in (pygame.K_RETURN, getattr(pygame, "K_KP_ENTER", pygame.K_RETURN))
                 if is_online and is_typing_chat:
                     if event.key == pygame.K_ESCAPE:
                         # Cancel typing
                         is_typing_chat = False
                         chat_input_text = ""
-                    elif event.key == pygame.K_RETURN:
-                        # Pressing ENTER sends chat and creates a chat bubble over the player!
+                        if hasattr(pygame.key, "stop_text_input"):
+                            pygame.key.stop_text_input()
+                    elif is_enter_key:
+                        # Pressing ENTER/RETURN sends chat and creates a chat bubble over the player!
                         clean = chat_input_text.strip()
-                        if clean:
-                            net.send_chat(clean)
-                            # Create local chat bubble (duration 5.5s)
-                            if -1 not in chat_bubbles:
-                                chat_bubbles[-1] = []
-                            chat_bubbles[-1].append({"text": clean, "timer": 5.5, "duration": 5.5})
+                        # If empty, default to a cute chick chirping sound so something always happens
+                        if not clean:
+                            clean = "咕咕！"
+                        net.send_chat(clean)
+                        # Create local chat bubble (duration 5.5s)
+                        if -1 not in chat_bubbles:
+                            chat_bubbles[-1] = []
+                        chat_bubbles[-1].append({"text": clean, "timer": 5.5, "duration": 5.5})
                         is_typing_chat = False
                         chat_input_text = ""
+                        if hasattr(pygame.key, "stop_text_input"):
+                            pygame.key.stop_text_input()
                     elif event.key == pygame.K_BACKSPACE:
                         chat_input_text = chat_input_text[:-1]
                     else:
-                        if event.unicode and len(chat_input_text) < 60:
+                        # Fallback for key unicode if TEXTINPUT event was not fired
+                        if event.unicode and ord(event.unicode) >= 32 and len(chat_input_text) < 60:
                             chat_input_text += event.unicode
                 else:
                     if event.key == pygame.K_ESCAPE:
@@ -694,10 +707,12 @@ def main() -> None:
                     elif event.key in (pygame.K_F11, pygame.K_f):
                         fullscreen = not fullscreen
                         screen = create_window(fullscreen)
-                    elif is_online and event.key == pygame.K_SPACE:
-                        # Pressing SPACE while in game opens the typing box
+                    elif is_online and (event.key == pygame.K_SPACE or is_enter_key):
+                        # Pressing SPACE or ENTER while in game opens the typing box
                         is_typing_chat = True
                         chat_input_text = ""
+                        if hasattr(pygame.key, "start_text_input"):
+                            pygame.key.start_text_input()
                     elif is_online and event.key == pygame.K_u:
                         # Toggle mouth open / close
                         mouth_open = not mouth_open
