@@ -615,6 +615,7 @@ def main() -> None:
 
     anim_time = 0.0
     is_online = False     # You start offline staring down at the island until you click Play
+    has_entered_game = False
 
     # Carmelito's ground-level gameplay coordinates
     ground_cam_x = 0.0
@@ -691,6 +692,7 @@ def main() -> None:
                         if -1 not in chat_bubbles:
                             chat_bubbles[-1] = []
                         chat_bubbles[-1].append({"text": clean, "timer": 5.5, "duration": 5.5})
+                        chat_bubbles[-1] = chat_bubbles[-1][-4:]  # Limit to 4 stacked bubbles
                         is_typing_chat = False
                         chat_input_text = ""
                         if hasattr(pygame.key, "stop_text_input"):
@@ -700,7 +702,7 @@ def main() -> None:
                 else:
                     if event.key == pygame.K_ESCAPE:
                         running = False
-                    elif event.key in (pygame.K_F11, pygame.K_f):
+                    elif event.key == pygame.K_F11:
                         fullscreen = not fullscreen
                         screen = create_window(fullscreen)
                     elif is_online and (event.key == pygame.K_SPACE or is_enter_key):
@@ -721,6 +723,7 @@ def main() -> None:
                 if not is_online:
                     if play_button_rect.collidepoint(event.pos):
                         is_online = True
+                        has_entered_game = True
                         net.set_online(True)
                         # Transition camera to ground-level Carmelito first-person view
                         cam_x = ground_cam_x
@@ -882,6 +885,7 @@ def main() -> None:
             if sender_id not in chat_bubbles:
                 chat_bubbles[sender_id] = []
             chat_bubbles[sender_id].append({"text": c_text, "timer": 5.5, "duration": 5.5})
+            chat_bubbles[sender_id] = chat_bubbles[sender_id][-4:]  # Limit to 4 stacked bubbles
 
         # Update timers and fade out chat bubbles
         for pid in list(chat_bubbles.keys()):
@@ -1316,12 +1320,15 @@ def main() -> None:
                 local_wy = eye_y + 1.35  # Above head & comb
 
                 bubble_cam = to_cam(local_wx, local_wy, local_wz)
-                if bubble_cam[2] > near_z:
+                # Ensure safe distance in front of camera plane (0.35)
+                if bubble_cam[2] > 0.35:
                     bx_scr = round(hw + (bubble_cam[0] / bubble_cam[2]) * focal)
                     by_scr = round(hh - (bubble_cam[1] / bubble_cam[2]) * focal)
                     cur_bottom = by_scr
                     local_font_size = max(18, min(32, round((0.46 / bubble_cam[2]) * focal)))
                     for b in reversed(chat_bubbles[-1]):
+                        if cur_bottom < -60:
+                            break  # Avoid rendering far beyond screen top
                         progress = b["timer"] / b["duration"]
                         alpha = min(1.0, progress * 3.0)
                         b_h = draw_chat_bubble(
@@ -1361,7 +1368,7 @@ def main() -> None:
                     screen.blit(txt_surf, (box_x + 14, box_y + (box_h - txt_surf.get_height()) // 2))
 
         # --- 3. TITLE SCREEN UI OVERLAYS (ONLY VISIBLE WHEN OFFLINE, DISAPPEARS ON JOIN) ---
-        if not is_online:
+        if not is_online and not has_entered_game:
             # 3a. Game title at top center: white text with black outline
             title_px = max(36, min(88, ((round(win_h * 0.085)) // 2) * 2))
             title_outline_px = max(2, round(title_px * 0.065))
