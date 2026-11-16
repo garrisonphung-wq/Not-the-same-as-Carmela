@@ -880,11 +880,12 @@ def main() -> None:
             c_text = str(chat_msg.get("text", "")).strip()
             if not c_text:
                 continue
-            # If from someone else or local
-            target_pid = -1 if (my_id is not None and sender_id == my_id) else sender_id
-            if target_pid not in chat_bubbles:
-                chat_bubbles[target_pid] = []
-            chat_bubbles[target_pid].append({"text": c_text, "timer": 5.5, "duration": 5.5})
+            # Skip echo of local player's own chat messages (already added locally when sent)
+            if my_id is not None and sender_id == my_id:
+                continue
+            if sender_id not in chat_bubbles:
+                chat_bubbles[sender_id] = []
+            chat_bubbles[sender_id].append({"text": c_text, "timer": 5.5, "duration": 5.5})
 
         # Update timers and fade out chat bubbles
         for pid in list(chat_bubbles.keys()):
@@ -1183,6 +1184,24 @@ def main() -> None:
                 pygame.draw.circle(screen, color, (round(sx), round(sy)), radius)
                 pygame.draw.circle(screen, (220, 225, 235), (round(sx), round(sy)), radius + 1, max(1, radius // 8))
 
+                # Chat bubbles for dot players as well
+                if pid in chat_bubbles:
+                    cur_bottom = round(sy) - radius - 10
+                    bubble_font_size = max(14, min(24, round((0.42 / rz_p) * focal)))
+                    for b in reversed(chat_bubbles[pid]):
+                        progress = b["timer"] / b["duration"]
+                        alpha = min(1.0, progress * 3.0)
+                        b_h = draw_chat_bubble(
+                            screen,
+                            b["text"],
+                            center_x=round(sx),
+                            bottom_y=cur_bottom,
+                            font_size=bubble_font_size,
+                            alpha=alpha,
+                            tail_direction="down",
+                        )
+                        cur_bottom -= b_h
+
         # 1e. RENDER OWN FEET ONLY WHEN ONLINE
         if is_online and head_pitch < -0.35:
             cos_body = math.cos(cam_yaw)
@@ -1286,26 +1305,39 @@ def main() -> None:
                 blink=blink_amount,
             )
 
-        # --- 2b. CHAT BUBBLES & TYPING BOX FOR LOCAL PLAYER (ON TOP OF ME, NOT THE PICTURE) ---
+        # --- 2b. 3D CHAT BUBBLE ANCHORED DIRECTLY ABOVE LOCAL PLAYER (VISIBLE WHEN LOOKING UP) ---
         if is_online:
-            # Stacking chat bubbles for local player (-1):
-            # Floating above Carmelito's view (in upper-middle screen area, not over portrait)
+            # Carmelito's head/comb is above eye level. The chat bubble floats in 3D world space
+            # directly above Carmelito (slightly in front of eyes so looking up brings it into full view).
             if -1 in chat_bubbles:
-                cur_bottom = max(70, round(win_h * 0.28))
-                local_font_size = max(18, min(28, round(win_h * 0.032)))
-                for b in reversed(chat_bubbles[-1]):
-                    progress = b["timer"] / b["duration"]
-                    alpha = min(1.0, progress * 3.0)
-                    b_h = draw_chat_bubble(
-                        screen,
-                        b["text"],
-                        center_x=win_w // 2,
-                        bottom_y=cur_bottom,
-                        font_size=local_font_size,
-                        alpha=alpha,
-                        tail_direction="down",
-                    )
-                    cur_bottom -= b_h
+                cos_body = math.cos(cam_yaw)
+                sin_body = math.sin(cam_yaw)
+                # Anchor in front and directly above head
+                local_bx = 0.0
+                local_bz = 0.95
+                local_wx = cam_x + local_bx * cos_body + local_bz * sin_body
+                local_wz = cam_z - local_bx * sin_body + local_bz * cos_body
+                local_wy = eye_y + 1.35  # Above head & comb
+
+                bubble_cam = to_cam(local_wx, local_wy, local_wz)
+                if bubble_cam[2] > near_z:
+                    bx_scr = round(hw + (bubble_cam[0] / bubble_cam[2]) * focal)
+                    by_scr = round(hh - (bubble_cam[1] / bubble_cam[2]) * focal)
+                    cur_bottom = by_scr
+                    local_font_size = max(18, min(32, round((0.46 / bubble_cam[2]) * focal)))
+                    for b in reversed(chat_bubbles[-1]):
+                        progress = b["timer"] / b["duration"]
+                        alpha = min(1.0, progress * 3.0)
+                        b_h = draw_chat_bubble(
+                            screen,
+                            b["text"],
+                            center_x=bx_scr,
+                            bottom_y=cur_bottom,
+                            font_size=local_font_size,
+                            alpha=alpha,
+                            tail_direction="down",
+                        )
+                        cur_bottom -= b_h
 
             # Typing input box at bottom center of screen (opened with Space)
             if is_typing_chat:
