@@ -679,6 +679,12 @@ def main() -> None:
     kick_timer = 0.0
     kick_duration = 0.48
     kick_side = 1.0  # 1.0 for right leg, -1.0 for left leg
+
+    # First-person punch action (triggered with 'P' key)
+    is_punching = False
+    punch_timer = 0.0
+    punch_duration = 0.38
+    punch_side = 1.0  # 1.0 for right wing punch, -1.0 for left wing punch
     selected_character = "carmelito"
     selected_chick_name = CHICK_NAME
     has_selected_character = False
@@ -781,6 +787,11 @@ def main() -> None:
                         is_kicking = True
                         kick_timer = 0.0
                         kick_side = -kick_side  # alternate between right and left leg!
+                    elif is_online and not is_fighting and event.key == pygame.K_p:
+                        # Pressing 'P' triggers a forward boxing punch / wing strike!
+                        is_punching = True
+                        punch_timer = 0.0
+                        punch_side = -punch_side  # alternate between right and left wing!
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # Menu navigation and joining in offline mode
                 if not is_online:
@@ -1040,6 +1051,21 @@ def main() -> None:
                         kick_amount = math.sin((kp / 0.38) * (math.pi / 2))
                     else:
                         kick_amount = math.cos(((kp - 0.38) / 0.62) * (math.pi / 2))
+
+            # Punch animation progress (triggered with 'P')
+            punch_amount = 0.0
+            if is_punching:
+                punch_timer += dt
+                if punch_timer >= punch_duration:
+                    is_punching = False
+                    punch_timer = 0.0
+                else:
+                    pp = punch_timer / punch_duration
+                    # Snappy boxing punch curve (fast jab forward at pp=0.32, smooth retract)
+                    if pp < 0.32:
+                        punch_amount = math.sin((pp / 0.32) * (math.pi / 2))
+                    else:
+                        punch_amount = math.cos(((pp - 0.32) / 0.68) * (math.pi / 2))
 
             if is_fighting:
                 eye_y = 1.65
@@ -1692,6 +1718,73 @@ def main() -> None:
 
             feet_projected.sort(key=lambda item: item[0], reverse=True)
             for _, pts, f_col, draw_ink in feet_projected:
+                if len(pts) >= 3:
+                    pygame.draw.polygon(screen, f_col, pts)
+                    if draw_ink:
+                        pygame.draw.polygon(screen, COLOR_INK_LINE, pts, 1)
+
+        # 1f. RENDER OWN PUNCH / WING STRIKE IN FIRST PERSON (P KEY)
+        if is_online and not is_fighting and punch_amount > 0.001:
+            cos_body = math.cos(cam_yaw)
+            sin_body = math.sin(cam_yaw)
+
+            def punch_to_cam(bx: float, by: float, bz: float) -> tuple[float, float, float]:
+                # In body space, attach at shoulder level relative to eye
+                # bx: horizontal offset (right/left), by: vertical offset relative to eye, bz: forward offset
+                wx = cam_x + bx * cos_body + bz * sin_body
+                wz = cam_z - bx * sin_body + bz * cos_body
+                wy = eye_y + by
+                return to_cam(wx, wy, wz)
+
+            punch_faces = model_3d.build_first_person_punch_faces(
+                punch_amount=punch_amount,
+                punch_side=punch_side,
+                character=selected_character,
+            )
+
+            punch_projected: list[tuple[float, list[tuple[int, int]], tuple[int, int, int], bool]] = []
+            for quad_verts, base_col, has_contour in punch_faces:
+                cam_verts = [punch_to_cam(*v) for v in quad_verts]
+                if any(cv[2] <= near_z for cv in cam_verts):
+                    continue
+
+                v0, v1, v2 = cam_verts[0], cam_verts[1], cam_verts[2]
+                e1 = (v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2])
+                e2 = (v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2])
+                nx = e1[1] * e2[2] - e1[2] * e2[1]
+                ny = e1[2] * e2[0] - e1[0] * e2[2]
+                nz = e1[0] * e2[1] - e1[1] * e2[0]
+                n_mag = math.sqrt(nx * nx + ny * ny + nz * nz)
+                if n_mag < 1e-6:
+                    continue
+                nx /= n_mag
+                ny /= n_mag
+                nz /= n_mag
+
+                to_eye_dot = -(nx * v0[0] + ny * v0[1] + nz * v0[2])
+                if to_eye_dot <= 0.0:
+                    continue
+
+                v_mag = math.sqrt(v0[0] * v0[0] + v0[1] * v0[1] + v0[2] * v0[2])
+                view_cos = to_eye_dot / max(1e-4, v_mag)
+
+                diffuse = max(0.0, nx * model_3d.light_dir[0] + ny * model_3d.light_dir[1] + nz * model_3d.light_dir[2])
+                brightness = 0.76 + 0.24 * diffuse
+                face_col = (
+                    min(255, int(base_col[0] * brightness)),
+                    min(255, int(base_col[1] * brightness)),
+                    min(255, int(base_col[2] * brightness)),
+                )
+
+                pts = [
+                    (round(hw + (cv[0] / cv[2]) * focal), round(hh - (cv[1] / cv[2]) * focal))
+                    for cv in cam_verts
+                ]
+                avg_z = sum(cv[2] for cv in cam_verts) / len(cam_verts)
+                punch_projected.append((avg_z, pts, face_col, has_contour and view_cos < 0.34))
+
+            punch_projected.sort(key=lambda item: item[0], reverse=True)
+            for _, pts, f_col, draw_ink in punch_projected:
                 if len(pts) >= 3:
                     pygame.draw.polygon(screen, f_col, pts)
                     if draw_ink:

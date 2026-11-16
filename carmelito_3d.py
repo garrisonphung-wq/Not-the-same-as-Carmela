@@ -1170,6 +1170,101 @@ class Carmelito3D:
 
         return faces, shadows
 
+    def build_first_person_punch_faces(
+        self,
+        punch_amount: float = 0.0,
+        punch_side: float = 1.0,
+        character: str = "carmelito",
+    ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
+        """
+        Builds the forward punching wing/fist in first-person view:
+        - Feathered wing arm extending forward towards the center of the screen
+        - Clenched wing fist punching out into view
+        - Color matched to character (Carmelito pink, Carmen yellow, Belino white)
+        """
+        if punch_amount <= 0.001:
+            return []
+
+        char_l = character.lower()
+        if char_l in ("carmen", "卡门"):
+            body_col = COLOR_CARMEN_YELLOW
+            char_scale = 0.82
+        elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
+            body_col = COLOR_PANGDUN_WHITE
+            char_scale = 1.15
+        else:
+            body_col = COLOR_BODY_PINK
+            char_scale = 1.0
+
+        p_ext = max(0.0, min(1.0, punch_amount))
+        side = punch_side
+        faces: list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]] = []
+
+        # Base of shoulder/upper wing
+        sh_pos = (side * 0.32 * char_scale, -0.22 * char_scale, 0.12 * char_scale)
+        faces.extend(create_cube_grid(
+            center=sh_pos,
+            size=(0.16 * char_scale, 0.18 * char_scale, 0.18 * char_scale),
+            subdivisions=(2, 2, 2),
+            base_color=body_col,
+            roundness=0.6,
+            draw_contour=True,
+        ))
+
+        # Fist center (thrusts forward along +Z, slightly angled towards center)
+        fist_x = side * (0.28 - 0.14 * p_ext) * char_scale
+        fist_y = (-0.16 + 0.06 * p_ext) * char_scale
+        fist_z = (0.20 + 0.72 * p_ext) * char_scale
+        fist_pos = (fist_x, fist_y, fist_z)
+
+        # Mid-wing elbow / forearm
+        mid_x = (sh_pos[0] + fist_x) * 0.5 + side * 0.08 * (1.0 - p_ext) * char_scale
+        mid_y = (sh_pos[1] + fist_y) * 0.5 - 0.04 * (1.0 - p_ext) * char_scale
+        mid_z = (sh_pos[2] + fist_z) * 0.5
+        mid_pos = (mid_x, mid_y, mid_z)
+
+        # Upper wing segment
+        faces.extend(create_oriented_box(
+            sh_pos, mid_pos,
+            thickness=(0.14 * char_scale, 0.14 * char_scale),
+            base_color=body_col,
+            subdiv_length=2,
+            draw_contour=True,
+        ))
+
+        # Forearm wing segment
+        faces.extend(create_oriented_box(
+            mid_pos, fist_pos,
+            thickness=(0.13 * char_scale, 0.13 * char_scale),
+            base_color=body_col,
+            subdiv_length=2,
+            draw_contour=True,
+        ))
+
+        # Clenched boxing wing/fist
+        faces.extend(create_cube_grid(
+            center=fist_pos,
+            size=(0.18 * char_scale, 0.16 * char_scale, 0.22 * char_scale),
+            subdivisions=(3, 3, 3),
+            base_color=body_col,
+            roundness=0.75,
+            draw_contour=True,
+        ))
+
+        # Wing knuckle feather ridges
+        for k_idx in (-1, 0, 1):
+            knuckle_pos = (fist_x + k_idx * 0.04 * char_scale, fist_y, fist_z + 0.10 * char_scale)
+            faces.extend(create_cube_grid(
+                center=knuckle_pos,
+                size=(0.045 * char_scale, 0.065 * char_scale, 0.075 * char_scale),
+                subdivisions=(2, 2, 2),
+                base_color=body_col,
+                roundness=0.6,
+                draw_contour=True,
+            ))
+
+        return faces
+
     def render(
         self,
         surface: pygame.Surface,
