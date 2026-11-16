@@ -691,9 +691,15 @@ def main() -> None:
     is_online = False     # You start offline staring down at the island until you click Play
     has_entered_game = False
     menu_state = "title"  # "title" -> "character_select" -> "character_used"
-    use_carmelito_rect = pygame.Rect(-100, -100, 0, 0)
-    use_carmen_rect = pygame.Rect(-100, -100, 0, 0)
-    use_pangdun_rect = pygame.Rect(-100, -100, 0, 0)
+    use_button_rect = pygame.Rect(-100, -100, 0, 0)
+    arrow_right_rect = pygame.Rect(-100, -100, 0, 0)
+    arrow_left_rect = pygame.Rect(-100, -100, 0, 0)
+    carousel_index = 0
+    available_characters = [
+        ("carmelito", CHICK_NAME),
+        ("carmen", CARMEN_NAME),
+        ("pangdun", PANGDUN_NAME),
+    ]
 
     # Fight System between Carmelito & Belino (小胖墩)
     is_fighting = False
@@ -843,26 +849,19 @@ def main() -> None:
                             is_dragging_island = True
                             drag_start_pos = event.pos
                     elif menu_state in ("character_select", "character_used"):
-                        if use_carmelito_rect.collidepoint(event.pos):
-                            # Select Carmelito (pink chick)
-                            selected_character = "carmelito"
-                            selected_chick_name = CHICK_NAME
-                            has_selected_character = True
-                            menu_state = "character_used"
-                            net.set_character(selected_character, selected_chick_name)
+                        if arrow_right_rect.collidepoint(event.pos):
+                            # Click right arrow to switch to the next chick!
+                            carousel_index = (carousel_index + 1) % len(available_characters)
                             is_dragging_island = False
-                        elif use_carmen_rect.collidepoint(event.pos):
-                            # Select Carmen (yellow chick)
-                            selected_character = "carmen"
-                            selected_chick_name = CARMEN_NAME
-                            has_selected_character = True
-                            menu_state = "character_used"
-                            net.set_character(selected_character, selected_chick_name)
+                        elif arrow_left_rect.collidepoint(event.pos):
+                            # Click left arrow to switch to previous chick
+                            carousel_index = (carousel_index - 1) % len(available_characters)
                             is_dragging_island = False
-                        elif use_pangdun_rect.collidepoint(event.pos):
-                            # Select Belino / 小胖墩 (fat white chicken)
-                            selected_character = "pangdun"
-                            selected_chick_name = PANGDUN_NAME
+                        elif use_button_rect.collidepoint(event.pos):
+                            # Equip the currently displayed chick
+                            curr_char, curr_name = available_characters[carousel_index]
+                            selected_character = curr_char
+                            selected_chick_name = curr_name
                             has_selected_character = True
                             menu_state = "character_used"
                             net.set_character(selected_character, selected_chick_name)
@@ -2056,91 +2055,106 @@ def main() -> None:
                 screen.blit(play_surf, (play_x, play_y))
 
             elif menu_state in ("character_select", "character_used"):
-                # Initial buttons below title disappear, replaced by cards: Carmelito, Carmen & 小胖墩!
+                # Single character card in the center with a Right Arrow button to switch chicks!
                 play_button_rect = pygame.Rect(-100, -100, 0, 0)
 
-                card_w = min(150, round(win_h * 0.18))
-                card_h = min(168, round(win_h * 0.20))
-                card_gap = max(18, round(win_w * 0.025))
-                total_w = card_w * 3 + card_gap * 2
-                start_x = (win_w - total_w) // 2
+                card_w = min(170, round(win_h * 0.22))
+                card_h = min(186, round(win_h * 0.24))
+                cx = (win_w - card_w) // 2
                 card_y = title_y + title_surf.get_height() + max(10, round(win_h * 0.018))
 
-                characters_data = [
-                    ("carmelito", CHICK_NAME, start_x),
-                    ("carmen", CARMEN_NAME, start_x + card_w + card_gap),
-                    ("pangdun", PANGDUN_NAME, start_x + (card_w + card_gap) * 2),
-                ]
+                char_id, char_name = available_characters[carousel_index]
 
                 spin_yaw = anim_time * 1.6
-                name_px = max(18, min(34, ((round(title_px * 0.46)) // 2) * 2))
+                name_px = max(20, min(36, ((round(title_px * 0.48)) // 2) * 2))
                 name_outline_px = max(2, round(name_px * 0.07))
-                use_px = max(16, min(30, ((round(title_px * 0.40)) // 2) * 2))
+                use_px = max(18, min(32, ((round(title_px * 0.42)) // 2) * 2))
                 use_outline_px = max(2, round(use_px * 0.07))
 
-                bottom_use_y = card_y
+                # Draw picture card centered in the game
+                c_shadow = pygame.Rect(cx + 4, card_y + 4, card_w, card_h)
+                c_rect = pygame.Rect(cx, card_y, card_w, card_h)
+                pygame.draw.rect(screen, (190, 205, 220), c_shadow, border_radius=16)
+                pygame.draw.rect(screen, (255, 255, 255), c_rect, border_radius=16)
+                pygame.draw.rect(screen, (215, 225, 235), c_rect, width=2, border_radius=16)
 
-                for char_id, char_name, cx in characters_data:
-                    # Draw picture card
-                    c_shadow = pygame.Rect(cx + 3, card_y + 3, card_w, card_h)
-                    c_rect = pygame.Rect(cx, card_y, card_w, card_h)
-                    pygame.draw.rect(screen, (190, 205, 220), c_shadow, border_radius=14)
-                    pygame.draw.rect(screen, (255, 255, 255), c_rect, border_radius=14)
-                    pygame.draw.rect(screen, (215, 225, 235), c_rect, width=2, border_radius=14)
+                # Render 3D chick spinning inside card
+                model_3d.render(
+                    surface=screen,
+                    screen_pos=(cx + card_w // 2, card_y + card_h - 16),
+                    scale=round(card_h * 0.44),
+                    rot_y=spin_yaw,
+                    rot_x=0.08,
+                    head_yaw=0.0,
+                    head_pitch=0.0,
+                    mouth_open=False,
+                    run_cycle=0.0,
+                    is_running=False,
+                    run_weight=0.0,
+                    is_walking=False,
+                    walk_weight=0.0,
+                    blink=0.0,
+                    character=char_id,
+                )
 
-                    # Render 3D chick spinning inside card
-                    model_3d.render(
-                        surface=screen,
-                        screen_pos=(cx + card_w // 2, card_y + card_h - 14),
-                        scale=round(card_h * 0.42),
-                        rot_y=spin_yaw,
-                        rot_x=0.08,
-                        head_yaw=0.0,
-                        head_pitch=0.0,
-                        mouth_open=False,
-                        run_cycle=0.0,
-                        is_running=False,
-                        run_weight=0.0,
-                        is_walking=False,
-                        walk_weight=0.0,
-                        blink=0.0,
-                        character=char_id,
-                    )
+                # Right Arrow button on the right of the character card
+                arrow_btn_size = max(42, min(56, round(card_h * 0.32)))
+                arrow_r_x = cx + card_w + max(14, round(win_w * 0.02))
+                arrow_r_y = card_y + (card_h - arrow_btn_size) // 2
+                arrow_right_rect = pygame.Rect(arrow_r_x, arrow_r_y, arrow_btn_size, arrow_btn_size)
 
-                    # Character name below picture
-                    n_surf = get_outlined_text_surface(char_name, name_px, outline_px=name_outline_px)
-                    nx = cx + (card_w - n_surf.get_width()) // 2
-                    ny = card_y + card_h + max(6, round(win_h * 0.012))
-                    screen.blit(n_surf, (nx, ny))
+                # Left Arrow button on the left of the character card
+                arrow_l_x = cx - max(14, round(win_w * 0.02)) - arrow_btn_size
+                arrow_l_y = arrow_r_y
+                arrow_left_rect = pygame.Rect(arrow_l_x, arrow_l_y, arrow_btn_size, arrow_btn_size)
 
-                    # USE button below name: green if equipped, red if unequipped (white text with black outline)
-                    is_equipped = (has_selected_character and selected_character == char_id)
-                    u_fill = (68, 204, 88) if is_equipped else (235, 52, 52)
-                    u_surf = get_outlined_text_surface(
-                        "USE",
-                        use_px,
-                        outline_px=use_outline_px,
-                        fill_color=u_fill,
-                        outline_color=(0, 0, 0),
-                    )
-                    ux = cx + (card_w - u_surf.get_width()) // 2
-                    uy = ny + n_surf.get_height() + max(6, round(win_h * 0.012))
-                    u_rect = pygame.Rect(
-                        ux - 12,
-                        uy - 5,
-                        u_surf.get_width() + 24,
-                        u_surf.get_height() + 10,
-                    )
-                    screen.blit(u_surf, (ux, uy))
+                # Draw Right Arrow button (circular button with crisp right-pointing triangle)
+                pygame.draw.circle(screen, (190, 205, 220), (arrow_r_x + arrow_btn_size // 2 + 2, arrow_r_y + arrow_btn_size // 2 + 2), arrow_btn_size // 2)
+                pygame.draw.circle(screen, (255, 255, 255), (arrow_r_x + arrow_btn_size // 2, arrow_r_y + arrow_btn_size // 2), arrow_btn_size // 2)
+                pygame.draw.circle(screen, (70, 90, 115), (arrow_r_x + arrow_btn_size // 2, arrow_r_y + arrow_btn_size // 2), arrow_btn_size // 2, 2)
+                # Right arrow triangle:
+                r_tri_tip = (arrow_r_x + round(arrow_btn_size * 0.68), arrow_r_y + arrow_btn_size // 2)
+                r_tri_top = (arrow_r_x + round(arrow_btn_size * 0.36), arrow_r_y + round(arrow_btn_size * 0.28))
+                r_tri_bot = (arrow_r_x + round(arrow_btn_size * 0.36), arrow_r_y + round(arrow_btn_size * 0.72))
+                pygame.draw.polygon(screen, (70, 90, 115), [r_tri_tip, r_tri_top, r_tri_bot])
 
-                    bottom_use_y = max(bottom_use_y, uy + u_surf.get_height())
+                # Draw Left Arrow button
+                pygame.draw.circle(screen, (190, 205, 220), (arrow_l_x + arrow_btn_size // 2 + 2, arrow_l_y + arrow_btn_size // 2 + 2), arrow_btn_size // 2)
+                pygame.draw.circle(screen, (255, 255, 255), (arrow_l_x + arrow_btn_size // 2, arrow_l_y + arrow_btn_size // 2), arrow_btn_size // 2)
+                pygame.draw.circle(screen, (70, 90, 115), (arrow_l_x + arrow_btn_size // 2, arrow_l_y + arrow_btn_size // 2), arrow_btn_size // 2, 2)
+                # Left arrow triangle:
+                l_tri_tip = (arrow_l_x + round(arrow_btn_size * 0.32), arrow_l_y + arrow_btn_size // 2)
+                l_tri_top = (arrow_l_x + round(arrow_btn_size * 0.64), arrow_l_y + round(arrow_btn_size * 0.28))
+                l_tri_bot = (arrow_l_x + round(arrow_btn_size * 0.64), arrow_l_y + round(arrow_btn_size * 0.72))
+                pygame.draw.polygon(screen, (70, 90, 115), [l_tri_tip, l_tri_top, l_tri_bot])
 
-                    if char_id == "carmelito":
-                        use_carmelito_rect = u_rect
-                    elif char_id == "carmen":
-                        use_carmen_rect = u_rect
-                    else:
-                        use_pangdun_rect = u_rect
+                # Character name below picture (updates dynamically when arrow is clicked!)
+                n_surf = get_outlined_text_surface(char_name, name_px, outline_px=name_outline_px)
+                nx = cx + (card_w - n_surf.get_width()) // 2
+                ny = card_y + card_h + max(8, round(win_h * 0.014))
+                screen.blit(n_surf, (nx, ny))
+
+                # USE button below name: green if equipped, red if unequipped
+                is_equipped = (has_selected_character and selected_character == char_id)
+                u_fill = (68, 204, 88) if is_equipped else (235, 52, 52)
+                u_surf = get_outlined_text_surface(
+                    "USE",
+                    use_px,
+                    outline_px=use_outline_px,
+                    fill_color=u_fill,
+                    outline_color=(0, 0, 0),
+                )
+                ux = cx + (card_w - u_surf.get_width()) // 2
+                uy = ny + n_surf.get_height() + max(8, round(win_h * 0.014))
+                use_button_rect = pygame.Rect(
+                    ux - 14,
+                    uy - 6,
+                    u_surf.get_width() + 28,
+                    u_surf.get_height() + 12,
+                )
+                screen.blit(u_surf, (ux, uy))
+
+                bottom_use_y = uy + u_surf.get_height()
 
                 # When a character is equipped, spawn the PLAY button centered below the cards
                 if menu_state == "character_used":
