@@ -722,14 +722,17 @@ def main() -> None:
     action_banner_text = ""
     dust_sparks: list[dict[str, Any]] = []
 
-    # Jump action (triggered with 'J' key)
+    # Jump action (triggered with 'J' key) - full crouch down then leap into air!
     jump_offset_y = 0.0
     jump_velocity_y = 0.0
-    is_jumping = False
-    jump_amount = 0.0      # 0.0 to 1.0 animation weight for crouching and wing flapping
-    jump_timer = 0.0
-    JUMP_IMPULSE = 6.2     # Initial vertical velocity for a nice crisp chicken hop
-    GRAVITY = 18.0         # Downward acceleration
+    jump_state = "idle"   # "idle" -> "crouching" -> "airborne" -> "landing"
+    crouch_timer = 0.0
+    crouch_duration = 0.16 # Time spent bending down before thrusting up
+    land_timer = 0.0
+    land_duration = 0.14   # Time spent cushioning landing
+    jump_amount = 0.0      # Crouch depth and wing flap blend weight
+    JUMP_IMPULSE = 7.4     # Strong vertical push off the ground
+    GRAVITY = 20.0         # Gravity acceleration
 
     # First-person kick action (triggered with 'K' key)
     is_kicking = False
@@ -840,11 +843,11 @@ def main() -> None:
                         blink_hold_timer = 0.16
                         auto_blink_timer = random.uniform(2.8, 5.0)
                     elif is_online and not is_fighting and event.key == pygame.K_j:
-                        # Pressing 'J' makes you jump!
-                        if not is_jumping:
-                            is_jumping = True
-                            jump_timer = 0.0
-                            jump_velocity_y = JUMP_IMPULSE
+                        # Pressing 'J' makes you crouch down, bend legs, and jump!
+                        if jump_state == "idle":
+                            jump_state = "crouching"
+                            crouch_timer = 0.0
+                            jump_amount = 0.0
                     elif is_online and not is_fighting and event.key == pygame.K_k:
                         # Pressing 'K' triggers a forward martial arts karate kick!
                         is_kicking = True
@@ -1133,27 +1136,49 @@ def main() -> None:
                     else:
                         punch_amount = math.cos(((pp - 0.32) / 0.68) * (math.pi / 2))
 
-            # Jump physics & crouch/wing animation update
-            if is_jumping:
-                jump_timer += dt
+            # Real Crouch-and-Jump state machine:
+            # 1. Crouching: legs bend deeply, camera drops down into a crouch
+            # 2. Airborne: chicken thrusts up, soaring into the air with wings flapping
+            # 3. Landing: touches down and cushions landing with a small knee bend
+            crouch_eye_drop = 0.0
+            if jump_state == "crouching":
+                crouch_timer += dt
+                # Smooth sinusoidal crouch down
+                cp = min(1.0, crouch_timer / crouch_duration)
+                jump_amount = math.sin(cp * (math.pi / 2))
+                crouch_eye_drop = -0.52 * jump_amount  # Camera drops down 0.52m into a deep crouch!
+                if crouch_timer >= crouch_duration:
+                    jump_state = "airborne"
+                    jump_velocity_y = JUMP_IMPULSE
+                    jump_offset_y = 0.05
+            elif jump_state == "airborne":
                 jump_offset_y += jump_velocity_y * dt
                 jump_velocity_y -= GRAVITY * dt
+                jump_amount = max(0.3, min(1.0, jump_offset_y / 0.60))
                 if jump_offset_y <= 0.0:
                     jump_offset_y = 0.0
                     jump_velocity_y = 0.0
-                    is_jumping = False
+                    jump_state = "landing"
+                    land_timer = 0.0
+            elif jump_state == "landing":
+                land_timer += dt
+                lp = land_timer / land_duration
+                if lp >= 1.0:
+                    jump_state = "idle"
                     jump_amount = 0.0
                 else:
-                    # jump_amount peaks smoothly as chicken reaches peak of jump
-                    jump_amount = min(1.0, jump_offset_y / 0.55)
+                    # Land cushioning squish
+                    squish = math.sin(lp * math.pi)
+                    jump_amount = squish * 0.45
+                    crouch_eye_drop = -0.22 * squish
             else:
-                jump_amount = max(0.0, jump_amount - 8.0 * dt)
+                jump_amount = 0.0
 
             if is_fighting:
                 eye_y = 1.65
             else:
                 head_bob = math.sin(motion_cycle * 2.0 * math.pi) * (0.04 * run_weight + 0.02 * walk_weight)
-                eye_y = head_bob + jump_offset_y
+                eye_y = head_bob + jump_offset_y + crouch_eye_drop
 
             # Sync position & posture with network only if online (mapped across the vast island)
             norm_x = max(0.05, min(0.95, (cam_x + ISLAND_RADIUS * 0.85) / (2.0 * ISLAND_RADIUS * 0.85) * 0.9 + 0.05))
@@ -1746,8 +1771,8 @@ def main() -> None:
                     chick_badge = get_nameplate_surface(c_name, bucket_px)
                     screen.blit(chick_badge, (lsx - chick_badge.get_width() // 2, lsy - chick_badge.get_height() // 2))
 
-        # 1e. RENDER OWN FEET ONLY WHEN ONLINE (visible when looking down, kicking with 'K', or crouching during 'J' jump!)
-        if is_online and not is_fighting and (head_pitch < -0.35 or kick_amount > 0.001 or jump_amount > 0.15):
+        # 1e. RENDER OWN FEET ONLY WHEN ONLINE (visible when looking down, kicking with 'K', or crouching/jumping with 'J'!)
+        if is_online and not is_fighting and (head_pitch < -0.35 or kick_amount > 0.001 or jump_amount > 0.08):
             cos_body = math.cos(cam_yaw)
             sin_body = math.sin(cam_yaw)
 

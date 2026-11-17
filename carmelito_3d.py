@@ -871,16 +871,15 @@ class Carmelito3D:
             ankle_pt = lerp_vec3(ankle_stand_walk, run_ankle, rw)
             foot_angle = fa_stand_walk + (run_foot_angle - fa_stand_walk) * rw
 
-            # Jump tuck / crouch legs when jumping with 'J'
+            # Jump crouch: knees bend deeply; feet remain level/natural
             if jump_amount > 0.001:
                 ja = max(0.0, min(1.0, jump_amount))
-                # Knees bend forward and out; feet tuck up high under body (crouch in mid-air!)
-                crouch_knee = (leg_x * 1.15, hip_attach_y + 0.16 * ja, 0.22 * ja)
-                crouch_ankle = (leg_x * 0.95, hip_attach_y + 0.32 * ja, 0.12 * ja)
-                crouch_fa = -0.42 * ja  # Toes flexed up
+                # Knees bend forward and outward; feet remain flat/level (foot_angle = 0.0)
+                crouch_knee = (leg_x * 1.15, hip_attach_y - 0.22 * ja, 0.26 * ja)
+                crouch_ankle = (leg_x * 0.95, 0.08, 0.14)
                 knee_pt = lerp_vec3(knee_pt, crouch_knee, ja)
                 ankle_pt = lerp_vec3(ankle_pt, crouch_ankle, ja)
-                foot_angle = foot_angle * (1.0 - ja) + crouch_fa * ja
+                foot_angle = foot_angle * (1.0 - ja) + 0.0 * ja
 
             # Martial arts karate kick when player kicks with 'K'
             # Negative foot angle rotates toes upward so they point up towards the sky/forward
@@ -1114,16 +1113,15 @@ class Carmelito3D:
             ankle_m = lerp_vec3(ankle_sw, run_ankle, rw)
             foot_angle = fa_sw + (r_fa - fa_sw) * rw
 
-            # Jump crouch: knees bend deeply and feet tuck high into view when jumping with 'J'
+            # Jump crouch: knees bend forward into view while feet and toes remain level and flat on the ground!
             if jump_amount > 0.001:
                 ja = max(0.0, min(1.0, jump_amount))
-                # Knee pulls high forward; ankle flexes high under body in prominent athletic crouch
-                c_knee = (leg_x * 1.12, hip_attach_y + 0.38 * ja, 0.16 + 0.28 * ja)
-                c_ankle = (leg_x * 0.90, hip_attach_y + 0.52 * ja, 0.14 + 0.24 * ja)
-                c_fa = -0.48 * ja
+                # Deep crouch: knees push forward and upward into view as body lowers; feet stay flat (foot_angle = 0.0)
+                c_knee = (leg_x * 1.15, 0.24 + 0.18 * ja, 0.18 + 0.22 * ja)
+                c_ankle = (leg_x, 0.08, 0.16 + 0.06 * ja)
                 knee_m = lerp_vec3(knee_m, c_knee, ja)
                 ankle_m = lerp_vec3(ankle_m, c_ankle, ja)
-                foot_angle = foot_angle * (1.0 - ja) + c_fa * ja
+                foot_angle = foot_angle * (1.0 - ja) + 0.0 * ja
 
             # Martial arts karate kick when player presses 'K'
             # Negative foot angle rotates toes UPWARD (flexed martial arts kick posture)
