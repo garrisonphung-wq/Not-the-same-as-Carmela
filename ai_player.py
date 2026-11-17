@@ -78,6 +78,17 @@ class AICodeCompanion:
         self.punch_duration = 0.38
         self.punch_side = 1.0
         self.punch_amount = 0.0
+
+        # Jump action
+        self.jump_offset_y = 0.0
+        self.jump_velocity_y = 0.0
+        self.jump_state = "idle"
+        self.crouch_timer = 0.0
+        self.crouch_duration = 0.14
+        self.jump_amount = 0.0
+        self.JUMP_IMPULSE = 8.5
+        self.GRAVITY = 22.0
+
         self.action_cooldown = random.uniform(3.0, 7.0)
 
         # Independent AI decision state machine
@@ -279,11 +290,39 @@ class AICodeCompanion:
                 pp = self.punch_timer / self.punch_duration
                 self.punch_amount = math.sin((pp / 0.32) * (math.pi / 2)) if pp < 0.32 else math.cos(((pp - 0.32) / 0.68) * (math.pi / 2))
 
-        # Occasional playful kicks / punches while roaming
+        # Jump physics
+        if self.jump_state == "crouching":
+            self.crouch_timer += dt
+            cp = min(1.0, self.crouch_timer / self.crouch_duration)
+            self.jump_amount = math.sin(cp * (math.pi / 2))
+            if self.crouch_timer >= self.crouch_duration:
+                self.jump_state = "airborne"
+                self.jump_velocity_y = self.JUMP_IMPULSE
+                self.jump_offset_y = 0.08
+                self.jump_amount = 0.0
+        elif self.jump_state == "airborne":
+            self.jump_offset_y += self.jump_velocity_y * dt
+            self.jump_velocity_y -= self.GRAVITY * dt
+            self.jump_amount = 0.0
+            if self.jump_offset_y <= 0.0:
+                self.jump_offset_y = 0.0
+                self.jump_velocity_y = 0.0
+                self.jump_state = "idle"
+                self.jump_amount = 0.0
+        else:
+            self.jump_amount = 0.0
+
+        # Occasional playful kicks / punches / jumps while roaming
         self.action_cooldown -= dt
-        if self.action_cooldown <= 0.0 and not self.is_kicking and not self.is_punching:
-            self.action_cooldown = random.uniform(4.0, 9.0)
-            if random.random() < 0.5:
+        if self.action_cooldown <= 0.0 and not self.is_kicking and not self.is_punching and self.jump_state == "idle":
+            self.action_cooldown = random.uniform(3.5, 7.5)
+            roll = random.random()
+            if roll < 0.35:
+                # Playful jump hop!
+                self.jump_state = "crouching"
+                self.crouch_timer = 0.0
+                self.jump_amount = 0.0
+            elif roll < 0.68:
                 self.is_kicking = True
                 self.kick_timer = 0.0
                 self.kick_side = -self.kick_side
@@ -436,6 +475,8 @@ class AICodeCompanion:
                     "kick_side": round(self.kick_side, 1),
                     "punch_amount": round(self.punch_amount, 3),
                     "punch_side": round(self.punch_side, 1),
+                    "jump_offset_y": round(self.jump_offset_y, 3),
+                    "jump_amount": round(self.jump_amount, 3),
                 },
                 separators=(",", ":"),
             )

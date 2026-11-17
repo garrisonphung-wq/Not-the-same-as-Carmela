@@ -299,6 +299,8 @@ class NetworkClient:
         self._local_kick_side = 1.0
         self._local_punch_amount = 0.0
         self._local_punch_side = 1.0
+        self._local_jump_offset_y = 0.0
+        self._local_jump_amount = 0.0
         self._pos_dirty = True
 
         self._outgoing_chats: list[str] = []
@@ -340,6 +342,8 @@ class NetworkClient:
         kick_side: float = 1.0,
         punch_amount: float = 0.0,
         punch_side: float = 1.0,
+        jump_offset_y: float = 0.0,
+        jump_amount: float = 0.0,
     ) -> None:
         nx = max(0.05, min(0.95, nx))
         ny = max(0.05, min(0.95, ny))
@@ -362,6 +366,8 @@ class NetworkClient:
                 or (kick_side != self._local_kick_side)
                 or (abs(punch_amount - self._local_punch_amount) > 0.02)
                 or (punch_side != self._local_punch_side)
+                or (abs(jump_offset_y - self._local_jump_offset_y) > 0.02)
+                or (abs(jump_amount - self._local_jump_amount) > 0.02)
             )
             if pos_changed or state_changed:
                 self._local_nx = nx
@@ -379,6 +385,8 @@ class NetworkClient:
                 self._local_kick_side = kick_side
                 self._local_punch_amount = punch_amount
                 self._local_punch_side = punch_side
+                self._local_jump_offset_y = jump_offset_y
+                self._local_jump_amount = jump_amount
                 self._pos_dirty = True
 
     def get_snapshot(self) -> tuple[bool, bool, int | None, tuple[int, int, int], dict[int, dict[str, Any]]]:
@@ -405,6 +413,8 @@ class NetworkClient:
                     "kick_side": data.get("kick_side", 1.0),
                     "punch_amount": data.get("punch_amount", 0.0),
                     "punch_side": data.get("punch_side", 1.0),
+                    "jump_offset_y": data.get("jump_offset_y", 0.0),
+                    "jump_amount": data.get("jump_amount", 0.0),
                 }
                 for pid, data in self.remote_players.items()
             }
@@ -537,6 +547,8 @@ class NetworkClient:
                             "kick_side": round(self._local_kick_side, 1),
                             "punch_amount": round(self._local_punch_amount, 3),
                             "punch_side": round(self._local_punch_side, 1),
+                            "jump_offset_y": round(self._local_jump_offset_y, 3),
+                            "jump_amount": round(self._local_jump_amount, 3),
                         },
                         separators=(",", ":"),
                     )
@@ -571,6 +583,8 @@ class NetworkClient:
             "kick_side": float(pdata.get("kick_side", 1.0)),
             "punch_amount": float(pdata.get("punch_amount", 0.0)),
             "punch_side": float(pdata.get("punch_side", 1.0)),
+            "jump_offset_y": float(pdata.get("jump_offset_y", 0.0)),
+            "jump_amount": float(pdata.get("jump_amount", 0.0)),
         }
 
     async def _receiver_loop(self, ws: Any) -> None:
@@ -1191,6 +1205,8 @@ def main() -> None:
                 kick_side=kick_side,
                 punch_amount=punch_amount,
                 punch_side=punch_side,
+                jump_offset_y=jump_offset_y,
+                jump_amount=jump_amount,
             )
 
         connected, is_host, my_id, my_color, remote_players = net.get_snapshot()
@@ -1242,6 +1258,8 @@ def main() -> None:
             t_kick_side = float(pdata.get("kick_side", 1.0))
             t_punch = float(pdata.get("punch_amount", 0.0))
             t_punch_side = float(pdata.get("punch_side", 1.0))
+            t_jump_y = float(pdata.get("jump_offset_y", 0.0))
+            t_jump_amt = float(pdata.get("jump_amount", 0.0))
 
             if pid not in remote_states:
                 remote_states[pid] = {
@@ -1258,6 +1276,8 @@ def main() -> None:
                     "kick_side": t_kick_side,
                     "punch_amount": t_punch,
                     "punch_side": t_punch_side,
+                    "jump_offset_y": t_jump_y,
+                    "jump_amount": t_jump_amt,
                 }
             else:
                 rs = remote_states[pid]
@@ -1277,6 +1297,8 @@ def main() -> None:
                 rs["kick_side"] = t_kick_side
                 rs["punch_amount"] += (t_punch - rs.get("punch_amount", 0.0)) * min(1.0, 24.0 * dt)
                 rs["punch_side"] = t_punch_side
+                rs["jump_offset_y"] += (t_jump_y - rs.get("jump_offset_y", 0.0)) * min(1.0, 24.0 * dt)
+                rs["jump_amount"] += (t_jump_amt - rs.get("jump_amount", 0.0)) * min(1.0, 24.0 * dt)
                 loco = max(rs["run_weight"], rs["walk_weight"])
                 if loco > 0.001:
                     stride_spd = (3.2 * rs["run_weight"]) + (1.8 * rs["walk_weight"] * (1.0 - rs["run_weight"]))
@@ -1439,7 +1461,8 @@ def main() -> None:
             rs = remote_states[pid]
             rwx, rwz = rs["wx"], rs["wz"]
             is_carmelito = pdata.get("is_carmelito", True)
-            rwy = current_ground_y if is_carmelito else (0.0 + 0.12 * math.sin(anim_time * 2.8))
+            r_jump_y = rs.get("jump_offset_y", 0.0)
+            rwy = (current_ground_y + r_jump_y) if is_carmelito else (0.0 + 0.12 * math.sin(anim_time * 2.8))
 
             rx_p, ry_p, rz_p = to_cam(rwx, rwy, rwz)
             min_z = 0.65 if is_carmelito else 0.25
@@ -1462,11 +1485,15 @@ def main() -> None:
                 else:
                     rem_scale = CARMELITO_WORLD_SCALE
 
-                # Soft shadow on the grass right beneath the chick's feet
-                sh_w = max(8, round((1.15 * (rem_scale / CARMELITO_WORLD_SCALE) / rz_p) * focal))
-                sh_h = max(3, round((0.36 * (rem_scale / CARMELITO_WORLD_SCALE) / rz_p) * focal))
-                shadow_rect = pygame.Rect(round(sx - sh_w * 0.5), round(sy - sh_h * 0.4), sh_w, sh_h)
-                pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, shadow_rect)
+                # Shadow on the grass right beneath chick (projected onto ground at current_ground_y)
+                g_rx, g_ry, g_rz = to_cam(rwx, current_ground_y, rwz)
+                if g_rz > near_z:
+                    g_sx = hw + (g_rx / g_rz) * focal
+                    g_sy = hh - (g_ry / g_rz) * focal
+                    sh_w = max(8, round((1.15 * (rem_scale / CARMELITO_WORLD_SCALE) / g_rz) * focal))
+                    sh_h = max(3, round((0.36 * (rem_scale / CARMELITO_WORLD_SCALE) / g_rz) * focal))
+                    shadow_rect = pygame.Rect(round(g_sx - sh_w * 0.5), round(g_sy - sh_h * 0.4), sh_w, sh_h)
+                    pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, shadow_rect)
 
                 model_scale = (rem_scale / rz_p) * focal
                 rel_rot_y = math.pi - (rs["rot_y"] - total_yaw)
@@ -1492,6 +1519,7 @@ def main() -> None:
                     kick_side=rs.get("kick_side", 1.0),
                     punch_amount=rs.get("punch_amount", 0.0),
                     punch_side=rs.get("punch_side", 1.0),
+                    jump_amount=rs.get("jump_amount", 0.0),
                 )
 
                 # Floating nameplates above chicken's comb:
