@@ -726,6 +726,8 @@ def main() -> None:
     jump_offset_y = 0.0
     jump_velocity_y = 0.0
     is_jumping = False
+    jump_amount = 0.0      # 0.0 to 1.0 animation weight for crouching and wing flapping
+    jump_timer = 0.0
     JUMP_IMPULSE = 6.2     # Initial vertical velocity for a nice crisp chicken hop
     GRAVITY = 18.0         # Downward acceleration
 
@@ -841,6 +843,7 @@ def main() -> None:
                         # Pressing 'J' makes you jump!
                         if not is_jumping:
                             is_jumping = True
+                            jump_timer = 0.0
                             jump_velocity_y = JUMP_IMPULSE
                     elif is_online and not is_fighting and event.key == pygame.K_k:
                         # Pressing 'K' triggers a forward martial arts karate kick!
@@ -1130,14 +1133,21 @@ def main() -> None:
                     else:
                         punch_amount = math.cos(((pp - 0.32) / 0.68) * (math.pi / 2))
 
-            # Jump physics update
+            # Jump physics & crouch/wing animation update
             if is_jumping:
+                jump_timer += dt
                 jump_offset_y += jump_velocity_y * dt
                 jump_velocity_y -= GRAVITY * dt
                 if jump_offset_y <= 0.0:
                     jump_offset_y = 0.0
                     jump_velocity_y = 0.0
                     is_jumping = False
+                    jump_amount = 0.0
+                else:
+                    # jump_amount peaks smoothly as chicken reaches peak of jump
+                    jump_amount = min(1.0, jump_offset_y / 0.55)
+            else:
+                jump_amount = max(0.0, jump_amount - 8.0 * dt)
 
             if is_fighting:
                 eye_y = 1.65
@@ -1736,8 +1746,8 @@ def main() -> None:
                     chick_badge = get_nameplate_surface(c_name, bucket_px)
                     screen.blit(chick_badge, (lsx - chick_badge.get_width() // 2, lsy - chick_badge.get_height() // 2))
 
-        # 1e. RENDER OWN FEET ONLY WHEN ONLINE (visible when looking down OR when kicking with 'K'!)
-        if is_online and not is_fighting and (head_pitch < -0.35 or kick_amount > 0.001):
+        # 1e. RENDER OWN FEET ONLY WHEN ONLINE (visible when looking down, kicking with 'K', or crouching during 'J' jump!)
+        if is_online and not is_fighting and (head_pitch < -0.35 or kick_amount > 0.001 or jump_amount > 0.15):
             cos_body = math.cos(cam_yaw)
             sin_body = math.sin(cam_yaw)
 
@@ -1754,6 +1764,7 @@ def main() -> None:
                 character=selected_character,
                 kick_amount=kick_amount,
                 kick_side=kick_side,
+                jump_amount=jump_amount,
             )
 
             for sbx, sby, sbz in foot_shadows:
@@ -1884,6 +1895,71 @@ def main() -> None:
                     if draw_ink:
                         pygame.draw.polygon(screen, COLOR_INK_LINE, pts, 1)
 
+                # 1g. RENDER OWN WINGS FLAPPING IN FIRST PERSON (J KEY JUMP)
+        if is_online and not is_fighting and jump_amount > 0.001 and punch_amount <= 0.001:
+            cos_body = math.cos(cam_yaw)
+            sin_body = math.sin(cam_yaw)
+
+            def wing_to_cam(bx: float, by: float, bz: float) -> tuple[float, float, float]:
+                wx = cam_x + bx * cos_body + bz * sin_body
+                wz = cam_z - bx * sin_body + bz * cos_body
+                wy = eye_y + by
+                return to_cam(wx, wy, wz)
+
+            jump_wing_faces = model_3d.build_first_person_jump_wings(
+                jump_amount=jump_amount,
+                character=selected_character,
+                anim_time=anim_time,
+            )
+
+            wing_projected: list[tuple[float, list[tuple[int, int]], tuple[int, int, int], bool]] = []
+            for quad_verts, base_col, has_contour in jump_wing_faces:
+                cam_verts = [wing_to_cam(*v) for v in quad_verts]
+                if any(cv[2] <= near_z for cv in cam_verts):
+                    continue
+
+                v0, v1, v2 = cam_verts[0], cam_verts[1], cam_verts[2]
+                e1 = (v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2])
+                e2 = (v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2])
+                nx = e1[1] * e2[2] - e1[2] * e2[1]
+                ny = e1[2] * e2[0] - e1[0] * e2[2]
+                nz = e1[0] * e2[1] - e1[1] * e2[0]
+                n_mag = math.sqrt(nx * nx + ny * ny + nz * nz)
+                if n_mag < 1e-6:
+                    continue
+                nx /= n_mag
+                ny /= n_mag
+                nz /= n_mag
+
+                to_eye_dot = -(nx * v0[0] + ny * v0[1] + nz * v0[2])
+                if to_eye_dot <= 0.0:
+                    continue
+
+                v_mag = math.sqrt(v0[0] * v0[0] + v0[1] * v0[1] + v0[2] * v0[2])
+                view_cos = to_eye_dot / max(1e-4, v_mag)
+
+                diffuse = max(0.0, nx * model_3d.light_dir[0] + ny * model_3d.light_dir[1] + nz * model_3d.light_dir[2])
+                brightness = 0.78 + 0.22 * diffuse
+                face_col = (
+                    min(255, int(base_col[0] * brightness)),
+                    min(255, int(base_col[1] * brightness)),
+                    min(255, int(base_col[2] * brightness)),
+                )
+
+                pts = [
+                    (round(hw + (cv[0] / cv[2]) * focal), round(hh - (cv[1] / cv[2]) * focal))
+                    for cv in cam_verts
+                ]
+                avg_z = sum(cv[2] for cv in cam_verts) / len(cam_verts)
+                wing_projected.append((avg_z, pts, face_col, has_contour and view_cos < 0.38))
+
+            wing_projected.sort(key=lambda item: item[0], reverse=True)
+            for _, pts, f_col, draw_ink in wing_projected:
+                if len(pts) >= 3:
+                    pygame.draw.polygon(screen, f_col, pts)
+                    if draw_ink:
+                        pygame.draw.polygon(screen, COLOR_INK_LINE, pts, 1)
+
         # --- 2. TOP-LEFT CORNER PICTURE: ONLY VISIBLE WHEN ONLINE (EQUIPPED CARMELITO) ---
         if is_online:
             pic_rect = pygame.Rect(16, 16, 180, 200)
@@ -1909,6 +1985,7 @@ def main() -> None:
                 walk_weight=walk_weight,
                 blink=blink_amount,
                 character=selected_character,
+                jump_amount=jump_amount,
             )
 
         # --- 2b. 3D CHAT BUBBLE ANCHORED DIRECTLY ABOVE LOCAL PLAYER (VISIBLE WHEN LOOKING UP) ---

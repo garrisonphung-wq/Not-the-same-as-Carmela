@@ -294,6 +294,7 @@ class Carmelito3D:
         kick_side: float = 1.0,
         punch_amount: float = 0.0,
         punch_side: float = 1.0,
+        jump_amount: float = 0.0,
     ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
         """
         Builds Carmelito 3D model with 100% faithful storybook geometry:
@@ -715,6 +716,16 @@ class Carmelito3D:
             elbow_pt = lerp_vec3(elbow_stand_walk, run_elbow, rw)
             hand_pt = lerp_vec3(hand_stand_walk, run_hand, rw)
 
+            # Jump flap / soaring wing motion when jumping with 'J'
+            if jump_amount > 0.001:
+                ja = max(0.0, min(1.0, jump_amount))
+                # Dynamic flapping wing arc (lifts high out to the sides and flaps up!)
+                flap_phase = math.sin(anim_time * 16.0) * 0.18
+                jump_elbow = (side * (0.42 + 0.15 * ja), body_center_y + 0.12 * ja + flap_phase, 0.04)
+                jump_hand = (side * (0.58 + 0.22 * ja), body_center_y + 0.28 * ja + flap_phase * 1.5, 0.10)
+                elbow_pt = lerp_vec3(elbow_pt, jump_elbow, ja)
+                hand_pt = lerp_vec3(hand_pt, jump_hand, ja)
+
             # Punch wing jab when player punches with 'P'
             if punch_amount > 0.001 and side == punch_side:
                 p_ext = max(0.0, min(1.0, punch_amount))
@@ -860,6 +871,17 @@ class Carmelito3D:
             ankle_pt = lerp_vec3(ankle_stand_walk, run_ankle, rw)
             foot_angle = fa_stand_walk + (run_foot_angle - fa_stand_walk) * rw
 
+            # Jump tuck / crouch legs when jumping with 'J'
+            if jump_amount > 0.001:
+                ja = max(0.0, min(1.0, jump_amount))
+                # Knees bend forward and out; feet tuck up high under body (crouch in mid-air!)
+                crouch_knee = (leg_x * 1.15, hip_attach_y + 0.16 * ja, 0.22 * ja)
+                crouch_ankle = (leg_x * 0.95, hip_attach_y + 0.32 * ja, 0.12 * ja)
+                crouch_fa = -0.42 * ja  # Toes flexed up
+                knee_pt = lerp_vec3(knee_pt, crouch_knee, ja)
+                ankle_pt = lerp_vec3(ankle_pt, crouch_ankle, ja)
+                foot_angle = foot_angle * (1.0 - ja) + crouch_fa * ja
+
             # Martial arts karate kick when player kicks with 'K'
             # Negative foot angle rotates toes upward so they point up towards the sky/forward
             if kick_amount > 0.001 and side == kick_side:
@@ -982,6 +1004,7 @@ class Carmelito3D:
         character: str = "carmelito",
         kick_amount: float = 0.0,
         kick_side: float = 1.0,
+        jump_amount: float = 0.0,
     ) -> tuple[list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]], list[tuple[float, float, float]]]:
         char_l = character.lower()
         if char_l in ("carmen", "卡门"):
@@ -1091,6 +1114,17 @@ class Carmelito3D:
             ankle_m = lerp_vec3(ankle_sw, run_ankle, rw)
             foot_angle = fa_sw + (r_fa - fa_sw) * rw
 
+            # Jump crouch: knees bend deeply and feet tuck high into view when jumping with 'J'
+            if jump_amount > 0.001:
+                ja = max(0.0, min(1.0, jump_amount))
+                # Knee pulls high forward; ankle flexes high under body in prominent athletic crouch
+                c_knee = (leg_x * 1.12, hip_attach_y + 0.38 * ja, 0.16 + 0.28 * ja)
+                c_ankle = (leg_x * 0.90, hip_attach_y + 0.52 * ja, 0.14 + 0.24 * ja)
+                c_fa = -0.48 * ja
+                knee_m = lerp_vec3(knee_m, c_knee, ja)
+                ankle_m = lerp_vec3(ankle_m, c_ankle, ja)
+                foot_angle = foot_angle * (1.0 - ja) + c_fa * ja
+
             # Martial arts karate kick when player presses 'K'
             # Negative foot angle rotates toes UPWARD (flexed martial arts kick posture)
             if kick_amount > 0.001 and side == kick_side:
@@ -1192,6 +1226,93 @@ class Carmelito3D:
             ))
 
         return faces, shadows
+
+    def build_first_person_jump_wings(
+        self,
+        jump_amount: float = 0.0,
+        character: str = "carmelito",
+        anim_time: float = 0.0,
+    ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
+        """
+        Renders Carmelito's flapping wings in first-person view when jumping with 'J':
+        Both wings rise up into the left and right peripheral view and flap dynamically!
+        """
+        if jump_amount <= 0.001:
+            return []
+
+        char_l = character.lower()
+        if char_l in ("carmen", "卡门"):
+            body_col = COLOR_CARMEN_YELLOW
+            char_scale = 0.82
+        elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
+            body_col = COLOR_PANGDUN_WHITE
+            char_scale = 1.15
+        else:
+            body_col = COLOR_BODY_PINK
+            char_scale = 1.0
+
+        ja = max(0.0, min(1.0, jump_amount))
+        # High flapping frequency while airborne
+        flap = math.sin(anim_time * 18.0) * 0.16 * ja
+
+        faces: list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]] = []
+        for side in (-1.0, 1.0):
+            # Shoulder base anchored slightly below eye level and to the side
+            sh_x = side * 0.38 * char_scale
+            sh_y = -0.32 * char_scale
+            sh_z = 0.22 * char_scale
+
+            # Elbow lifts up and out into view
+            elb_x = side * (0.52 + 0.12 * ja) * char_scale
+            elb_y = (-0.18 + 0.24 * ja + flap) * char_scale
+            elb_z = (0.34 + 0.16 * ja) * char_scale
+
+            # Wing tip / hand flaps vigorously in the upper-outer corners of view
+            tip_x = side * (0.64 + 0.18 * ja) * char_scale
+            tip_y = (-0.08 + 0.38 * ja + flap * 1.8) * char_scale
+            tip_z = (0.42 + 0.22 * ja) * char_scale
+
+            sh_pt = (sh_x, sh_y, sh_z)
+            elb_pt = (elb_x, elb_y, elb_z)
+            tip_pt = (tip_x, tip_y, tip_z)
+
+            # Upper wing
+            faces.extend(create_oriented_box(
+                sh_pt, elb_pt,
+                thickness=(0.09 * char_scale, 0.14 * char_scale),
+                base_color=body_col,
+                subdiv_length=2,
+                draw_contour=True,
+            ))
+            # Forearm wing
+            faces.extend(create_oriented_box(
+                elb_pt, tip_pt,
+                thickness=(0.08 * char_scale, 0.18 * char_scale),
+                base_color=body_col,
+                subdiv_length=2,
+                draw_contour=True,
+            ))
+            # Primary wing flight feathers
+            for f_i, (dz, dy_off) in enumerate([(0.0, 0.0), (-0.06, -0.05), (0.05, -0.04)]):
+                f_start = (
+                    tip_x + side * 0.02 * char_scale,
+                    tip_y + dy_off * char_scale,
+                    tip_z + dz * char_scale,
+                )
+                f_end = (
+                    tip_x + side * 0.12 * char_scale,
+                    tip_y + (dy_off - 0.06) * char_scale,
+                    tip_z + (dz + 0.06) * char_scale,
+                )
+                faces.extend(create_oriented_box(
+                    f_start, f_end,
+                    thickness=(0.03 * char_scale, 0.06 * char_scale),
+                    base_color=body_col,
+                    subdiv_length=2,
+                    draw_contour=True,
+                ))
+
+        return faces
 
     def build_first_person_punch_faces(
         self,
@@ -1310,6 +1431,7 @@ class Carmelito3D:
         kick_side: float = 1.0,
         punch_amount: float = 0.0,
         punch_side: float = 1.0,
+        jump_amount: float = 0.0,
     ) -> None:
         """
         Projects and renders Carmelito in authentic storybook 3D.
@@ -1340,6 +1462,7 @@ class Carmelito3D:
             kick_side=kick_side,
             punch_amount=punch_amount,
             punch_side=punch_side,
+            jump_amount=jump_amount,
         )
 
         cos_y = math.cos(rot_y)
