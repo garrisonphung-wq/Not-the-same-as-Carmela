@@ -720,7 +720,7 @@ class Carmelito3D:
             if jump_amount > 0.001:
                 ja = max(0.0, min(1.0, jump_amount))
                 # Dynamic flapping wing arc (lifts high out to the sides and flaps up!)
-                flap_phase = math.sin(anim_time * 16.0) * 0.18
+                flap_phase = math.sin(run_cycle * 16.0) * 0.18
                 jump_elbow = (side * (0.42 + 0.15 * ja), body_center_y + 0.12 * ja + flap_phase, 0.04)
                 jump_hand = (side * (0.58 + 0.22 * ja), body_center_y + 0.28 * ja + flap_phase * 1.5, 0.10)
                 elbow_pt = lerp_vec3(elbow_pt, jump_elbow, ja)
