@@ -58,22 +58,24 @@ CARMELITO_WORLD_SCALE = 1.85  # Matches Carmelito's ~3.0 eye height above GROUND
 # Multi-ring grass blade distribution reaching far across the meadow:
 # (patch_step, min_dist, max_dist, tufts_per_patch, blade_scale, sway_amp)
 GRASS_RINGS = (
-    (2.0, 0.0, 28.0, 4, 1.0, 1.0),
-    (4.0, 28.0, 80.0, 4, 1.4, 0.6),
-    (8.0, 80.0, 160.0, 3, 2.1, 0.2),
-    (14.0, 160.0, 260.0, 2, 2.8, 0.0),
+    (2.0, 0.0, 32.0, 4, 1.0, 1.0),
+    (5.0, 32.0, 110.0, 4, 1.4, 0.6),
+    (12.0, 110.0, 240.0, 3, 2.2, 0.2),
+    (24.0, 240.0, 480.0, 2, 3.2, 0.0),
 )
 
-# Giant Island geometry constants - EVEN MORE VAST & EXPANSIVE!
-ISLAND_RADIUS = 210.0     # Vast expansive colossal storybook island
-ISLAND_SEGMENTS = 96      # Ultra smooth organic shoreline for the vast island
-ISLAND_CLIFF_DEPTH = 36.0 # Majestic rock cliffs plunging into the sea
+# Giant Island geometry constants - COLORADO SIZE (269,837 km²)!
+# Colorado dimensions: ~610 km East-West x 450 km North-South -> Equivalent radius ~295,000 meters!
+COLORADO_RADIUS_KM = 295.0
+ISLAND_RADIUS = 295000.0   # 295 km radius = same area as Colorado (269,837 km²)!
+ISLAND_SEGMENTS = 128     # Smooth perimeter for the continent-sized island
+ISLAND_CLIFF_DEPTH = 380.0 # Colossal coastal bluffs plunging into the ocean
 ISLAND_WATER_Y = GROUND_Y - ISLAND_CLIFF_DEPTH
 
-# Fixed overview camera: true top-down view looking directly down at the top of the island
+# Overview camera: satellite/orbital view looking directly down at the top of the Colorado island
 OVERVIEW_CAM_X = 0.0
-OVERVIEW_CAM_Y = 560.0    # High above island center for a full bird's-eye view of the top
-OVERVIEW_CAM_Z = 45.0     # Positioned so island is centered below title and play buttons
+OVERVIEW_CAM_Y = 780000.0  # 780 km altitude in low Earth orbit to view all of Colorado below!
+OVERVIEW_CAM_Z = 65000.0   # Perfectly centered below title and character carousel
 OVERVIEW_CAM_YAW = 0.0    # Fixed north orientation
 OVERVIEW_CAM_PITCH = math.radians(-89.9)  # Looking straight down at the top of the island
 
@@ -1070,7 +1072,14 @@ def main() -> None:
             if is_moving and not is_fighting:
                 fwd_n = move_fwd / move_mag
                 side_n = move_side / move_mag
-                speed = RUN_SPEED if is_running else WALK_SPEED
+                # In the Colorado-scale island, holding Shift gives normal run, while holding Space gives Super-Sonic Jet Sprint!
+                is_jet_sprint = keys[pygame.K_SPACE]
+                if is_jet_sprint:
+                    speed = 450.0  # 450 m/s (~1,000 mph supersonic exploration across Colorado!)
+                elif is_running:
+                    speed = 28.0   # Fast marathon run across the vast meadows
+                else:
+                    speed = WALK_SPEED
                 sin_b = math.sin(cam_yaw)
                 cos_b = math.cos(cam_yaw)
                 new_cx = cam_x + (sin_b * fwd_n + cos_b * side_n) * speed * dt
@@ -1318,9 +1327,9 @@ def main() -> None:
         base_sway = math.sin(anim_time * 2.2) * 0.045
         blades: list[tuple[float, float, float, tuple[float, float, float], int, float, float]] = []
 
-        # When staring from overview, render grass patches across the colossal island surface
+        # When staring from overview, render grass patches near center; otherwise render player grass rings
         for step, min_d, max_d, tufts, b_scale, sway_amp in (
-            ((6.0, 0.0, 100.0, 3, 2.0, 0.6), (12.0, 40.0, 140.0, 2, 2.8, 0.0))
+            ()
             if not is_online
             else GRASS_RINGS
         ):

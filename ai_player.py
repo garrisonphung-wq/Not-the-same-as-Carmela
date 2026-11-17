@@ -28,7 +28,7 @@ def wrap_angle(angle: float) -> float:
 
 
 class AICodeCompanion:
-    WORLD_LIMIT = 180.0
+    WORLD_LIMIT = 260000.0  # Expands across Colorado!
     WALK_SPEED = 2.8
     RUN_SPEED = 5.8
     TURN_SPEED = 3.2
