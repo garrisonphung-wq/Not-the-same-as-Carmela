@@ -451,18 +451,39 @@ class NetworkClient:
         thread = threading.Thread(target=server_runner, daemon=True)
         thread.start()
 
-        # Also launch embedded AI Code Companion to join the server
-        def ai_runner() -> None:
-            time.sleep(0.6)
+        # Launch 5 distinct, intelligent AI chick players into the game!
+        ai_chick_configs = [
+            # 1. 小胖墩 / Belino: heavy white rooster, competitive & loves food and friendly brawls
+            {"name": "小胖墩 (AI)", "character": "pangdun", "chick_name": "小胖墩", "init_x": 2.4, "init_z": 5.2, "delay": 0.4},
+            # 2. 卡门 / Carmen: cute clever yellow chick, swift explorer
+            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "init_x": -3.6, "init_z": 4.0, "delay": 0.6},
+            # 3. 探险家卡梅利多: adventurous pink chick, dreams of the sea and stars
+            {"name": "卡梅利多小队长 (AI)", "character": "carmelito", "chick_name": "卡梅利多", "init_x": 4.5, "init_z": -3.2, "delay": 0.8},
+            # 4. 贝利诺小霸王 / Little Belino: playful sparring partner
+            {"name": "贝利诺 (AI)", "character": "pangdun", "chick_name": "小胖墩", "init_x": -5.2, "init_z": -4.8, "delay": 1.0},
+            # 5. 小机灵卡门 / Little Carmen: nimble jumper and dancer
+            {"name": "小机灵卡门 (AI)", "character": "carmen", "chick_name": "卡门", "init_x": 0.5, "init_z": 6.8, "delay": 1.2},
+        ]
+
+        def launch_single_ai(cfg: dict[str, Any]) -> None:
+            time.sleep(cfg["delay"])
             try:
                 import ai_player
-                bot = ai_player.AICodeCompanion(server_url=f"ws://127.0.0.1:{port}", auto_host=False)
+                bot = ai_player.AICodeCompanion(
+                    server_url=f"ws://127.0.0.1:{port}",
+                    name=cfg["name"],
+                    character=cfg["character"],
+                    chick_name=cfg["chick_name"],
+                    auto_host=False,
+                )
+                bot.wx = cfg["init_x"]
+                bot.wz = cfg["init_z"]
                 asyncio.run(bot.run())
             except Exception:
                 pass
 
-        ai_thread = threading.Thread(target=ai_runner, daemon=True)
-        ai_thread.start()
+        for cfg in ai_chick_configs:
+            threading.Thread(target=launch_single_ai, args=(cfg,), daemon=True).start()
 
         with self._lock:
             self.is_host = True

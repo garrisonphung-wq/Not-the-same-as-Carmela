@@ -438,3 +438,72 @@ class PangdunBrain:
             "Nobody pushes Belino around! I'm the strongest rooster on this island!",
             "Cluck! One belly bump from me will send you rolling right into the grass!",
         ])
+
+class CarmenBrain:
+    """Conversational engine for Carmen (卡门), Carmelito's clever, witty, and sweet younger sister."""
+
+    def __init__(self) -> None:
+        self.gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        self.openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+        self.ollama_url = os.environ.get("OLLAMA_HOST", "").strip()
+
+    def generate_reply(self, message: str, player_name: str = "Friend") -> str:
+        msg = message.strip()
+        if not msg:
+            return "叽叽喳喳？" if is_chinese_text(player_name) else "Chirp chirp?"
+        if is_chinese_text(msg):
+            return self._reply_chinese(msg, player_name)
+        return self._reply_english(msg, player_name)
+
+    def _reply_chinese(self, msg: str, player_name: str) -> str:
+        t = clean_text(msg).lower()
+        if any(w in t for w in ["你好", "嗨", "hello", "hi", "早上好", "哈喽"]):
+            return random.choice([
+                f"你好呀，{player_name}！我是卡门，很高兴在草地上见到你！叽叽！",
+                "嗨！今天的天空真蓝，草地上的风好舒服呀！",
+                f"{player_name}，快来和我一起抓小虫子、看花朵吧！叽叽喳喳！",
+            ])
+        if any(w in t for w in ["卡门", "谁", "名字", "妹妹", "哥哥", "卡梅利多"]):
+            return random.choice([
+                "我是卡门呀！卡梅利多最聪明、最可爱的小妹妹！叽叽！",
+                "我哥哥卡梅利多总是想着看大海，而我觉得草地上的每一朵花都有故事！",
+                "卡梅利多是世界上最好的哥哥，不过有时他太淘气啦！嘻嘻！",
+            ])
+        if any(w in t for w in ["跳", "踢", "打", "跑", "飞", "功夫", "玩"]):
+            return random.choice([
+                "看我的轻盈小跳跃！女孩子也可以跳得很高哦！叽叽！",
+                "嘻嘻，别看我个子小，我跑起来可是像一阵金色的风呢！",
+                "我也学会了飞踢和拳法哦，谁敢欺负我我就踢他！哼！",
+            ])
+        return random.choice([
+            f"嘻嘻，听到啦：‘{msg}’！草地上真是太好玩了！",
+            f"{player_name}，跟我们一起在草地上奔跑吧！叽叽喳喳！",
+            "卡门永远支持大冒险！不管去哪里我都跟着你！",
+            "今天又是元气满满的一天！我们要发现所有新奇的东西！",
+        ])
+
+    def _reply_english(self, msg: str, player_name: str) -> str:
+        t = clean_text(msg).lower()
+        if any(w in t.split() for w in ["hi", "hello", "hey", "morning", "yo"]):
+            return random.choice([
+                f"Hi {player_name}! I'm Carmen, Carmelito's clever little sister! Chirp!",
+                "Hello there! What a gorgeous day to skip through the meadow!",
+                f"Hey {player_name}! Ready to explore the flowers and chase butterflies?",
+            ])
+        if any(w in t for w in ["who are you", "carmen", "sister", "brother", "carmelito"]):
+            return random.choice([
+                "I am Carmen! The smartest and most adventurous little chick in the coop!",
+                "Carmelito is my big brother! He dreams of the sea, and I help him on adventures!",
+                "I may be yellow and small, but I have the biggest courage! Chirp chirp!",
+            ])
+        if any(w in t for w in ["jump", "kick", "punch", "fight", "hop", "fly"]):
+            return random.choice([
+                "Watch me flutter and hop! Small chicks have the highest bounce! Chirp!",
+                "I know martial arts too! Don't underestimate little Carmen! Heehee!",
+                "Hop, skip, and a jump! Nobody can catch me on this grass!",
+            ])
+        return random.choice([
+            f"Heehee! You said '{msg}'! That sounds delightful!",
+            f"Let's run across the vast fields together, {player_name}! Chirp!",
+            "Every day with family and friends is a sunny adventure!",
+        ])
