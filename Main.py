@@ -722,17 +722,16 @@ def main() -> None:
     action_banner_text = ""
     dust_sparks: list[dict[str, Any]] = []
 
-    # Jump action (triggered with 'J' key) - full crouch down then leap into air!
+    # Jump action (triggered with 'J' key) - crisp crouch windup then explosive leap!
     jump_offset_y = 0.0
     jump_velocity_y = 0.0
-    jump_state = "idle"   # "idle" -> "crouching" -> "airborne" -> "landing"
+    jump_state = "idle"   # "idle" -> "crouching" -> "airborne"
     crouch_timer = 0.0
-    crouch_duration = 0.16 # Time spent bending down before thrusting up
-    land_timer = 0.0
-    land_duration = 0.14   # Time spent cushioning landing
-    jump_amount = 0.0      # Crouch depth and wing flap blend weight
-    JUMP_IMPULSE = 7.4     # Strong vertical push off the ground
-    GRAVITY = 20.0         # Gravity acceleration
+    crouch_duration = 0.14 # Quick snappy crouch before launching up
+    jump_amount = 0.0      # Crouch depth (1.0 = deep crouch, 0.0 = standing/jumping)
+    wing_flap_amount = 0.0 # Wings flap when airborne
+    JUMP_IMPULSE = 8.5     # High energetic leap into the sky
+    GRAVITY = 22.0         # Crisp realistic gravity
 
     # First-person kick action (triggered with 'K' key)
     is_kicking = False
@@ -843,11 +842,12 @@ def main() -> None:
                         blink_hold_timer = 0.16
                         auto_blink_timer = random.uniform(2.8, 5.0)
                     elif is_online and not is_fighting and event.key == pygame.K_j:
-                        # Pressing 'J' makes you crouch down, bend legs, and jump!
+                        # Pressing 'J' makes you crouch and jump!
                         if jump_state == "idle":
                             jump_state = "crouching"
                             crouch_timer = 0.0
                             jump_amount = 0.0
+                            wing_flap_amount = 0.0
                     elif is_online and not is_fighting and event.key == pygame.K_k:
                         # Pressing 'K' triggers a forward martial arts karate kick!
                         is_kicking = True
@@ -1136,43 +1136,35 @@ def main() -> None:
                     else:
                         punch_amount = math.cos(((pp - 0.32) / 0.68) * (math.pi / 2))
 
-            # Real Crouch-and-Jump state machine:
-            # 1. Crouching: legs bend deeply, camera drops down into a crouch
-            # 2. Airborne: chicken thrusts up, soaring into the air with wings flapping
-            # 3. Landing: touches down and cushions landing with a small knee bend
+            # Crouch-then-Jump execution:
+            # Step 1: Crouching down (bends legs, camera sinks down)
+            # Step 2: Spring up into the air (un-crouches, launches high into the sky)
             crouch_eye_drop = 0.0
             if jump_state == "crouching":
                 crouch_timer += dt
-                # Smooth sinusoidal crouch down
                 cp = min(1.0, crouch_timer / crouch_duration)
                 jump_amount = math.sin(cp * (math.pi / 2))
-                crouch_eye_drop = -0.52 * jump_amount  # Camera drops down 0.52m into a deep crouch!
+                crouch_eye_drop = -0.58 * jump_amount  # Camera drops down into crouch
+                wing_flap_amount = 0.0
                 if crouch_timer >= crouch_duration:
                     jump_state = "airborne"
                     jump_velocity_y = JUMP_IMPULSE
-                    jump_offset_y = 0.05
+                    jump_offset_y = 0.08
+                    jump_amount = 0.0  # Fully un-crouch and thrust upward!
             elif jump_state == "airborne":
                 jump_offset_y += jump_velocity_y * dt
                 jump_velocity_y -= GRAVITY * dt
-                jump_amount = max(0.3, min(1.0, jump_offset_y / 0.60))
+                jump_amount = 0.0      # Not crouching while jumping!
+                wing_flap_amount = 1.0 # Wings flap while flying through the air
                 if jump_offset_y <= 0.0:
                     jump_offset_y = 0.0
                     jump_velocity_y = 0.0
-                    jump_state = "landing"
-                    land_timer = 0.0
-            elif jump_state == "landing":
-                land_timer += dt
-                lp = land_timer / land_duration
-                if lp >= 1.0:
-                    jump_state = "idle"
+                    jump_state = "idle"   # Landed firmly back on the ground!
                     jump_amount = 0.0
-                else:
-                    # Land cushioning squish
-                    squish = math.sin(lp * math.pi)
-                    jump_amount = squish * 0.45
-                    crouch_eye_drop = -0.22 * squish
+                    wing_flap_amount = 0.0
             else:
                 jump_amount = 0.0
+                wing_flap_amount = 0.0
 
             if is_fighting:
                 eye_y = 1.65
@@ -1771,8 +1763,8 @@ def main() -> None:
                     chick_badge = get_nameplate_surface(c_name, bucket_px)
                     screen.blit(chick_badge, (lsx - chick_badge.get_width() // 2, lsy - chick_badge.get_height() // 2))
 
-        # 1e. RENDER OWN FEET ONLY WHEN ONLINE (visible when looking down, kicking with 'K', or crouching/jumping with 'J'!)
-        if is_online and not is_fighting and (head_pitch < -0.35 or kick_amount > 0.001 or jump_amount > 0.08):
+        # 1e. RENDER OWN FEET ONLY WHEN ONLINE (visible when looking down, kicking with 'K', crouching or jumping with 'J'!)
+        if is_online and not is_fighting and (head_pitch < -0.35 or kick_amount > 0.001 or jump_amount > 0.08 or jump_offset_y > 0.05):
             cos_body = math.cos(cam_yaw)
             sin_body = math.sin(cam_yaw)
 
@@ -1921,7 +1913,7 @@ def main() -> None:
                         pygame.draw.polygon(screen, COLOR_INK_LINE, pts, 1)
 
                 # 1g. RENDER OWN WINGS FLAPPING IN FIRST PERSON (J KEY JUMP)
-        if is_online and not is_fighting and jump_amount > 0.001 and punch_amount <= 0.001:
+        if is_online and not is_fighting and wing_flap_amount > 0.001 and punch_amount <= 0.001:
             cos_body = math.cos(cam_yaw)
             sin_body = math.sin(cam_yaw)
 
@@ -1932,7 +1924,7 @@ def main() -> None:
                 return to_cam(wx, wy, wz)
 
             jump_wing_faces = model_3d.build_first_person_jump_wings(
-                jump_amount=jump_amount,
+                jump_amount=wing_flap_amount,
                 character=selected_character,
                 anim_time=anim_time,
             )
