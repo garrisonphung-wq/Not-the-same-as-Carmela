@@ -722,6 +722,13 @@ def main() -> None:
     action_banner_text = ""
     dust_sparks: list[dict[str, Any]] = []
 
+    # Jump action (triggered with 'J' key)
+    jump_offset_y = 0.0
+    jump_velocity_y = 0.0
+    is_jumping = False
+    JUMP_IMPULSE = 6.2     # Initial vertical velocity for a nice crisp chicken hop
+    GRAVITY = 18.0         # Downward acceleration
+
     # First-person kick action (triggered with 'K' key)
     is_kicking = False
     kick_timer = 0.0
@@ -830,6 +837,11 @@ def main() -> None:
                         # Trigger a blink on demand (and holding B keeps eyes closed)
                         blink_hold_timer = 0.16
                         auto_blink_timer = random.uniform(2.8, 5.0)
+                    elif is_online and not is_fighting and event.key == pygame.K_j:
+                        # Pressing 'J' makes you jump!
+                        if not is_jumping:
+                            is_jumping = True
+                            jump_velocity_y = JUMP_IMPULSE
                     elif is_online and not is_fighting and event.key == pygame.K_k:
                         # Pressing 'K' triggers a forward martial arts karate kick!
                         is_kicking = True
@@ -1118,11 +1130,20 @@ def main() -> None:
                     else:
                         punch_amount = math.cos(((pp - 0.32) / 0.68) * (math.pi / 2))
 
+            # Jump physics update
+            if is_jumping:
+                jump_offset_y += jump_velocity_y * dt
+                jump_velocity_y -= GRAVITY * dt
+                if jump_offset_y <= 0.0:
+                    jump_offset_y = 0.0
+                    jump_velocity_y = 0.0
+                    is_jumping = False
+
             if is_fighting:
                 eye_y = 1.65
             else:
                 head_bob = math.sin(motion_cycle * 2.0 * math.pi) * (0.04 * run_weight + 0.02 * walk_weight)
-                eye_y = head_bob
+                eye_y = head_bob + jump_offset_y
 
             # Sync position & posture with network only if online (mapped across the vast island)
             norm_x = max(0.05, min(0.95, (cam_x + ISLAND_RADIUS * 0.85) / (2.0 * ISLAND_RADIUS * 0.85) * 0.9 + 0.05))
@@ -1726,7 +1747,7 @@ def main() -> None:
                 return to_cam(wx, by, wz)
 
             feet_faces, foot_shadows = model_3d.build_first_person_feet_faces(
-                ground_y=current_ground_y,
+                ground_y=current_ground_y + jump_offset_y,
                 run_cycle=motion_cycle,
                 run_weight=run_weight,
                 walk_weight=walk_weight,
@@ -1871,9 +1892,10 @@ def main() -> None:
             pygame.draw.rect(screen, (255, 255, 255), pic_rect, border_radius=16)
             pygame.draw.rect(screen, (215, 224, 232), pic_rect, width=2, border_radius=16)
 
+            corner_y = 185 - round(jump_offset_y * 22)
             model_3d.render(
                 surface=screen,
-                screen_pos=(106, 185),
+                screen_pos=(106, corner_y),
                 scale=72,
                 rot_y=0.0,
                 rot_x=0.06,
