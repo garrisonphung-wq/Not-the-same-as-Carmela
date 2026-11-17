@@ -58,21 +58,22 @@ CARMELITO_WORLD_SCALE = 1.85  # Matches Carmelito's ~3.0 eye height above GROUND
 # Multi-ring grass blade distribution reaching far across the meadow:
 # (patch_step, min_dist, max_dist, tufts_per_patch, blade_scale, sway_amp)
 GRASS_RINGS = (
-    (2.0, 0.0, 24.0, 4, 1.0, 1.0),
-    (4.0, 24.0, 64.0, 4, 1.4, 0.6),
-    (8.0, 64.0, 140.0, 3, 2.1, 0.0),
+    (2.0, 0.0, 28.0, 4, 1.0, 1.0),
+    (4.0, 28.0, 80.0, 4, 1.4, 0.6),
+    (8.0, 80.0, 160.0, 3, 2.1, 0.2),
+    (14.0, 160.0, 260.0, 2, 2.8, 0.0),
 )
 
-# Giant Island geometry constants - EVEN MORE GIANT!
-ISLAND_RADIUS = 112.0     # Double the size for an expansive, colossal storybook island
-ISLAND_SEGMENTS = 72      # Smoother organic shoreline for the colossal island
-ISLAND_CLIFF_DEPTH = 28.0 # Taller rock cliffs plunging into the sea
+# Giant Island geometry constants - EVEN MORE VAST & EXPANSIVE!
+ISLAND_RADIUS = 210.0     # Vast expansive colossal storybook island
+ISLAND_SEGMENTS = 96      # Ultra smooth organic shoreline for the vast island
+ISLAND_CLIFF_DEPTH = 36.0 # Majestic rock cliffs plunging into the sea
 ISLAND_WATER_Y = GROUND_Y - ISLAND_CLIFF_DEPTH
 
 # Fixed overview camera: true top-down view looking directly down at the top of the island
 OVERVIEW_CAM_X = 0.0
-OVERVIEW_CAM_Y = 295.0    # High above island center for a full bird's-eye view of the top
-OVERVIEW_CAM_Z = 24.0     # Positioned so island is centered below title and play buttons
+OVERVIEW_CAM_Y = 560.0    # High above island center for a full bird's-eye view of the top
+OVERVIEW_CAM_Z = 45.0     # Positioned so island is centered below title and play buttons
 OVERVIEW_CAM_YAW = 0.0    # Fixed north orientation
 OVERVIEW_CAM_PITCH = math.radians(-89.9)  # Looking straight down at the top of the island
 
@@ -1072,8 +1073,17 @@ def main() -> None:
                 speed = RUN_SPEED if is_running else WALK_SPEED
                 sin_b = math.sin(cam_yaw)
                 cos_b = math.cos(cam_yaw)
-                cam_x += (sin_b * fwd_n + cos_b * side_n) * speed * dt
-                cam_z += (cos_b * fwd_n - sin_b * side_n) * speed * dt
+                new_cx = cam_x + (sin_b * fwd_n + cos_b * side_n) * speed * dt
+                new_cz = cam_z + (cos_b * fwd_n - sin_b * side_n) * speed * dt
+                if math.hypot(new_cx, new_cz) <= ISLAND_RADIUS - 2.5:
+                    cam_x = new_cx
+                    cam_z = new_cz
+                else:
+                    # Slide along island perimeter
+                    cur_ang = math.atan2(new_cx, new_cz)
+                    max_r = ISLAND_RADIUS - 2.5
+                    cam_x = math.sin(cur_ang) * max_r
+                    cam_z = math.cos(cur_ang) * max_r
 
             # Kick animation progress (triggered with 'K')
             kick_amount = 0.0
@@ -1111,9 +1121,9 @@ def main() -> None:
                 head_bob = math.sin(motion_cycle * 2.0 * math.pi) * (0.04 * run_weight + 0.02 * walk_weight)
                 eye_y = head_bob
 
-            # Sync position & posture with network only if online
-            norm_x = max(0.05, min(0.95, (cam_x + 42.0) / 84.0 * 0.9 + 0.05))
-            norm_y = max(0.05, min(0.95, (cam_z + 42.0) / 84.0 * 0.9 + 0.05))
+            # Sync position & posture with network only if online (mapped across the vast island)
+            norm_x = max(0.05, min(0.95, (cam_x + ISLAND_RADIUS * 0.85) / (2.0 * ISLAND_RADIUS * 0.85) * 0.9 + 0.05))
+            norm_y = max(0.05, min(0.95, (cam_z + ISLAND_RADIUS * 0.85) / (2.0 * ISLAND_RADIUS * 0.85) * 0.9 + 0.05))
             net.update_local_state(
                 norm_x,
                 norm_y,
@@ -1276,7 +1286,7 @@ def main() -> None:
             for i in range(ISLAND_SEGMENTS):
                 ang = (2.0 * math.pi * i) / ISLAND_SEGMENTS
                 # Organic island shape with wavy shorelines
-                r = ISLAND_RADIUS + 5.5 * math.sin(ang * 4.0) + 3.2 * math.cos(ang * 7.0)
+                r = ISLAND_RADIUS + 9.5 * math.sin(ang * 4.0) + 5.5 * math.cos(ang * 7.0)
                 ix = math.sin(ang) * r
                 iz = math.cos(ang) * r
 
