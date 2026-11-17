@@ -1046,7 +1046,8 @@ def main() -> None:
 
             move_mag = math.hypot(move_fwd, move_side)
             is_moving = move_mag > 0.0
-            # Run when shift or space is held while moving (arrow keys or WASD)
+            # Moving: normal walk / run speed
+            # Run when shift or space is held while moving
             run_key_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT] or keys[pygame.K_SPACE]
             is_running = is_moving and run_key_pressed
             is_walking = is_moving and not run_key_pressed
@@ -1072,14 +1073,7 @@ def main() -> None:
             if is_moving and not is_fighting:
                 fwd_n = move_fwd / move_mag
                 side_n = move_side / move_mag
-                # In the Colorado-scale island, holding Shift gives normal run, while holding Space gives Super-Sonic Jet Sprint!
-                is_jet_sprint = keys[pygame.K_SPACE]
-                if is_jet_sprint:
-                    speed = 450.0  # 450 m/s (~1,000 mph supersonic exploration across Colorado!)
-                elif is_running:
-                    speed = 28.0   # Fast marathon run across the vast meadows
-                else:
-                    speed = WALK_SPEED
+                speed = RUN_SPEED if is_running else WALK_SPEED
                 sin_b = math.sin(cam_yaw)
                 cos_b = math.cos(cam_yaw)
                 new_cx = cam_x + (sin_b * fwd_n + cos_b * side_n) * speed * dt
