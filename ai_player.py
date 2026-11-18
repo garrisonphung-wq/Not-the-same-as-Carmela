@@ -28,9 +28,9 @@ def wrap_angle(angle: float) -> float:
 
 
 class AICodeCompanion:
-    WORLD_LIMIT = 260000.0  # Expands across Colorado!
-    WALK_SPEED = 2.8
-    RUN_SPEED = 5.8
+    WORLD_LIMIT = 280000.0  # Full Colorado island scale!
+    WALK_SPEED = 3.2
+    RUN_SPEED = 6.8
     TURN_SPEED = 3.2
 
     def __init__(
@@ -153,39 +153,29 @@ class AICodeCompanion:
             self.target_head_yaw = random.uniform(-0.9, 0.9)
             self.target_head_pitch = random.uniform(-0.25, 0.45)
         elif roll < 0.65:
-            # Stroll anywhere in a random direction
+            # Stroll anywhere across the immense island
             angle = random.uniform(0.0, 2.0 * math.pi)
-            dist = random.uniform(5.0, 22.0)
+            dist = random.uniform(15.0, 180.0)
             self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
             self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
             self.mode = "walk"
-            self.mode_timer = random.uniform(3.0, 8.0)
+            self.mode_timer = random.uniform(4.0, 10.0)
         elif roll < 0.90:
-            # Run excitedly to a spot further away across the meadow
+            # Run excitedly across the open terrain
             angle = random.uniform(0.0, 2.0 * math.pi)
-            dist = random.uniform(10.0, 30.0)
+            dist = random.uniform(40.0, 400.0)
             self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
             self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
             self.mode = "run"
-            self.mode_timer = random.uniform(2.5, 5.5)
+            self.mode_timer = random.uniform(3.5, 8.5)
         else:
-            # Occasionally (10% whim) walk near another player's general neighborhood,
-            # or wander away if already right next to them
-            if self.other_players:
-                px, pz = random.choice(list(self.other_players.values()))
-                offset_ang = random.uniform(0.0, 2.0 * math.pi)
-                offset_dist = random.uniform(3.5, 9.0)
-                self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, px + math.sin(offset_ang) * offset_dist))
-                self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, pz + math.cos(offset_ang) * offset_dist))
-                self.mode = "walk"
-                self.mode_timer = random.uniform(2.5, 5.0)
-            else:
-                angle = random.uniform(0.0, 2.0 * math.pi)
-                dist = random.uniform(6.0, 16.0)
-                self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
-                self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
-                self.mode = "walk"
-                self.mode_timer = random.uniform(3.0, 6.0)
+            # Wander freely anywhere across the island without flocking to the center
+            angle = random.uniform(0.0, 2.0 * math.pi)
+            dist = random.uniform(25.0, 250.0)
+            self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
+            self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
+            self.mode = "walk" if random.random() < 0.6 else "run"
+            self.mode_timer = random.uniform(3.0, 7.0)
 
     def step_ai(self, dt: float) -> None:
         self.mode_timer -= dt

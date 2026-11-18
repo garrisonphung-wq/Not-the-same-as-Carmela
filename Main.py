@@ -497,14 +497,9 @@ class NetworkClient:
                 import ai_player
                 # Spawn at completely random coordinates spread across the big island
                 spawn_theta = random.uniform(0.0, 2.0 * math.pi)
-                # Spread everywhere: some right nearby (3m - 20m), others in the mid meadows (20m - 500m), and others across the entire island (up to 90% island radius)
-                roll_dist = random.random()
-                if roll_dist < 0.28:
-                    spawn_r = random.uniform(3.0, 25.0)
-                elif roll_dist < 0.55:
-                    spawn_r = random.uniform(25.0, 200.0)
-                else:
-                    spawn_r = random.uniform(200.0, ISLAND_RADIUS * 0.90)
+                # Spread uniformly across the entire island (from nearby edges to distant horizons):
+                # Standard uniform disk distribution: r = R * sqrt(random) so area density is truly uniform everywhere!
+                spawn_r = ISLAND_RADIUS * 0.88 * math.sqrt(random.uniform(0.0001, 1.0))
                 rand_x = math.cos(spawn_theta) * spawn_r
                 rand_z = math.sin(spawn_theta) * spawn_r
 
