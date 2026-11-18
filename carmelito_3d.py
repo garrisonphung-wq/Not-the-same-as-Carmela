@@ -736,14 +736,16 @@ class Carmelito3D:
                 hand_pt = lerp_vec3(hand_pt, p_hand, p_ext)
 
             # Zombie tag reach when pressing 'T':
-            # Both arms raise forward straight out and stop right at neck level (body_center_y + 0.36)
+            # Both arms raise forward straight out like a zombie and stop right at neck level
             if tag_amount > 0.001:
                 t_ext = max(0.0, min(1.0, tag_amount))
-                # Elbow reaches forward horizontally
-                z_elbow = (side * 0.28, body_center_y + 0.24 * t_ext, 0.02 + 0.45 * t_ext)
-                # Hands/feathers reach straight out in front at neck level
-                neck_height_y = body_center_y + 0.36
-                z_hand = (side * 0.20, neck_height_y, 0.06 + 0.82 * t_ext)
+                neck_height_y = body_center_y + 0.28
+                # Arms must be completely straight from shoulder forward:
+                # Shoulder is at (side * 0.32, body_center_y + 0.12, 0.02)
+                # Straight elbow extends straight forward at neck height
+                z_elbow = (side * 0.28, neck_height_y, 0.02 + 0.44 * t_ext)
+                # Hand extends straight along the exact same line forward
+                z_hand = (side * 0.28, neck_height_y, 0.02 + 0.88 * t_ext)
                 elbow_pt = lerp_vec3(elbow_pt, z_elbow, t_ext)
                 hand_pt = lerp_vec3(hand_pt, z_hand, t_ext)
 
@@ -1330,10 +1332,10 @@ class Carmelito3D:
         character: str = "carmelito",
     ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
         """
-        Builds both hands/arms raised forward in first-person view (Zombie-style tag reach with 'T'):
-        - Both arms raise up towards the center and extend forward straight at neck height.
-        - Feathered hands with fingers reaching out to tag other chicks.
-        - Stops raising right at neck level.
+        Builds completely straight arms raised forward in first-person view (Zombie tag reach):
+        - Both arms extend perfectly straight from the chick's torso forward.
+        - Stops raising when they reach the chick's neck level (neck_y = -0.16 relative to eyes).
+        - Fixed firmly to the chicken body so they remain solidly attached even when looking around.
         """
         if tag_amount <= 0.001:
             return []
@@ -1352,55 +1354,59 @@ class Carmelito3D:
         t_ext = max(0.0, min(1.0, tag_amount))
         faces: list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]] = []
 
-        # Render BOTH hands raised up forward (left and right)
+        # Neck level relative to camera eye height (-0.16 m below eyes)
+        neck_y = -0.16 * char_scale
+        # When fully raised (t_ext = 1.0), arms are held perfectly straight forward at neck level
+        arm_y = (-0.42 + 0.26 * t_ext) * char_scale
+
         for side in (-1, 1):
-            # Base of shoulder (lower sides of screen)
-            sh_x = side * 0.32 * char_scale
-            sh_y = (-0.38 + 0.16 * t_ext) * char_scale
-            sh_z = 0.18 * char_scale
+            # Base of shoulder: firmly embedded in the chick's body torso
+            sh_x = side * 0.28 * char_scale
+            sh_y = arm_y
+            sh_z = -0.06 * char_scale  # Embedded deep in torso so no disconnection is visible
             sh_pt = (sh_x, sh_y, sh_z)
 
-            # Elbow joint reaching forward and upward
-            elb_x = side * 0.24 * char_scale
-            elb_y = (-0.24 + 0.16 * t_ext) * char_scale
-            elb_z = (0.24 + 0.36 * t_ext) * char_scale
+            # Straight arm forward vector: completely parallel and straight
+            elb_x = side * 0.26 * char_scale
+            elb_y = arm_y
+            elb_z = (0.16 + 0.36 * t_ext) * char_scale
             elb_pt = (elb_x, elb_y, elb_z)
 
-            # Hand reaching forward at neck level (-0.08 in camera eye space)
-            hand_x = side * 0.16 * char_scale
-            hand_y = (-0.20 + 0.12 * t_ext) * char_scale  # Stops right at neck level
-            hand_z = (0.28 + 0.58 * t_ext) * char_scale
+            # Hand reaches straight out forward along the exact same line
+            hand_x = side * 0.24 * char_scale
+            hand_y = arm_y
+            hand_z = (0.28 + 0.72 * t_ext) * char_scale
             hand_pt = (hand_x, hand_y, hand_z)
 
-            # Shoulder segment
+            # Shoulder socket (attached into torso)
             faces.extend(create_cube_grid(
                 center=sh_pt,
-                size=(0.14 * char_scale, 0.14 * char_scale, 0.16 * char_scale),
+                size=(0.16 * char_scale, 0.16 * char_scale, 0.22 * char_scale),
                 subdivisions=(2, 2, 2),
                 base_color=body_col,
                 roundness=0.6,
                 draw_contour=True,
             ))
 
-            # Upper arm
+            # Upper arm (straight pipe)
             faces.extend(create_oriented_box(
                 sh_pt, elb_pt,
-                thickness=(0.11 * char_scale, 0.13 * char_scale),
+                thickness=(0.12 * char_scale, 0.13 * char_scale),
                 base_color=body_col,
-                subdiv_length=2,
+                subdiv_length=3,
                 draw_contour=True,
             ))
 
-            # Forearm
+            # Forearm (continues perfectly straight)
             faces.extend(create_oriented_box(
                 elb_pt, hand_pt,
-                thickness=(0.10 * char_scale, 0.12 * char_scale),
+                thickness=(0.11 * char_scale, 0.12 * char_scale),
                 base_color=body_col,
-                subdiv_length=2,
+                subdiv_length=3,
                 draw_contour=True,
             ))
 
-            # Hand palm / wrist
+            # Hand wrist / palm
             faces.extend(create_cube_grid(
                 center=hand_pt,
                 size=(0.14 * char_scale, 0.12 * char_scale, 0.16 * char_scale),
@@ -1410,13 +1416,13 @@ class Carmelito3D:
                 draw_contour=True,
             ))
 
-            # Extended feather fingers reaching forward to tag
+            # Extended feather fingers reaching straight forward to tag
             hx, hy, hz = hand_pt
-            for f_idx, (f_dx, f_dy) in enumerate([(-0.035, 0.02), (0.0, 0.025), (0.035, 0.015), (side * 0.045, -0.02)]):
+            for f_dx, f_dy in [(-0.035, 0.01), (0.0, 0.015), (0.035, 0.01), (side * 0.045, -0.015)]:
                 f_tip = (
                     hx + f_dx * char_scale,
                     hy + f_dy * char_scale,
-                    hz + 0.14 * char_scale,
+                    hz + 0.16 * char_scale,
                 )
                 f_base = (
                     hx + f_dx * 0.6 * char_scale,
