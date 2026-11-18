@@ -300,9 +300,9 @@ class AICodeCompanion:
                 self.tag_timer = 0.0
                 self.tag_amount = 0.0
             else:
-                self.tag_amount = min(1.0, self.tag_amount + 18.0 * dt)
+                self.tag_amount = min(1.0, self.tag_amount + 45.0 * dt)
         else:
-            self.tag_amount = max(0.0, self.tag_amount - 16.0 * dt)
+            self.tag_amount = max(0.0, self.tag_amount - 40.0 * dt)
 
         # Jump physics
         if self.jump_state == "crouching":

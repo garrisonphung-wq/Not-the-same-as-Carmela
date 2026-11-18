@@ -758,11 +758,10 @@ class Carmelito3D:
 
                 # Arms aim in the direction of the head (both yaw and pitch):
                 arm_look_yaw = head_yaw * 0.80
-                # In model space, positive head_pitch tilts down, so dy = -sin(head_pitch)
-                arm_look_pitch = head_pitch * 1.0  # Full responsive pitch tracking
-                cos_p = math.cos(arm_look_pitch)
+                arm_pitch_rad = head_pitch * 1.35
+                cos_p = math.cos(arm_pitch_rad)
                 dir_x = math.sin(arm_look_yaw) * cos_p
-                dir_y = -math.sin(arm_look_pitch)
+                dir_y = -math.sin(arm_pitch_rad)  # In model space: positive head_pitch tilts down
                 dir_z = math.cos(arm_look_yaw) * cos_p
 
                 # Straight arm reaching in head direction from shoulder:
@@ -1400,13 +1399,28 @@ class Carmelito3D:
         sh_y = ground_y + 0.88 * scale
         neck_y = ground_y + 1.06 * scale
 
-        # Arms follow the direction of the head in both yaw (left/right) and pitch (up/down) with full 1:1 responsiveness:
-        arm_look_yaw = head_yaw * 0.82
-        arm_look_pitch = head_pitch * 1.0  # Full responsive pitch tracking as head moves up and down
-        cos_p = math.cos(arm_look_pitch)
-        dir_x = math.sin(arm_look_yaw) * cos_p
-        dir_y = math.sin(arm_look_pitch)  # Instantly tracks up and down with head pitch
-        dir_z = math.cos(arm_look_yaw) * cos_p
+        # Arms dynamically aim directly where the head is looking:
+        # Looking down -> arms angle down toward the ground along with the gaze.
+        # Looking up -> arms angle up toward the sky along with the gaze.
+        # Pitch tracking is intensified so head tilt immediately moves the arms up and down on screen!
+        arm_look_yaw = head_yaw * 0.85
+        # The gaze target at distance D:
+        gaze_dist = 2.0 * scale
+        gaze_y = gaze_dist * math.sin(head_pitch * 1.5)  # Responsive amplified vertical reach
+        gaze_z = gaze_dist * math.cos(head_pitch)
+
+        # Vector from neck shoulder socket to gaze target:
+        v_dy = (gaze_y - (neck_y - (ground_y + 0.88 * scale)))
+        v_dz = gaze_z - (-0.08)
+        v_mag = math.hypot(v_dy, v_dz)
+
+        dir_pitch_y = v_dy / max(1e-4, v_mag)
+        dir_pitch_z = v_dz / max(1e-4, v_mag)
+
+        cos_yaw = math.cos(arm_look_yaw)
+        dir_x = math.sin(arm_look_yaw) * dir_pitch_z
+        dir_y = dir_pitch_y
+        dir_z = cos_yaw * dir_pitch_z
 
         for side in (-1.0, 1.0):
             # Arm activity: if head turns sideways, the arm on the other side rests!

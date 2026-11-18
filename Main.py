@@ -1192,9 +1192,9 @@ def main() -> None:
             keys_down = pygame.key.get_pressed()
             is_tag_active = is_tagging or (keys_down[pygame.K_t] if not is_typing_chat else False)
             if is_tag_active:
-                tag_amount = min(1.0, tag_amount + 18.0 * dt)
+                tag_amount = min(1.0, tag_amount + 45.0 * dt)
             else:
-                tag_amount = max(0.0, tag_amount - 16.0 * dt)
+                tag_amount = max(0.0, tag_amount - 40.0 * dt)
 
             # Crouch-then-Jump execution:
             # Step 1: Crouching down (bends legs, camera sinks down)
@@ -1348,7 +1348,7 @@ def main() -> None:
                 rs["jump_offset_y"] += (t_jump_y - rs.get("jump_offset_y", 0.0)) * min(1.0, 24.0 * dt)
                 rs["jump_amount"] += (t_jump_amt - rs.get("jump_amount", 0.0)) * min(1.0, 24.0 * dt)
                 t_tag = float(pdata.get("tag_amount", 0.0))
-                rs["tag_amount"] = rs.get("tag_amount", 0.0) + (t_tag - rs.get("tag_amount", 0.0)) * min(1.0, 24.0 * dt)
+                rs["tag_amount"] = rs.get("tag_amount", 0.0) + (t_tag - rs.get("tag_amount", 0.0)) * min(1.0, 45.0 * dt)
                 loco = max(rs["run_weight"], rs["walk_weight"])
                 if loco > 0.001:
                     stride_spd = (3.2 * rs["run_weight"]) + (1.8 * rs["walk_weight"] * (1.0 - rs["run_weight"]))
