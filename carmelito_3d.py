@@ -295,6 +295,7 @@ class Carmelito3D:
         punch_amount: float = 0.0,
         punch_side: float = 1.0,
         jump_amount: float = 0.0,
+        tag_amount: float = 0.0,
     ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
         """
         Builds Carmelito 3D model with 100% faithful storybook geometry:
@@ -733,6 +734,18 @@ class Carmelito3D:
                 p_hand = (side * (0.30 - 0.14 * p_ext), body_center_y + 0.12 * p_ext, 0.06 + 0.78 * p_ext)
                 elbow_pt = lerp_vec3(elbow_pt, p_elbow, p_ext)
                 hand_pt = lerp_vec3(hand_pt, p_hand, p_ext)
+
+            # Zombie tag reach when pressing 'T':
+            # Both arms raise forward straight out and stop right at neck level (body_center_y + 0.36)
+            if tag_amount > 0.001:
+                t_ext = max(0.0, min(1.0, tag_amount))
+                # Elbow reaches forward horizontally
+                z_elbow = (side * 0.28, body_center_y + 0.24 * t_ext, 0.02 + 0.45 * t_ext)
+                # Hands/feathers reach straight out in front at neck level
+                neck_height_y = body_center_y + 0.36
+                z_hand = (side * 0.20, neck_height_y, 0.06 + 0.82 * t_ext)
+                elbow_pt = lerp_vec3(elbow_pt, z_elbow, t_ext)
+                hand_pt = lerp_vec3(hand_pt, z_hand, t_ext)
 
             # Upper Arm
             upper_arm = create_oriented_box(
@@ -1311,6 +1324,115 @@ class Carmelito3D:
 
         return faces
 
+    def build_first_person_tag_hands(
+        self,
+        tag_amount: float = 0.0,
+        character: str = "carmelito",
+    ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
+        """
+        Builds both hands/arms raised forward in first-person view (Zombie-style tag reach with 'T'):
+        - Both arms raise up towards the center and extend forward straight at neck height.
+        - Feathered hands with fingers reaching out to tag other chicks.
+        - Stops raising right at neck level.
+        """
+        if tag_amount <= 0.001:
+            return []
+
+        char_l = character.lower()
+        if char_l in ("carmen", "卡门"):
+            body_col = COLOR_CARMEN_YELLOW
+            char_scale = 0.82
+        elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
+            body_col = COLOR_PANGDUN_WHITE
+            char_scale = 1.15
+        else:
+            body_col = COLOR_BODY_PINK
+            char_scale = 1.0
+
+        t_ext = max(0.0, min(1.0, tag_amount))
+        faces: list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]] = []
+
+        # Render BOTH hands raised up forward (left and right)
+        for side in (-1, 1):
+            # Base of shoulder (lower sides of screen)
+            sh_x = side * 0.32 * char_scale
+            sh_y = (-0.38 + 0.16 * t_ext) * char_scale
+            sh_z = 0.18 * char_scale
+            sh_pt = (sh_x, sh_y, sh_z)
+
+            # Elbow joint reaching forward and upward
+            elb_x = side * 0.24 * char_scale
+            elb_y = (-0.24 + 0.16 * t_ext) * char_scale
+            elb_z = (0.24 + 0.36 * t_ext) * char_scale
+            elb_pt = (elb_x, elb_y, elb_z)
+
+            # Hand reaching forward at neck level (-0.08 in camera eye space)
+            hand_x = side * 0.16 * char_scale
+            hand_y = (-0.20 + 0.12 * t_ext) * char_scale  # Stops right at neck level
+            hand_z = (0.28 + 0.58 * t_ext) * char_scale
+            hand_pt = (hand_x, hand_y, hand_z)
+
+            # Shoulder segment
+            faces.extend(create_cube_grid(
+                center=sh_pt,
+                size=(0.14 * char_scale, 0.14 * char_scale, 0.16 * char_scale),
+                subdivisions=(2, 2, 2),
+                base_color=body_col,
+                roundness=0.6,
+                draw_contour=True,
+            ))
+
+            # Upper arm
+            faces.extend(create_oriented_box(
+                sh_pt, elb_pt,
+                thickness=(0.11 * char_scale, 0.13 * char_scale),
+                base_color=body_col,
+                subdiv_length=2,
+                draw_contour=True,
+            ))
+
+            # Forearm
+            faces.extend(create_oriented_box(
+                elb_pt, hand_pt,
+                thickness=(0.10 * char_scale, 0.12 * char_scale),
+                base_color=body_col,
+                subdiv_length=2,
+                draw_contour=True,
+            ))
+
+            # Hand palm / wrist
+            faces.extend(create_cube_grid(
+                center=hand_pt,
+                size=(0.14 * char_scale, 0.12 * char_scale, 0.16 * char_scale),
+                subdivisions=(2, 2, 2),
+                base_color=body_col,
+                roundness=0.7,
+                draw_contour=True,
+            ))
+
+            # Extended feather fingers reaching forward to tag
+            hx, hy, hz = hand_pt
+            for f_idx, (f_dx, f_dy) in enumerate([(-0.035, 0.02), (0.0, 0.025), (0.035, 0.015), (side * 0.045, -0.02)]):
+                f_tip = (
+                    hx + f_dx * char_scale,
+                    hy + f_dy * char_scale,
+                    hz + 0.14 * char_scale,
+                )
+                f_base = (
+                    hx + f_dx * 0.6 * char_scale,
+                    hy + f_dy * 0.6 * char_scale,
+                    hz + 0.06 * char_scale,
+                )
+                faces.extend(create_oriented_box(
+                    f_base, f_tip,
+                    thickness=(0.04 * char_scale, 0.04 * char_scale),
+                    base_color=body_col,
+                    subdiv_length=2,
+                    draw_contour=True,
+                ))
+
+        return faces
+
     def build_first_person_punch_faces(
         self,
         punch_amount: float = 0.0,
@@ -1429,6 +1551,7 @@ class Carmelito3D:
         punch_amount: float = 0.0,
         punch_side: float = 1.0,
         jump_amount: float = 0.0,
+        tag_amount: float = 0.0,
     ) -> None:
         """
         Projects and renders Carmelito in authentic storybook 3D.
@@ -1460,6 +1583,7 @@ class Carmelito3D:
             punch_amount=punch_amount,
             punch_side=punch_side,
             jump_amount=jump_amount,
+            tag_amount=tag_amount,
         )
 
         cos_y = math.cos(rot_y)

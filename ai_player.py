@@ -89,6 +89,12 @@ class AICodeCompanion:
         self.JUMP_IMPULSE = 8.5
         self.GRAVITY = 22.0
 
+        # Tag hands reach (for playing tag / hide-and-seek tag)
+        self.is_tagging = False
+        self.tag_timer = 0.0
+        self.tag_duration = 2.2
+        self.tag_amount = 0.0
+
         self.action_cooldown = random.uniform(3.0, 7.0)
 
         # Independent AI decision state machine
@@ -286,6 +292,18 @@ class AICodeCompanion:
                 pp = self.punch_timer / self.punch_duration
                 self.punch_amount = math.sin((pp / 0.32) * (math.pi / 2)) if pp < 0.32 else math.cos(((pp - 0.32) / 0.68) * (math.pi / 2))
 
+        # Tag hands reach animation
+        if self.is_tagging:
+            self.tag_timer += dt
+            if self.tag_timer >= self.tag_duration:
+                self.is_tagging = False
+                self.tag_timer = 0.0
+                self.tag_amount = 0.0
+            else:
+                self.tag_amount = min(1.0, self.tag_amount + 5.0 * dt)
+        else:
+            self.tag_amount = max(0.0, self.tag_amount - 5.0 * dt)
+
         # Jump physics
         if self.jump_state == "crouching":
             self.crouch_timer += dt
@@ -313,19 +331,24 @@ class AICodeCompanion:
         if self.action_cooldown <= 0.0 and not self.is_kicking and not self.is_punching and self.jump_state == "idle":
             self.action_cooldown = random.uniform(3.5, 7.5)
             roll = random.random()
-            if roll < 0.35:
+            if roll < 0.28:
                 # Playful jump hop!
                 self.jump_state = "crouching"
                 self.crouch_timer = 0.0
                 self.jump_amount = 0.0
-            elif roll < 0.68:
+            elif roll < 0.52:
                 self.is_kicking = True
                 self.kick_timer = 0.0
                 self.kick_side = -self.kick_side
-            else:
+            elif roll < 0.76:
                 self.is_punching = True
                 self.punch_timer = 0.0
                 self.punch_side = -self.punch_side
+            else:
+                # Playful tag reach (raise hands forward like zombie to play tag!)
+                self.is_tagging = True
+                self.tag_timer = 0.0
+                self.tag_duration = random.uniform(1.8, 3.2)
 
     async def run(self) -> None:
         print(f"🤖 {self.name} ({self.chick_name}) connecting to {self.server_url}...", flush=True)
@@ -473,6 +496,7 @@ class AICodeCompanion:
                     "punch_side": round(self.punch_side, 1),
                     "jump_offset_y": round(self.jump_offset_y, 3),
                     "jump_amount": round(self.jump_amount, 3),
+                    "tag_amount": round(self.tag_amount, 3),
                 },
                 separators=(",", ":"),
             )

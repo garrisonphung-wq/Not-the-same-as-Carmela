@@ -98,6 +98,7 @@ class GameRelayServer:
             "punch_side": 1.0,
             "jump_offset_y": 0.0,
             "jump_amount": 0.0,
+            "tag_amount": 0.0,
         }
 
         try:
@@ -173,6 +174,8 @@ class GameRelayServer:
                         p["jump_offset_y"] = safe_float(data.get("jump_offset_y", 0.0), 0.0, limit=20.0)
                     if "jump_amount" in data:
                         p["jump_amount"] = safe_float(data.get("jump_amount", 0.0), 0.0, limit=2.0)
+                    if "tag_amount" in data:
+                        p["tag_amount"] = safe_float(data.get("tag_amount", 0.0), 0.0, limit=2.0)
                     if "character" in data and data["character"]:
                         p["character"] = str(data["character"])[:32]
                     if "is_carmelito" in data:
@@ -204,6 +207,7 @@ class GameRelayServer:
                         "punch_side": p.get("punch_side", 1.0),
                         "jump_offset_y": p.get("jump_offset_y", 0.0),
                         "jump_amount": p.get("jump_amount", 0.0),
+                        "tag_amount": p.get("tag_amount", 0.0),
                     }
                     if p["chick_name"]:
                         bcast_msg["chick_name"] = p["chick_name"]

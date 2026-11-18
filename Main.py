@@ -301,6 +301,7 @@ class NetworkClient:
         self._local_punch_side = 1.0
         self._local_jump_offset_y = 0.0
         self._local_jump_amount = 0.0
+        self._local_tag_amount = 0.0
         self._pos_dirty = True
 
         self._outgoing_chats: list[str] = []
@@ -344,6 +345,7 @@ class NetworkClient:
         punch_side: float = 1.0,
         jump_offset_y: float = 0.0,
         jump_amount: float = 0.0,
+        tag_amount: float = 0.0,
     ) -> None:
         nx = max(0.05, min(0.95, nx))
         ny = max(0.05, min(0.95, ny))
@@ -368,6 +370,7 @@ class NetworkClient:
                 or (punch_side != self._local_punch_side)
                 or (abs(jump_offset_y - self._local_jump_offset_y) > 0.02)
                 or (abs(jump_amount - self._local_jump_amount) > 0.02)
+                or (abs(tag_amount - self._local_tag_amount) > 0.02)
             )
             if pos_changed or state_changed:
                 self._local_nx = nx
@@ -387,6 +390,7 @@ class NetworkClient:
                 self._local_punch_side = punch_side
                 self._local_jump_offset_y = jump_offset_y
                 self._local_jump_amount = jump_amount
+                self._local_tag_amount = tag_amount
                 self._pos_dirty = True
 
     def get_snapshot(self) -> tuple[bool, bool, int | None, tuple[int, int, int], dict[int, dict[str, Any]]]:
@@ -415,6 +419,7 @@ class NetworkClient:
                     "punch_side": data.get("punch_side", 1.0),
                     "jump_offset_y": data.get("jump_offset_y", 0.0),
                     "jump_amount": data.get("jump_amount", 0.0),
+                    "tag_amount": data.get("tag_amount", 0.0),
                 }
                 for pid, data in self.remote_players.items()
             }
@@ -570,6 +575,7 @@ class NetworkClient:
                             "punch_side": round(self._local_punch_side, 1),
                             "jump_offset_y": round(self._local_jump_offset_y, 3),
                             "jump_amount": round(self._local_jump_amount, 3),
+                            "tag_amount": round(self._local_tag_amount, 3),
                         },
                         separators=(",", ":"),
                     )
@@ -606,6 +612,7 @@ class NetworkClient:
             "punch_side": float(pdata.get("punch_side", 1.0)),
             "jump_offset_y": float(pdata.get("jump_offset_y", 0.0)),
             "jump_amount": float(pdata.get("jump_amount", 0.0)),
+            "tag_amount": float(pdata.get("tag_amount", 0.0)),
         }
 
     async def _receiver_loop(self, ws: Any) -> None:
@@ -779,6 +786,11 @@ def main() -> None:
     punch_timer = 0.0
     punch_duration = 0.38
     punch_side = 1.0  # 1.0 for right wing punch, -1.0 for left wing punch
+
+    # Zombie tag hand reach (triggered by 'T' key)
+    # Both arms raise forward and stop right at neck level
+    is_tagging = False
+    tag_amount = 0.0
     selected_character = "carmelito"
     selected_chick_name = CHICK_NAME
     has_selected_character = False
@@ -893,6 +905,10 @@ def main() -> None:
                         is_punching = True
                         punch_timer = 0.0
                         punch_side = -punch_side  # alternate between right and left wing!
+                    elif is_online and not is_fighting and event.key == pygame.K_t:
+                        # Pressing 'T' toggles raising both arms forward like a zombie (stops at neck level)
+                        # Used for tag, hide-and-seek tag, and games requiring touching!
+                        is_tagging = not is_tagging
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # Menu navigation and joining in offline mode
                 if not is_online:
@@ -1171,6 +1187,15 @@ def main() -> None:
                     else:
                         punch_amount = math.cos(((pp - 0.32) / 0.68) * (math.pi / 2))
 
+            # Zombie tag arms animation progress (smoothly raises/lowers hands to neck level)
+            # When holding or toggled on with 'T', arms raise up and stay steady at neck level
+            keys_down = pygame.key.get_pressed()
+            is_tag_active = is_tagging or (keys_down[pygame.K_t] if not is_typing_chat else False)
+            if is_tag_active:
+                tag_amount = min(1.0, tag_amount + 6.0 * dt)
+            else:
+                tag_amount = max(0.0, tag_amount - 5.0 * dt)
+
             # Crouch-then-Jump execution:
             # Step 1: Crouching down (bends legs, camera sinks down)
             # Step 2: Spring up into the air (un-crouches, launches high into the sky)
@@ -1228,6 +1253,7 @@ def main() -> None:
                 punch_side=punch_side,
                 jump_offset_y=jump_offset_y,
                 jump_amount=jump_amount,
+                tag_amount=tag_amount,
             )
 
         connected, is_host, my_id, my_color, remote_players = net.get_snapshot()
@@ -1299,6 +1325,7 @@ def main() -> None:
                     "punch_side": t_punch_side,
                     "jump_offset_y": t_jump_y,
                     "jump_amount": t_jump_amt,
+                    "tag_amount": float(pdata.get("tag_amount", 0.0)),
                 }
             else:
                 rs = remote_states[pid]
@@ -1320,6 +1347,8 @@ def main() -> None:
                 rs["punch_side"] = t_punch_side
                 rs["jump_offset_y"] += (t_jump_y - rs.get("jump_offset_y", 0.0)) * min(1.0, 24.0 * dt)
                 rs["jump_amount"] += (t_jump_amt - rs.get("jump_amount", 0.0)) * min(1.0, 24.0 * dt)
+                t_tag = float(pdata.get("tag_amount", 0.0))
+                rs["tag_amount"] = rs.get("tag_amount", 0.0) + (t_tag - rs.get("tag_amount", 0.0)) * min(1.0, 16.0 * dt)
                 loco = max(rs["run_weight"], rs["walk_weight"])
                 if loco > 0.001:
                     stride_spd = (3.2 * rs["run_weight"]) + (1.8 * rs["walk_weight"] * (1.0 - rs["run_weight"]))
@@ -1569,6 +1598,7 @@ def main() -> None:
                     punch_amount=rs.get("punch_amount", 0.0),
                     punch_side=rs.get("punch_side", 1.0),
                     jump_amount=rs.get("jump_amount", 0.0),
+                    tag_amount=rs.get("tag_amount", 0.0),
                 )
 
                 # Floating nameplates above chicken's comb:
@@ -1917,6 +1947,70 @@ def main() -> None:
 
             feet_projected.sort(key=lambda item: item[0], reverse=True)
             for _, pts, f_col, draw_ink in feet_projected:
+                if len(pts) >= 3:
+                    pygame.draw.polygon(screen, f_col, pts)
+                    if draw_ink:
+                        pygame.draw.polygon(screen, COLOR_INK_LINE, pts, 1)
+
+        # 1e. RENDER OWN TAG HANDS EXTENDED FORWARD IN FIRST PERSON (T KEY)
+        if is_online and not is_fighting and tag_amount > 0.001 and punch_amount <= 0.001:
+            cos_body = math.cos(cam_yaw)
+            sin_body = math.sin(cam_yaw)
+
+            def tag_to_cam(bx: float, by: float, bz: float) -> tuple[float, float, float]:
+                wx = cam_x + bx * cos_body + bz * sin_body
+                wz = cam_z - bx * sin_body + bz * cos_body
+                wy = eye_y + by
+                return to_cam(wx, wy, wz)
+
+            tag_hand_faces = model_3d.build_first_person_tag_hands(
+                tag_amount=tag_amount,
+                character=selected_character,
+            )
+
+            tag_projected: list[tuple[float, list[tuple[int, int]], tuple[int, int, int], bool]] = []
+            for quad_verts, base_col, has_contour in tag_hand_faces:
+                cam_verts = [tag_to_cam(*v) for v in quad_verts]
+                if any(cv[2] <= near_z for cv in cam_verts):
+                    continue
+
+                v0, v1, v2 = cam_verts[0], cam_verts[1], cam_verts[2]
+                e1 = (v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2])
+                e2 = (v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2])
+                nx = e1[1] * e2[2] - e1[2] * e2[1]
+                ny = e1[2] * e2[0] - e1[0] * e2[2]
+                nz = e1[0] * e2[1] - e1[1] * e2[0]
+                n_mag = math.sqrt(nx * nx + ny * ny + nz * nz)
+                if n_mag < 1e-6:
+                    continue
+                nx /= n_mag
+                ny /= n_mag
+                nz /= n_mag
+
+                to_eye_dot = -(nx * v0[0] + ny * v0[1] + nz * v0[2])
+                if to_eye_dot <= 0.0:
+                    continue
+
+                v_mag = math.sqrt(v0[0] * v0[0] + v0[1] * v0[1] + v0[2] * v0[2])
+                view_cos = to_eye_dot / max(1e-4, v_mag)
+
+                diffuse = max(0.0, nx * model_3d.light_dir[0] + ny * model_3d.light_dir[1] + nz * model_3d.light_dir[2])
+                brightness = 0.76 + 0.24 * diffuse
+                face_col = (
+                    min(255, int(base_col[0] * brightness)),
+                    min(255, int(base_col[1] * brightness)),
+                    min(255, int(base_col[2] * brightness)),
+                )
+
+                pts = [
+                    (round(hw + (cv[0] / cv[2]) * focal), round(hh - (cv[1] / cv[2]) * focal))
+                    for cv in cam_verts
+                ]
+                avg_z = sum(cv[2] for cv in cam_verts) / len(cam_verts)
+                tag_projected.append((avg_z, pts, face_col, has_contour and view_cos < 0.34))
+
+            tag_projected.sort(key=lambda item: item[0], reverse=True)
+            for _, pts, f_col, draw_ink in tag_projected:
                 if len(pts) >= 3:
                     pygame.draw.polygon(screen, f_col, pts)
                     if draw_ink:
