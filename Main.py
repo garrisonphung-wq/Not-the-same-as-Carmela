@@ -1970,6 +1970,7 @@ def main() -> None:
                 ground_y=current_ground_y + jump_offset_y,
                 tag_amount=tag_amount,
                 head_yaw=head_yaw,
+                head_pitch=head_pitch,
                 character=selected_character,
             )
 

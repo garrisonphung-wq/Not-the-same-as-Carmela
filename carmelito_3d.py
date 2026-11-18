@@ -736,7 +736,7 @@ class Carmelito3D:
                 hand_pt = lerp_vec3(hand_pt, p_hand, p_ext)
 
             # Zombie tag reach when pressing 'T':
-            # Follows the direction of the head (head_yaw).
+            # Follows the direction of the head in both yaw and pitch (goes down when looking down, up when looking up).
             # If the head is facing sideways, the arm on the other side rests down,
             # while the arm on the side the head is looking stays raised forward!
             if tag_amount > 0.001:
@@ -756,14 +756,26 @@ class Carmelito3D:
 
                 effective_tag = t_ext * arm_act
 
-                # Arms aim in the direction of the head
+                # Arms aim in the direction of the head (both yaw and pitch):
                 arm_look_yaw = head_yaw * 0.80
-                dir_x = math.sin(arm_look_yaw)
-                dir_z = math.cos(arm_look_yaw)
+                # In model space, positive head_pitch tilts down, so dy = -sin(head_pitch)
+                arm_look_pitch = head_pitch * 0.85
+                cos_p = math.cos(arm_look_pitch)
+                dir_x = math.sin(arm_look_yaw) * cos_p
+                dir_y = -math.sin(arm_look_pitch)
+                dir_z = math.cos(arm_look_yaw) * cos_p
 
-                # Straight arm reaching forward at neck height
-                z_elbow = (shoulder_pt[0] + dir_x * 0.42, neck_height_y, shoulder_pt[2] + dir_z * 0.42)
-                z_hand = (shoulder_pt[0] + dir_x * 0.84, neck_height_y, shoulder_pt[2] + dir_z * 0.84)
+                # Straight arm reaching in head direction from shoulder:
+                z_elbow = (
+                    shoulder_pt[0] + dir_x * 0.42,
+                    neck_height_y + dir_y * 0.42,
+                    shoulder_pt[2] + dir_z * 0.42,
+                )
+                z_hand = (
+                    shoulder_pt[0] + dir_x * 0.84,
+                    neck_height_y + dir_y * 0.84,
+                    shoulder_pt[2] + dir_z * 0.84,
+                )
 
                 elbow_pt = lerp_vec3(elbow_pt, z_elbow, effective_tag)
                 hand_pt = lerp_vec3(hand_pt, z_hand, effective_tag)
@@ -1350,15 +1362,18 @@ class Carmelito3D:
         ground_y: float = -3.0,
         tag_amount: float = 0.0,
         head_yaw: float = 0.0,
+        head_pitch: float = 0.0,
         character: str = "carmelito",
     ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
         """
         Builds completely straight arms in first-person view attached 100% to the chick's torso:
         - Rooted solidly at the chick's real shoulder sockets on the torso (y = ground_y + 0.88 * scale).
-        - Arms follow the direction of the head (head_yaw).
+        - Arms follow the direction of the head in both yaw and pitch:
+          * When you look down (head_pitch < 0), arms point down!
+          * When you look up (head_pitch > 0), arms point up!
         - If the head turns sideways, the arm on the other side rests down, while the arm
           on the facing side stays raised!
-        - When raised, the arms extend completely straight forward at neck height.
+        - When raised, the arms extend completely straight forward from neck height.
         """
         if tag_amount <= 0.001:
             return []
@@ -1385,10 +1400,13 @@ class Carmelito3D:
         sh_y = ground_y + 0.88 * scale
         neck_y = ground_y + 1.06 * scale
 
-        # Arms follow the direction of the head
+        # Arms follow the direction of the head in both yaw (left/right) and pitch (up/down):
         arm_look_yaw = head_yaw * 0.78
-        dir_x = math.sin(arm_look_yaw)
-        dir_z = math.cos(arm_look_yaw)
+        arm_look_pitch = head_pitch * 0.82
+        cos_p = math.cos(arm_look_pitch)
+        dir_x = math.sin(arm_look_yaw) * cos_p
+        dir_y = math.sin(arm_look_pitch)  # In world space: looking down has head_pitch < 0 -> dir_y < 0
+        dir_z = math.cos(arm_look_yaw) * cos_p
 
         for side in (-1.0, 1.0):
             # Arm activity: if head turns sideways, the arm on the other side rests!
@@ -1407,11 +1425,19 @@ class Carmelito3D:
             sh_z = -0.08
             sh_pt = (sh_x, sh_y, sh_z)
 
-            # Raised straight pose (aimed forward in head direction at neck height):
+            # Raised straight pose (aimed forward in head pitch/yaw direction from neck height):
             elbow_reach = 0.52 * scale
             hand_reach = 1.04 * scale
-            raised_elb = (sh_x + dir_x * elbow_reach, neck_y, sh_z + dir_z * elbow_reach)
-            raised_hand = (sh_x + dir_x * hand_reach, neck_y, sh_z + dir_z * hand_reach)
+            raised_elb = (
+                sh_x + dir_x * elbow_reach,
+                neck_y + dir_y * elbow_reach,
+                sh_z + dir_z * elbow_reach,
+            )
+            raised_hand = (
+                sh_x + dir_x * hand_reach,
+                neck_y + dir_y * hand_reach,
+                sh_z + dir_z * hand_reach,
+            )
 
             # Resting pose (hanging down relaxed by the chick's side):
             rest_elb = (sh_x, ground_y + 0.60 * scale, sh_z + 0.05)
