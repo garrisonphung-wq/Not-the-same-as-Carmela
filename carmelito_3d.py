@@ -1365,14 +1365,12 @@ class Carmelito3D:
         character: str = "carmelito",
     ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
         """
-        Builds completely straight arms in first-person view attached 100% to the chick's torso:
-        - Rooted solidly at the chick's real shoulder sockets on the torso (y = ground_y + 0.88 * scale).
-        - Arms follow the direction of the head in both yaw and pitch:
-          * When you look down (head_pitch < 0), arms point down!
-          * When you look up (head_pitch > 0), arms point up!
-        - If the head turns sideways, the arm on the other side rests down, while the arm
-          on the facing side stays raised!
-        - When raised, the arms extend completely straight forward from neck height.
+        Builds completely straight arms in first-person view:
+        - Shoulders stay solidly attached to the chick's torso.
+        - Arms dynamically and immediately track head pitch:
+          * Looking down -> arms immediately dive down with the head towards the feet/ground!
+          * Looking up -> arms immediately raise up with the head towards the sky!
+        - If the head turns sideways, the opposite arm rests down while the facing arm stays raised.
         """
         if tag_amount <= 0.001:
             return []
@@ -1388,43 +1386,19 @@ class Carmelito3D:
             body_col = COLOR_BODY_PINK
             char_scale = 1.0
 
-        scale = 1.85 * char_scale
         t_ext = max(0.0, min(1.0, tag_amount))
         faces: list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]] = []
 
-        # True anatomical landmarks on Carmelito's torso (matches build_first_person_feet_faces):
-        # Torso center is at (0, ground_y + 0.72 * scale, -0.22)
-        # Shoulders are at (±0.28 * scale, ground_y + 0.88 * scale, -0.08)
-        # Neck level height: ground_y + 1.06 * scale
-        sh_y = ground_y + 0.88 * scale
-        neck_y = ground_y + 1.06 * scale
-
-        # Arms dynamically aim directly where the head is looking:
-        # Looking down -> arms angle down toward the ground along with the gaze.
-        # Looking up -> arms angle up toward the sky along with the gaze.
-        # Pitch tracking is intensified so head tilt immediately moves the arms up and down on screen!
-        arm_look_yaw = head_yaw * 0.85
-        # The gaze target at distance D:
-        gaze_dist = 2.0 * scale
-        gaze_y = gaze_dist * math.sin(head_pitch * 1.5)  # Responsive amplified vertical reach
-        gaze_z = gaze_dist * math.cos(head_pitch)
-
-        # Vector from neck shoulder socket to gaze target:
-        v_dy = (gaze_y - (neck_y - (ground_y + 0.88 * scale)))
-        v_dz = gaze_z - (-0.08)
-        v_mag = math.hypot(v_dy, v_dz)
-
-        dir_pitch_y = v_dy / max(1e-4, v_mag)
-        dir_pitch_z = v_dz / max(1e-4, v_mag)
-
-        cos_yaw = math.cos(arm_look_yaw)
-        dir_x = math.sin(arm_look_yaw) * dir_pitch_z
-        dir_y = dir_pitch_y
-        dir_z = cos_yaw * dir_pitch_z
+        # Direct view-space pitch sensitivity (multiplies pitch so arms move fast and decisively):
+        # In first-person camera space:
+        # cy is vertical (positive up, negative down).
+        # Looking down gives head_pitch < 0 -> arm_pitch_drop drops down rapidly!
+        # Looking up gives head_pitch > 0 -> arm_pitch_lift raises up rapidly!
+        pitch_vert_offset = head_pitch * 0.85 * char_scale
+        pitch_angle = head_pitch * 1.25
 
         for side in (-1.0, 1.0):
-            # Arm activity: if head turns sideways, the arm on the other side rests!
-            # side: 1.0 = right arm, -1.0 = left arm
+            # Opposite arm rests when looking sideways
             if head_yaw > 0.16:
                 arm_act = 1.0 if side > 0 else max(0.0, 1.0 - (head_yaw - 0.16) * 3.5)
             elif head_yaw < -0.16:
@@ -1434,30 +1408,38 @@ class Carmelito3D:
 
             cur_reach = t_ext * arm_act
 
-            # Shoulder point firmly rooted into the chick's torso
-            sh_x = side * 0.28 * scale
-            sh_z = -0.08
+            # Shoulder socket on body (deep in torso so it never detaches):
+            sh_x = side * 0.28 * char_scale
+            sh_y = (-0.32 + 0.14 * t_ext + pitch_vert_offset * 0.35) * char_scale
+            sh_z = -0.06 * char_scale
             sh_pt = (sh_x, sh_y, sh_z)
 
-            # Raised straight pose (aimed forward in head pitch/yaw direction from neck height):
-            elbow_reach = 0.52 * scale
-            hand_reach = 1.04 * scale
+            # Straight arm forward direction taking into account both head_yaw and head_pitch:
+            arm_yaw = head_yaw * 0.70
+            dir_x = math.sin(arm_yaw)
+            dir_z = math.cos(arm_yaw) * math.cos(pitch_angle)
+            dir_y = math.sin(pitch_angle)
+
+            # Fully extended straight arms at neck level, tilting up/down directly with gaze:
+            elb_reach = 0.45 * char_scale
+            hand_reach = 0.88 * char_scale
+
             raised_elb = (
-                sh_x + dir_x * elbow_reach,
-                neck_y + dir_y * elbow_reach,
-                sh_z + dir_z * elbow_reach,
+                sh_x + dir_x * elb_reach,
+                sh_y + 0.08 * char_scale + dir_y * elb_reach + pitch_vert_offset * 0.70,
+                sh_z + dir_z * elb_reach + 0.22 * char_scale,
             )
             raised_hand = (
                 sh_x + dir_x * hand_reach,
-                neck_y + dir_y * hand_reach,
-                sh_z + dir_z * hand_reach,
+                sh_y + 0.12 * char_scale + dir_y * hand_reach + pitch_vert_offset * 1.30,
+                sh_z + dir_z * hand_reach + 0.45 * char_scale,
             )
 
             # Resting pose (hanging down relaxed by the chick's side):
-            rest_elb = (sh_x, ground_y + 0.60 * scale, sh_z + 0.05)
-            rest_hand = (sh_x, ground_y + 0.35 * scale, sh_z + 0.08)
+            rest_elb = (sh_x, sh_y - 0.22 * char_scale, sh_z + 0.08 * char_scale)
+            rest_hand = (sh_x, sh_y - 0.42 * char_scale, sh_z + 0.10 * char_scale)
 
-            # Interpolate between resting and raised based on cur_reach:
+            # Interpolate between resting and raised by cur_reach:
             elb_pt = (
                 rest_elb[0] + (raised_elb[0] - rest_elb[0]) * cur_reach,
                 rest_elb[1] + (raised_elb[1] - rest_elb[1]) * cur_reach,
@@ -1469,10 +1451,10 @@ class Carmelito3D:
                 rest_hand[2] + (raised_hand[2] - rest_hand[2]) * cur_reach,
             )
 
-            # Shoulder joint socket permanently fused with torso:
+            # Shoulder joint socket firmly rooted into torso
             faces.extend(create_cube_grid(
                 center=sh_pt,
-                size=(0.20 * scale, 0.22 * scale, 0.26 * scale),
+                size=(0.18 * char_scale, 0.20 * char_scale, 0.24 * char_scale),
                 subdivisions=(2, 2, 2),
                 base_color=body_col,
                 roundness=0.7,
@@ -1482,47 +1464,47 @@ class Carmelito3D:
             # Upper arm (completely straight)
             faces.extend(create_oriented_box(
                 sh_pt, elb_pt,
-                thickness=(0.15 * scale, 0.17 * scale),
+                thickness=(0.12 * char_scale, 0.14 * char_scale),
                 base_color=body_col,
                 subdiv_length=3,
                 draw_contour=True,
             ))
 
-            # Forearm (continues completely straight)
+            # Forearm (completely straight)
             faces.extend(create_oriented_box(
                 elb_pt, hand_pt,
-                thickness=(0.14 * scale, 0.15 * scale),
+                thickness=(0.11 * char_scale, 0.13 * char_scale),
                 base_color=body_col,
                 subdiv_length=3,
                 draw_contour=True,
             ))
 
-            # Hand palm / wrist
+            # Hand wrist / palm
             faces.extend(create_cube_grid(
                 center=hand_pt,
-                size=(0.18 * scale, 0.16 * scale, 0.20 * scale),
+                size=(0.15 * char_scale, 0.14 * char_scale, 0.17 * char_scale),
                 subdivisions=(2, 2, 2),
                 base_color=body_col,
                 roundness=0.7,
                 draw_contour=True,
             ))
 
-            # Extended feather fingers reaching straight forward
+            # Feather fingers
             hx, hy, hz = hand_pt
-            for f_dx, f_dy in [(-0.045, 0.01), (0.0, 0.018), (0.045, 0.01), (side * 0.06, -0.02)]:
+            for f_dx, f_dy in [(-0.035, 0.01), (0.0, 0.015), (0.035, 0.01), (side * 0.045, -0.015)]:
                 f_tip = (
-                    hx + (f_dx * dir_z + 0.22 * dir_x) * scale,
-                    hy + f_dy * scale,
-                    hz + (-f_dx * dir_x + 0.22 * dir_z) * scale,
+                    hx + (f_dx * dir_z + 0.18 * dir_x) * char_scale,
+                    hy + (f_dy + 0.18 * dir_y) * char_scale,
+                    hz + (-f_dx * dir_x + 0.18 * dir_z) * char_scale,
                 )
                 f_base = (
-                    hx + (f_dx * 0.6 * dir_z + 0.08 * dir_x) * scale,
-                    hy + f_dy * 0.6 * scale,
-                    hz + (-f_dx * 0.6 * dir_x + 0.08 * dir_z) * scale,
+                    hx + (f_dx * 0.6 * dir_z + 0.06 * dir_x) * char_scale,
+                    hy + (f_dy * 0.6 + 0.06 * dir_y) * char_scale,
+                    hz + (-f_dx * 0.6 * dir_x + 0.06 * dir_z) * char_scale,
                 )
                 faces.extend(create_oriented_box(
                     f_base, f_tip,
-                    thickness=(0.05 * scale, 0.05 * scale),
+                    thickness=(0.04 * char_scale, 0.04 * char_scale),
                     base_color=body_col,
                     subdiv_length=2,
                     draw_contour=True,
