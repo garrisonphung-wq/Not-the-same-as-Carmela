@@ -451,18 +451,44 @@ class NetworkClient:
         thread = threading.Thread(target=server_runner, daemon=True)
         thread.start()
 
-        # Launch 5 distinct, intelligent AI chick players into random locations across the big island!
+        # Launch 25 distinct, intelligent AI chick players into random locations everywhere across the big island!
+        ai_roster = [
+            # (Display Name, Character model, Chick Name)
+            ("小胖墩 (AI)", "pangdun", "小胖墩"),
+            ("卡门 (AI)", "carmen", "卡门"),
+            ("卡梅利多队长 (AI)", "carmelito", "卡梅利多"),
+            ("贝利诺 (AI)", "pangdun", "小胖墩"),
+            ("小机灵卡门 (AI)", "carmen", "卡门"),
+            ("探险家卡梅利多 (AI)", "carmelito", "卡梅利多"),
+            ("小霸王贝利诺 (AI)", "pangdun", "小胖墩"),
+            ("阳光小卡门 (AI)", "carmen", "卡门"),
+            ("飞毛腿卡梅利多 (AI)", "carmelito", "卡梅利多"),
+            ("大肚皮小胖墩 (AI)", "pangdun", "小胖墩"),
+            ("甜心卡门 (AI)", "carmen", "卡门"),
+            ("跳跳卡梅利多 (AI)", "carmelito", "卡梅利多"),
+            ("功夫贝利诺 (AI)", "pangdun", "小胖墩"),
+            ("萌萌卡门 (AI)", "carmen", "卡门"),
+            ("星空卡梅利多 (AI)", "carmelito", "卡梅利多"),
+            ("威武小胖墩 (AI)", "pangdun", "小胖墩"),
+            ("敏捷卡门 (AI)", "carmen", "卡门"),
+            ("旋风卡梅利多 (AI)", "carmelito", "卡梅利多"),
+            ("大力士贝利诺 (AI)", "pangdun", "小胖墩"),
+            ("快乐卡门 (AI)", "carmen", "卡门"),
+            ("梦想家卡梅利多 (AI)", "carmelito", "卡梅利多"),
+            ("勇敢小胖墩 (AI)", "pangdun", "小胖墩"),
+            ("小飞侠卡门 (AI)", "carmen", "卡门"),
+            ("航海家卡梅利多 (AI)", "carmelito", "卡梅利多"),
+            ("常胜将军贝利诺 (AI)", "pangdun", "小胖墩"),
+        ]
+
         ai_chick_configs = [
-            # 1. 小胖墩 / Belino: heavy white rooster, competitive & loves food and friendly brawls
-            {"name": "小胖墩 (AI)", "character": "pangdun", "chick_name": "小胖墩", "delay": 0.4},
-            # 2. 卡门 / Carmen: cute clever yellow chick, swift explorer
-            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "delay": 0.6},
-            # 3. 探险家卡梅利多: adventurous pink chick, dreams of the sea and stars
-            {"name": "卡梅利多小队长 (AI)", "character": "carmelito", "chick_name": "卡梅利多", "delay": 0.8},
-            # 4. 贝利诺小霸王 / Little Belino: playful sparring partner
-            {"name": "贝利诺 (AI)", "character": "pangdun", "chick_name": "小胖墩", "delay": 1.0},
-            # 5. 小机灵卡门 / Little Carmen: nimble jumper and dancer
-            {"name": "小机灵卡门 (AI)", "character": "carmen", "chick_name": "卡门", "delay": 1.2},
+            {
+                "name": name,
+                "character": char,
+                "chick_name": cname,
+                "delay": 0.35 + i * 0.08,
+            }
+            for i, (name, char, cname) in enumerate(ai_roster)
         ]
 
         def launch_single_ai(cfg: dict[str, Any]) -> None:
@@ -471,8 +497,14 @@ class NetworkClient:
                 import ai_player
                 # Spawn at completely random coordinates spread across the big island
                 spawn_theta = random.uniform(0.0, 2.0 * math.pi)
-                # Spread from nearby meadows (15m) all the way out across the island plateau (up to 80% island radius)
-                spawn_r = random.uniform(15.0, ISLAND_RADIUS * 0.80)
+                # Spread everywhere: some right nearby (3m - 20m), others in the mid meadows (20m - 500m), and others across the entire island (up to 90% island radius)
+                roll_dist = random.random()
+                if roll_dist < 0.28:
+                    spawn_r = random.uniform(3.0, 25.0)
+                elif roll_dist < 0.55:
+                    spawn_r = random.uniform(25.0, 200.0)
+                else:
+                    spawn_r = random.uniform(200.0, ISLAND_RADIUS * 0.90)
                 rand_x = math.cos(spawn_theta) * spawn_r
                 rand_z = math.sin(spawn_theta) * spawn_r
 
