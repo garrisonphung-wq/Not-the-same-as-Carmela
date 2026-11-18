@@ -759,7 +759,7 @@ class Carmelito3D:
                 # Arms aim in the direction of the head (both yaw and pitch):
                 arm_look_yaw = head_yaw * 0.80
                 # In model space, positive head_pitch tilts down, so dy = -sin(head_pitch)
-                arm_look_pitch = head_pitch * 0.85
+                arm_look_pitch = head_pitch * 1.0  # Full responsive pitch tracking
                 cos_p = math.cos(arm_look_pitch)
                 dir_x = math.sin(arm_look_yaw) * cos_p
                 dir_y = -math.sin(arm_look_pitch)
@@ -1400,12 +1400,12 @@ class Carmelito3D:
         sh_y = ground_y + 0.88 * scale
         neck_y = ground_y + 1.06 * scale
 
-        # Arms follow the direction of the head in both yaw (left/right) and pitch (up/down):
-        arm_look_yaw = head_yaw * 0.78
-        arm_look_pitch = head_pitch * 0.82
+        # Arms follow the direction of the head in both yaw (left/right) and pitch (up/down) with full 1:1 responsiveness:
+        arm_look_yaw = head_yaw * 0.82
+        arm_look_pitch = head_pitch * 1.0  # Full responsive pitch tracking as head moves up and down
         cos_p = math.cos(arm_look_pitch)
         dir_x = math.sin(arm_look_yaw) * cos_p
-        dir_y = math.sin(arm_look_pitch)  # In world space: looking down has head_pitch < 0 -> dir_y < 0
+        dir_y = math.sin(arm_look_pitch)  # Instantly tracks up and down with head pitch
         dir_z = math.cos(arm_look_yaw) * cos_p
 
         for side in (-1.0, 1.0):
