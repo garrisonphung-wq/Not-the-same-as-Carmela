@@ -451,63 +451,21 @@ class NetworkClient:
         thread = threading.Thread(target=server_runner, daemon=True)
         thread.start()
 
-        # Launch 25 distinct, intelligent AI chick players into random locations everywhere across the big island!
-        ai_roster = [
-            # (Display Name, Character model, Chick Name)
-            ("小胖墩 (AI)", "pangdun", "小胖墩"),
-            ("卡门 (AI)", "carmen", "卡门"),
-            ("卡梅利多队长 (AI)", "carmelito", "卡梅利多"),
-            ("贝利诺 (AI)", "pangdun", "小胖墩"),
-            ("小机灵卡门 (AI)", "carmen", "卡门"),
-            ("探险家卡梅利多 (AI)", "carmelito", "卡梅利多"),
-            ("小霸王贝利诺 (AI)", "pangdun", "小胖墩"),
-            ("阳光小卡门 (AI)", "carmen", "卡门"),
-            ("飞毛腿卡梅利多 (AI)", "carmelito", "卡梅利多"),
-            ("大肚皮小胖墩 (AI)", "pangdun", "小胖墩"),
-            ("甜心卡门 (AI)", "carmen", "卡门"),
-            ("跳跳卡梅利多 (AI)", "carmelito", "卡梅利多"),
-            ("功夫贝利诺 (AI)", "pangdun", "小胖墩"),
-            ("萌萌卡门 (AI)", "carmen", "卡门"),
-            ("星空卡梅利多 (AI)", "carmelito", "卡梅利多"),
-            ("威武小胖墩 (AI)", "pangdun", "小胖墩"),
-            ("敏捷卡门 (AI)", "carmen", "卡门"),
-            ("旋风卡梅利多 (AI)", "carmelito", "卡梅利多"),
-            ("大力士贝利诺 (AI)", "pangdun", "小胖墩"),
-            ("快乐卡门 (AI)", "carmen", "卡门"),
-            ("梦想家卡梅利多 (AI)", "carmelito", "卡梅利多"),
-            ("勇敢小胖墩 (AI)", "pangdun", "小胖墩"),
-            ("小飞侠卡门 (AI)", "carmen", "卡门"),
-            ("航海家卡梅利多 (AI)", "carmelito", "卡梅利多"),
-            ("常胜将军贝利诺 (AI)", "pangdun", "小胖墩"),
-        ]
-
+        # Launch exactly 1 intelligent, companion AI chick player into the game!
         ai_chick_configs = [
-            {
-                "name": name,
-                "character": char,
-                "chick_name": cname,
-                "delay": 0.35 + i * 0.08,
-            }
-            for i, (name, char, cname) in enumerate(ai_roster)
+            # Carmen: witty, clever companion chick who runs, jumps, kicks, punches, and chats
+            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "delay": 0.5},
         ]
 
-        def launch_single_ai(cfg: dict[str, Any], idx: int) -> None:
+        def launch_single_ai(cfg: dict[str, Any]) -> None:
             time.sleep(cfg["delay"])
             try:
                 import ai_player
-                # Spread all 25 chicks everywhere around the entire 360-degree visible world:
-                # Uses golden spiral / Fibonacci disk distribution so they are evenly scattered in EVERY direction
-                # from close-up (4m - 12m), to medium fields (15m - 45m), to far hills and horizons (50m - 120m).
-                golden_angle = 2.399963229728653  # math.pi * (3 - math.sqrt(5))
-                # Add random angular jitter per session so every play session has unique locations
-                session_rot = random.uniform(0.0, 2.0 * math.pi)
-                theta = idx * golden_angle + session_rot + random.uniform(-0.18, 0.18)
-                # Distance ranges smoothly from 4.5m up to 125m everywhere across the field
-                r_norm = (idx + random.uniform(0.3, 0.8)) / len(ai_roster)
-                spawn_r = 4.5 + 120.0 * math.sqrt(r_norm)
-
-                rand_x = math.cos(theta) * spawn_r
-                rand_z = math.sin(theta) * spawn_r
+                # Spawn in a pleasant nearby view in front of the player (around 6-9 meters away)
+                spawn_theta = random.uniform(-0.45, 0.45)
+                spawn_r = random.uniform(5.5, 9.0)
+                rand_x = math.sin(spawn_theta) * spawn_r
+                rand_z = math.cos(spawn_theta) * spawn_r
 
                 bot = ai_player.AICodeCompanion(
                     server_url=f"ws://127.0.0.1:{port}",
@@ -524,8 +482,8 @@ class NetworkClient:
             except Exception:
                 pass
 
-        for i, cfg in enumerate(ai_chick_configs):
-            threading.Thread(target=launch_single_ai, args=(cfg, i), daemon=True).start()
+        for cfg in ai_chick_configs:
+            threading.Thread(target=launch_single_ai, args=(cfg,), daemon=True).start()
 
         with self._lock:
             self.is_host = True
