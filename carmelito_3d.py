@@ -757,7 +757,7 @@ class Carmelito3D:
                 effective_tag = t_ext * arm_act
 
                 # Arms aim in the direction of the head (both yaw and pitch):
-                arm_look_yaw = head_yaw * 0.80
+                arm_look_yaw = head_yaw * 1.15
                 arm_pitch_rad = head_pitch * 0.80
                 cos_p = math.cos(arm_pitch_rad)
                 dir_x = math.sin(arm_look_yaw) * cos_p
@@ -1398,12 +1398,16 @@ class Carmelito3D:
         pitch_vert_offset = head_pitch * 0.42 * char_scale
         pitch_angle = head_pitch * 0.75
 
+        # Responsive sideways yaw tracking (arms move quickly and smoothly sideways with the head):
+        yaw_horiz_offset = head_yaw * 0.35 * char_scale
+        arm_yaw = head_yaw * 1.30
+
         for side in (-1.0, 1.0):
-            # Opposite arm rests when looking sideways
-            if head_yaw > 0.16:
-                arm_act = 1.0 if side > 0 else max(0.0, 1.0 - (head_yaw - 0.16) * 3.5)
-            elif head_yaw < -0.16:
-                arm_act = 1.0 if side < 0 else max(0.0, 1.0 - (-head_yaw - 0.16) * 3.5)
+            # Opposite arm rests when looking sideways (transition smoothly)
+            if head_yaw > 0.14:
+                arm_act = 1.0 if side > 0 else max(0.0, 1.0 - (head_yaw - 0.14) * 4.5)
+            elif head_yaw < -0.14:
+                arm_act = 1.0 if side < 0 else max(0.0, 1.0 - (-head_yaw - 0.14) * 4.5)
             else:
                 arm_act = 1.0
 
@@ -1415,23 +1419,22 @@ class Carmelito3D:
             sh_z = -0.06 * char_scale
             sh_pt = (sh_x, sh_y, sh_z)
 
-            # Straight arm forward direction taking into account both head_yaw and head_pitch:
-            arm_yaw = head_yaw * 0.70
+            # Straight arm forward direction following head direction quickly:
             dir_x = math.sin(arm_yaw)
             dir_z = math.cos(arm_yaw) * math.cos(pitch_angle)
             dir_y = math.sin(pitch_angle)
 
-            # Fully extended straight arms at neck level, tilting up/down directly with gaze:
+            # Fully extended straight arms at neck level, moving swiftly sideways with the head:
             elb_reach = 0.45 * char_scale
             hand_reach = 0.88 * char_scale
 
             raised_elb = (
-                sh_x + dir_x * elb_reach,
+                sh_x + dir_x * elb_reach + yaw_horiz_offset * 0.50,
                 sh_y + 0.08 * char_scale + dir_y * elb_reach + pitch_vert_offset * 0.40,
                 sh_z + dir_z * elb_reach + 0.22 * char_scale,
             )
             raised_hand = (
-                sh_x + dir_x * hand_reach,
+                sh_x + dir_x * hand_reach + yaw_horiz_offset,
                 sh_y + 0.12 * char_scale + dir_y * hand_reach + pitch_vert_offset * 0.75,
                 sh_z + dir_z * hand_reach + 0.45 * char_scale,
             )
