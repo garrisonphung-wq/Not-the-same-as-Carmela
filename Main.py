@@ -491,17 +491,23 @@ class NetworkClient:
             for i, (name, char, cname) in enumerate(ai_roster)
         ]
 
-        def launch_single_ai(cfg: dict[str, Any]) -> None:
+        def launch_single_ai(cfg: dict[str, Any], idx: int) -> None:
             time.sleep(cfg["delay"])
             try:
                 import ai_player
-                # Spawn at completely random coordinates spread across the big island
-                spawn_theta = random.uniform(0.0, 2.0 * math.pi)
-                # Spread uniformly across the entire island (from nearby edges to distant horizons):
-                # Standard uniform disk distribution: r = R * sqrt(random) so area density is truly uniform everywhere!
-                spawn_r = ISLAND_RADIUS * 0.88 * math.sqrt(random.uniform(0.0001, 1.0))
-                rand_x = math.cos(spawn_theta) * spawn_r
-                rand_z = math.sin(spawn_theta) * spawn_r
+                # Spread all 25 chicks everywhere around the entire 360-degree visible world:
+                # Uses golden spiral / Fibonacci disk distribution so they are evenly scattered in EVERY direction
+                # from close-up (4m - 12m), to medium fields (15m - 45m), to far hills and horizons (50m - 120m).
+                golden_angle = 2.399963229728653  # math.pi * (3 - math.sqrt(5))
+                # Add random angular jitter per session so every play session has unique locations
+                session_rot = random.uniform(0.0, 2.0 * math.pi)
+                theta = idx * golden_angle + session_rot + random.uniform(-0.18, 0.18)
+                # Distance ranges smoothly from 4.5m up to 125m everywhere across the field
+                r_norm = (idx + random.uniform(0.3, 0.8)) / len(ai_roster)
+                spawn_r = 4.5 + 120.0 * math.sqrt(r_norm)
+
+                rand_x = math.cos(theta) * spawn_r
+                rand_z = math.sin(theta) * spawn_r
 
                 bot = ai_player.AICodeCompanion(
                     server_url=f"ws://127.0.0.1:{port}",
@@ -518,8 +524,8 @@ class NetworkClient:
             except Exception:
                 pass
 
-        for cfg in ai_chick_configs:
-            threading.Thread(target=launch_single_ai, args=(cfg,), daemon=True).start()
+        for i, cfg in enumerate(ai_chick_configs):
+            threading.Thread(target=launch_single_ai, args=(cfg, i), daemon=True).start()
 
         with self._lock:
             self.is_host = True

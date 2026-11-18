@@ -153,29 +153,29 @@ class AICodeCompanion:
             self.target_head_yaw = random.uniform(-0.9, 0.9)
             self.target_head_pitch = random.uniform(-0.25, 0.45)
         elif roll < 0.65:
-            # Stroll anywhere across the immense island
+            # Stroll playfully in a local radius around their sector
             angle = random.uniform(0.0, 2.0 * math.pi)
-            dist = random.uniform(15.0, 180.0)
+            dist = random.uniform(6.0, 24.0)
             self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
             self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
             self.mode = "walk"
-            self.mode_timer = random.uniform(4.0, 10.0)
+            self.mode_timer = random.uniform(3.0, 7.5)
         elif roll < 0.90:
-            # Run excitedly across the open terrain
+            # Run excitedly across the grass
             angle = random.uniform(0.0, 2.0 * math.pi)
-            dist = random.uniform(40.0, 400.0)
+            dist = random.uniform(12.0, 38.0)
             self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
             self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
             self.mode = "run"
-            self.mode_timer = random.uniform(3.5, 8.5)
+            self.mode_timer = random.uniform(2.5, 5.5)
         else:
-            # Wander freely anywhere across the island without flocking to the center
+            # Curious exploration hop
             angle = random.uniform(0.0, 2.0 * math.pi)
-            dist = random.uniform(25.0, 250.0)
+            dist = random.uniform(8.0, 28.0)
             self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
             self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
-            self.mode = "walk" if random.random() < 0.6 else "run"
-            self.mode_timer = random.uniform(3.0, 7.0)
+            self.mode = "walk" if random.random() < 0.65 else "run"
+            self.mode_timer = random.uniform(2.5, 6.0)
 
     def step_ai(self, dt: float) -> None:
         self.mode_timer -= dt
