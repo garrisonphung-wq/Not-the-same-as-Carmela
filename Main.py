@@ -1475,7 +1475,8 @@ def main() -> None:
             pygame.draw.line(screen, blade_col, (bsx, bsy), (tsx, tsy), width)
 
         # 1d. RENDER CHICKENS / OTHER PLAYERS IN 3D SPACE (with Chinese name "卡梅利多" and player names)
-        visible_remotes: list[tuple[float, int, dict[str, Any], dict[str, float], float, float, float]] = []
+        # Precompute visible players and true 3D Euclidean distances
+        visible_remotes = []
         for pid, pdata in remote_players.items():
             if pid not in remote_states:
                 continue
@@ -1483,19 +1484,55 @@ def main() -> None:
             rwx, rwz = rs["wx"], rs["wz"]
             is_carmelito = pdata.get("is_carmelito", True)
             r_jump_y = rs.get("jump_offset_y", 0.0)
+            # Chick body origin and chick center (for invariant distance)
             rwy = (current_ground_y + r_jump_y) if is_carmelito else (0.0 + 0.12 * math.sin(anim_time * 2.8))
+            body_center_wy = rwy + 0.58
 
             rx_p, ry_p, rz_p = to_cam(rwx, rwy, rwz)
-            min_z = 0.65 if is_carmelito else 0.25
-            if rz_p > min_z:
-                visible_remotes.append((rz_p, pid, pdata, rs, rx_p, ry_p, rz_p))
+            c_rx, c_ry, c_rz = to_cam(rwx, body_center_wy, rwz)
 
+            # Pitch-invariant 3D distance between player eyes and chick center
+            dx_c = rwx - cam_x
+            dz_c = rwz - cam_z
+            dy_c = body_center_wy - eye_y
+            true_dist = max(0.45, math.sqrt(dx_c * dx_c + dy_c * dy_c + dz_c * dz_c))
+
+            # Render chick if either the base or body center is in front of camera
+            if rz_p > 0.18 or c_rz > 0.18:
+                visible_remotes.append((true_dist, pid, pdata, rs, rx_p, ry_p, rz_p, c_rx, c_ry, c_rz, true_dist))
+
+        # PASS 1: Render ALL ground shadows first (so shadows never occlude any chick's feet or body)
+        for _, pid, pdata, rs, rx_p, ry_p, rz_p, c_rx, c_ry, c_rz, true_dist in visible_remotes:
+            if is_fighting and pid == fight_opponent_pid:
+                continue
+            if pdata.get("is_carmelito", True):
+                rwx, rwz = rs["wx"], rs["wz"]
+                remote_char = pdata.get("character") or ("carmen" if pdata.get("chick_name") in ("卡门", "Carmen") else ("pangdun" if pdata.get("chick_name") in ("小胖墩", "Belino", "Coquenpâte") else "carmelito"))
+                char_scale = 0.82 if remote_char == "carmen" else (1.15 if remote_char in ("pangdun", "小胖墩", "belino", "coquenpate") else 1.0)
+                g_rx, g_ry, g_rz = to_cam(rwx, current_ground_y, rwz)
+                if g_rz > 0.15:
+                    g_sx = hw + (g_rx / g_rz) * focal
+                    g_sy = hh - (g_ry / g_rz) * focal
+                    # Ground shadow size using consistent distance
+                    sh_dist = max(0.4, math.hypot(math.hypot(rwx - cam_x, rwz - cam_z), current_ground_y - eye_y))
+                    sh_w = max(8, round((1.18 * char_scale / sh_dist) * focal))
+                    sh_h = max(3, round((0.38 * char_scale / sh_dist) * focal))
+                    shadow_rect = pygame.Rect(round(g_sx - sh_w * 0.5), round(g_sy - sh_h * 0.4), sh_w, sh_h)
+                    pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, shadow_rect)
+
+        # PASS 2: Render 3D chick models and nameplates sorted from furthest to nearest
         visible_remotes.sort(key=lambda item: item[0], reverse=True)
-        for _, pid, pdata, rs, rx_p, ry_p, rz_p in visible_remotes:
+        for _, pid, pdata, rs, rx_p, ry_p, rz_p, c_rx, c_ry, c_rz, true_dist in visible_remotes:
             if is_fighting and pid == fight_opponent_pid:
                 continue  # Rendered in dedicated battle clash scene below!
-            sx = hw + (rx_p / rz_p) * focal
-            sy = hh - (ry_p / rz_p) * focal
+            
+            # Use body center camera projection if feet are below/behind viewport when looking down
+            eff_rz = c_rz if c_rz > 0.20 else max(0.20, rz_p)
+            eff_rx = c_rx if c_rz > 0.20 else rx_p
+            eff_ry = (c_ry - 0.58) if c_rz > 0.20 else ry_p
+
+            sx = hw + (eff_rx / eff_rz) * focal
+            sy = hh - (eff_ry / eff_rz) * focal
 
             if pdata.get("is_carmelito", True):
                 remote_char = pdata.get("character") or ("carmen" if pdata.get("chick_name") in ("卡门", "Carmen") else ("pangdun" if pdata.get("chick_name") in ("小胖墩", "Belino", "Coquenpâte") else "carmelito"))
@@ -1506,17 +1543,8 @@ def main() -> None:
                 else:
                     rem_scale = CARMELITO_WORLD_SCALE
 
-                # Shadow on the grass right beneath chick (projected onto ground at current_ground_y)
-                g_rx, g_ry, g_rz = to_cam(rwx, current_ground_y, rwz)
-                if g_rz > near_z:
-                    g_sx = hw + (g_rx / g_rz) * focal
-                    g_sy = hh - (g_ry / g_rz) * focal
-                    sh_w = max(8, round((1.15 * (rem_scale / CARMELITO_WORLD_SCALE) / g_rz) * focal))
-                    sh_h = max(3, round((0.36 * (rem_scale / CARMELITO_WORLD_SCALE) / g_rz) * focal))
-                    shadow_rect = pygame.Rect(round(g_sx - sh_w * 0.5), round(g_sy - sh_h * 0.4), sh_w, sh_h)
-                    pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, shadow_rect)
-
-                model_scale = (rem_scale / rz_p) * focal
+                # Pitch-invariant model scale: chick maintains its true physical size when you look down!
+                model_scale = (rem_scale / true_dist) * focal
                 rel_rot_y = math.pi - (rs["rot_y"] - total_yaw)
                 rel_rot_x = max(-0.55, min(0.65, 0.04 - total_pitch))
 
