@@ -1954,22 +1954,22 @@ def main() -> None:
 
         # 1e. RENDER OWN TAG HANDS EXTENDED FORWARD IN FIRST PERSON (T KEY)
         if is_online and not is_fighting and tag_amount > 0.001 and punch_amount <= 0.001:
-            # Note: Arms are attached to the chick's body at (cam_x, cam_z) oriented along cam_yaw.
-            # When looking to the side (head_yaw) or up/down (head_pitch), we transform from body space
-            # into camera space so the arms remain 100% attached to the chick's torso.
+            # Arms are attached 100% to the chick's torso coordinates.
+            # When looking sideways or up/down, coordinates are transformed from body frame to camera frame.
             cos_body = math.cos(cam_yaw)
             sin_body = math.sin(cam_yaw)
 
             def tag_to_cam(bx: float, by: float, bz: float) -> tuple[float, float, float]:
-                # World position of vertex on the chick's body:
+                # bx, by, bz are relative to the chick's body frame (by is world vertical offset)
                 wx = cam_x + bx * cos_body + bz * sin_body
                 wz = cam_z - bx * sin_body + bz * cos_body
-                wy = eye_y + by
-                # Transform into camera view (accounts for total_yaw and total_pitch):
+                wy = by  # by is already aligned to current_ground_y + torso/shoulder height!
                 return to_cam(wx, wy, wz)
 
             tag_hand_faces = model_3d.build_first_person_tag_hands(
+                ground_y=current_ground_y + jump_offset_y,
                 tag_amount=tag_amount,
+                head_yaw=head_yaw,
                 character=selected_character,
             )
 

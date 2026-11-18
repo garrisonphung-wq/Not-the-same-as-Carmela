@@ -736,18 +736,37 @@ class Carmelito3D:
                 hand_pt = lerp_vec3(hand_pt, p_hand, p_ext)
 
             # Zombie tag reach when pressing 'T':
-            # Both arms raise forward straight out like a zombie and stop right at neck level
+            # Follows the direction of the head (head_yaw).
+            # If the head is facing sideways, the arm on the other side rests down,
+            # while the arm on the side the head is looking stays raised forward!
             if tag_amount > 0.001:
                 t_ext = max(0.0, min(1.0, tag_amount))
                 neck_height_y = body_center_y + 0.28
-                # Arms must be completely straight from shoulder forward:
-                # Shoulder is at (side * 0.32, body_center_y + 0.12, 0.02)
-                # Straight elbow extends straight forward at neck height
-                z_elbow = (side * 0.28, neck_height_y, 0.02 + 0.44 * t_ext)
-                # Hand extends straight along the exact same line forward
-                z_hand = (side * 0.28, neck_height_y, 0.02 + 0.88 * t_ext)
-                elbow_pt = lerp_vec3(elbow_pt, z_elbow, t_ext)
-                hand_pt = lerp_vec3(hand_pt, z_hand, t_ext)
+
+                # Determine if this arm should rest when head turns sideways:
+                # side: 1.0 (right), -1.0 (left)
+                # If head turns right (head_yaw > 0.18): opposite left arm (side=-1) rests.
+                # If head turns left (head_yaw < -0.18): opposite right arm (side=1) rests.
+                if head_yaw > 0.18:
+                    arm_act = 1.0 if side > 0 else max(0.0, 1.0 - (head_yaw - 0.18) * 3.5)
+                elif head_yaw < -0.18:
+                    arm_act = 1.0 if side < 0 else max(0.0, 1.0 - (-head_yaw - 0.18) * 3.5)
+                else:
+                    arm_act = 1.0
+
+                effective_tag = t_ext * arm_act
+
+                # Arms aim in the direction of the head
+                arm_look_yaw = head_yaw * 0.80
+                dir_x = math.sin(arm_look_yaw)
+                dir_z = math.cos(arm_look_yaw)
+
+                # Straight arm reaching forward at neck height
+                z_elbow = (shoulder_pt[0] + dir_x * 0.42, neck_height_y, shoulder_pt[2] + dir_z * 0.42)
+                z_hand = (shoulder_pt[0] + dir_x * 0.84, neck_height_y, shoulder_pt[2] + dir_z * 0.84)
+
+                elbow_pt = lerp_vec3(elbow_pt, z_elbow, effective_tag)
+                hand_pt = lerp_vec3(hand_pt, z_hand, effective_tag)
 
             # Upper Arm
             upper_arm = create_oriented_box(
@@ -1328,14 +1347,18 @@ class Carmelito3D:
 
     def build_first_person_tag_hands(
         self,
+        ground_y: float = -3.0,
         tag_amount: float = 0.0,
+        head_yaw: float = 0.0,
         character: str = "carmelito",
     ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
         """
-        Builds completely straight arms raised forward in first-person view (Zombie tag reach):
-        - Both arms extend perfectly straight from the chick's torso forward.
-        - Stops raising when they reach the chick's neck level (neck_y = -0.16 relative to eyes).
-        - Fixed firmly to the chicken body so they remain solidly attached even when looking around.
+        Builds completely straight arms in first-person view attached 100% to the chick's torso:
+        - Rooted solidly at the chick's real shoulder sockets on the torso (y = ground_y + 0.88 * scale).
+        - Arms follow the direction of the head (head_yaw).
+        - If the head turns sideways, the arm on the other side rests down, while the arm
+          on the facing side stays raised!
+        - When raised, the arms extend completely straight forward at neck height.
         """
         if tag_amount <= 0.001:
             return []
@@ -1351,87 +1374,115 @@ class Carmelito3D:
             body_col = COLOR_BODY_PINK
             char_scale = 1.0
 
+        scale = 1.85 * char_scale
         t_ext = max(0.0, min(1.0, tag_amount))
         faces: list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]] = []
 
-        # Neck level relative to camera eye height (-0.16 m below eyes)
-        neck_y = -0.16 * char_scale
-        # When fully raised (t_ext = 1.0), arms are held perfectly straight forward at neck level
-        arm_y = (-0.42 + 0.26 * t_ext) * char_scale
+        # True anatomical landmarks on Carmelito's torso (matches build_first_person_feet_faces):
+        # Torso center is at (0, ground_y + 0.72 * scale, -0.22)
+        # Shoulders are at (±0.28 * scale, ground_y + 0.88 * scale, -0.08)
+        # Neck level height: ground_y + 1.06 * scale
+        sh_y = ground_y + 0.88 * scale
+        neck_y = ground_y + 1.06 * scale
 
-        for side in (-1, 1):
-            # Base of shoulder: firmly embedded in the chick's body torso
-            sh_x = side * 0.28 * char_scale
-            sh_y = arm_y
-            sh_z = -0.06 * char_scale  # Embedded deep in torso so no disconnection is visible
+        # Arms follow the direction of the head
+        arm_look_yaw = head_yaw * 0.78
+        dir_x = math.sin(arm_look_yaw)
+        dir_z = math.cos(arm_look_yaw)
+
+        for side in (-1.0, 1.0):
+            # Arm activity: if head turns sideways, the arm on the other side rests!
+            # side: 1.0 = right arm, -1.0 = left arm
+            if head_yaw > 0.16:
+                arm_act = 1.0 if side > 0 else max(0.0, 1.0 - (head_yaw - 0.16) * 3.5)
+            elif head_yaw < -0.16:
+                arm_act = 1.0 if side < 0 else max(0.0, 1.0 - (-head_yaw - 0.16) * 3.5)
+            else:
+                arm_act = 1.0
+
+            cur_reach = t_ext * arm_act
+
+            # Shoulder point firmly rooted into the chick's torso
+            sh_x = side * 0.28 * scale
+            sh_z = -0.08
             sh_pt = (sh_x, sh_y, sh_z)
 
-            # Straight arm forward vector: completely parallel and straight
-            elb_x = side * 0.26 * char_scale
-            elb_y = arm_y
-            elb_z = (0.16 + 0.36 * t_ext) * char_scale
-            elb_pt = (elb_x, elb_y, elb_z)
+            # Raised straight pose (aimed forward in head direction at neck height):
+            elbow_reach = 0.52 * scale
+            hand_reach = 1.04 * scale
+            raised_elb = (sh_x + dir_x * elbow_reach, neck_y, sh_z + dir_z * elbow_reach)
+            raised_hand = (sh_x + dir_x * hand_reach, neck_y, sh_z + dir_z * hand_reach)
 
-            # Hand reaches straight out forward along the exact same line
-            hand_x = side * 0.24 * char_scale
-            hand_y = arm_y
-            hand_z = (0.28 + 0.72 * t_ext) * char_scale
-            hand_pt = (hand_x, hand_y, hand_z)
+            # Resting pose (hanging down relaxed by the chick's side):
+            rest_elb = (sh_x, ground_y + 0.60 * scale, sh_z + 0.05)
+            rest_hand = (sh_x, ground_y + 0.35 * scale, sh_z + 0.08)
 
-            # Shoulder socket (attached into torso)
+            # Interpolate between resting and raised based on cur_reach:
+            elb_pt = (
+                rest_elb[0] + (raised_elb[0] - rest_elb[0]) * cur_reach,
+                rest_elb[1] + (raised_elb[1] - rest_elb[1]) * cur_reach,
+                rest_elb[2] + (raised_elb[2] - rest_elb[2]) * cur_reach,
+            )
+            hand_pt = (
+                rest_hand[0] + (raised_hand[0] - rest_hand[0]) * cur_reach,
+                rest_hand[1] + (raised_hand[1] - rest_hand[1]) * cur_reach,
+                rest_hand[2] + (raised_hand[2] - rest_hand[2]) * cur_reach,
+            )
+
+            # Shoulder joint socket permanently fused with torso:
             faces.extend(create_cube_grid(
                 center=sh_pt,
-                size=(0.16 * char_scale, 0.16 * char_scale, 0.22 * char_scale),
-                subdivisions=(2, 2, 2),
-                base_color=body_col,
-                roundness=0.6,
-                draw_contour=True,
-            ))
-
-            # Upper arm (straight pipe)
-            faces.extend(create_oriented_box(
-                sh_pt, elb_pt,
-                thickness=(0.12 * char_scale, 0.13 * char_scale),
-                base_color=body_col,
-                subdiv_length=3,
-                draw_contour=True,
-            ))
-
-            # Forearm (continues perfectly straight)
-            faces.extend(create_oriented_box(
-                elb_pt, hand_pt,
-                thickness=(0.11 * char_scale, 0.12 * char_scale),
-                base_color=body_col,
-                subdiv_length=3,
-                draw_contour=True,
-            ))
-
-            # Hand wrist / palm
-            faces.extend(create_cube_grid(
-                center=hand_pt,
-                size=(0.14 * char_scale, 0.12 * char_scale, 0.16 * char_scale),
+                size=(0.20 * scale, 0.22 * scale, 0.26 * scale),
                 subdivisions=(2, 2, 2),
                 base_color=body_col,
                 roundness=0.7,
                 draw_contour=True,
             ))
 
-            # Extended feather fingers reaching straight forward to tag
+            # Upper arm (completely straight)
+            faces.extend(create_oriented_box(
+                sh_pt, elb_pt,
+                thickness=(0.15 * scale, 0.17 * scale),
+                base_color=body_col,
+                subdiv_length=3,
+                draw_contour=True,
+            ))
+
+            # Forearm (continues completely straight)
+            faces.extend(create_oriented_box(
+                elb_pt, hand_pt,
+                thickness=(0.14 * scale, 0.15 * scale),
+                base_color=body_col,
+                subdiv_length=3,
+                draw_contour=True,
+            ))
+
+            # Hand palm / wrist
+            faces.extend(create_cube_grid(
+                center=hand_pt,
+                size=(0.18 * scale, 0.16 * scale, 0.20 * scale),
+                subdivisions=(2, 2, 2),
+                base_color=body_col,
+                roundness=0.7,
+                draw_contour=True,
+            ))
+
+            # Extended feather fingers reaching straight forward
             hx, hy, hz = hand_pt
-            for f_dx, f_dy in [(-0.035, 0.01), (0.0, 0.015), (0.035, 0.01), (side * 0.045, -0.015)]:
+            for f_dx, f_dy in [(-0.045, 0.01), (0.0, 0.018), (0.045, 0.01), (side * 0.06, -0.02)]:
                 f_tip = (
-                    hx + f_dx * char_scale,
-                    hy + f_dy * char_scale,
-                    hz + 0.16 * char_scale,
+                    hx + (f_dx * dir_z + 0.22 * dir_x) * scale,
+                    hy + f_dy * scale,
+                    hz + (-f_dx * dir_x + 0.22 * dir_z) * scale,
                 )
                 f_base = (
-                    hx + f_dx * 0.6 * char_scale,
-                    hy + f_dy * 0.6 * char_scale,
-                    hz + 0.06 * char_scale,
+                    hx + (f_dx * 0.6 * dir_z + 0.08 * dir_x) * scale,
+                    hy + f_dy * 0.6 * scale,
+                    hz + (-f_dx * 0.6 * dir_x + 0.08 * dir_z) * scale,
                 )
                 faces.extend(create_oriented_box(
                     f_base, f_tip,
-                    thickness=(0.04 * char_scale, 0.04 * char_scale),
+                    thickness=(0.05 * scale, 0.05 * scale),
                     base_color=body_col,
                     subdiv_length=2,
                     draw_contour=True,
