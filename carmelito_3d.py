@@ -758,7 +758,7 @@ class Carmelito3D:
 
                 # Arms aim in the direction of the head (both yaw and pitch):
                 arm_look_yaw = head_yaw * 0.80
-                arm_pitch_rad = head_pitch * 1.35
+                arm_pitch_rad = head_pitch * 0.80
                 cos_p = math.cos(arm_pitch_rad)
                 dir_x = math.sin(arm_look_yaw) * cos_p
                 dir_y = -math.sin(arm_pitch_rad)  # In model space: positive head_pitch tilts down
@@ -1394,8 +1394,9 @@ class Carmelito3D:
         # cy is vertical (positive up, negative down).
         # Looking down gives head_pitch < 0 -> arm_pitch_drop drops down rapidly!
         # Looking up gives head_pitch > 0 -> arm_pitch_lift raises up rapidly!
-        pitch_vert_offset = head_pitch * 0.85 * char_scale
-        pitch_angle = head_pitch * 1.25
+        # Natural 1:1 smooth pitch tracking (not overly exaggerated or jerky)
+        pitch_vert_offset = head_pitch * 0.42 * char_scale
+        pitch_angle = head_pitch * 0.75
 
         for side in (-1.0, 1.0):
             # Opposite arm rests when looking sideways
@@ -1426,12 +1427,12 @@ class Carmelito3D:
 
             raised_elb = (
                 sh_x + dir_x * elb_reach,
-                sh_y + 0.08 * char_scale + dir_y * elb_reach + pitch_vert_offset * 0.70,
+                sh_y + 0.08 * char_scale + dir_y * elb_reach + pitch_vert_offset * 0.40,
                 sh_z + dir_z * elb_reach + 0.22 * char_scale,
             )
             raised_hand = (
                 sh_x + dir_x * hand_reach,
-                sh_y + 0.12 * char_scale + dir_y * hand_reach + pitch_vert_offset * 1.30,
+                sh_y + 0.12 * char_scale + dir_y * hand_reach + pitch_vert_offset * 0.75,
                 sh_z + dir_z * hand_reach + 0.45 * char_scale,
             )
 
