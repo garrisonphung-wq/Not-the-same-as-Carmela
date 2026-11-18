@@ -451,24 +451,31 @@ class NetworkClient:
         thread = threading.Thread(target=server_runner, daemon=True)
         thread.start()
 
-        # Launch 5 distinct, intelligent AI chick players into the game!
+        # Launch 5 distinct, intelligent AI chick players into random locations across the big island!
         ai_chick_configs = [
             # 1. 小胖墩 / Belino: heavy white rooster, competitive & loves food and friendly brawls
-            {"name": "小胖墩 (AI)", "character": "pangdun", "chick_name": "小胖墩", "init_x": 2.4, "init_z": 5.2, "delay": 0.4},
+            {"name": "小胖墩 (AI)", "character": "pangdun", "chick_name": "小胖墩", "delay": 0.4},
             # 2. 卡门 / Carmen: cute clever yellow chick, swift explorer
-            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "init_x": -3.6, "init_z": 4.0, "delay": 0.6},
+            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "delay": 0.6},
             # 3. 探险家卡梅利多: adventurous pink chick, dreams of the sea and stars
-            {"name": "卡梅利多小队长 (AI)", "character": "carmelito", "chick_name": "卡梅利多", "init_x": 4.5, "init_z": -3.2, "delay": 0.8},
+            {"name": "卡梅利多小队长 (AI)", "character": "carmelito", "chick_name": "卡梅利多", "delay": 0.8},
             # 4. 贝利诺小霸王 / Little Belino: playful sparring partner
-            {"name": "贝利诺 (AI)", "character": "pangdun", "chick_name": "小胖墩", "init_x": -5.2, "init_z": -4.8, "delay": 1.0},
+            {"name": "贝利诺 (AI)", "character": "pangdun", "chick_name": "小胖墩", "delay": 1.0},
             # 5. 小机灵卡门 / Little Carmen: nimble jumper and dancer
-            {"name": "小机灵卡门 (AI)", "character": "carmen", "chick_name": "卡门", "init_x": 0.5, "init_z": 6.8, "delay": 1.2},
+            {"name": "小机灵卡门 (AI)", "character": "carmen", "chick_name": "卡门", "delay": 1.2},
         ]
 
         def launch_single_ai(cfg: dict[str, Any]) -> None:
             time.sleep(cfg["delay"])
             try:
                 import ai_player
+                # Spawn at completely random coordinates spread across the big island
+                spawn_theta = random.uniform(0.0, 2.0 * math.pi)
+                # Spread from nearby meadows (15m) all the way out across the island plateau (up to 80% island radius)
+                spawn_r = random.uniform(15.0, ISLAND_RADIUS * 0.80)
+                rand_x = math.cos(spawn_theta) * spawn_r
+                rand_z = math.sin(spawn_theta) * spawn_r
+
                 bot = ai_player.AICodeCompanion(
                     server_url=f"ws://127.0.0.1:{port}",
                     name=cfg["name"],
@@ -476,8 +483,10 @@ class NetworkClient:
                     chick_name=cfg["chick_name"],
                     auto_host=False,
                 )
-                bot.wx = cfg["init_x"]
-                bot.wz = cfg["init_z"]
+                bot.wx = rand_x
+                bot.wz = rand_z
+                bot.dest_x = rand_x
+                bot.dest_z = rand_z
                 asyncio.run(bot.run())
             except Exception:
                 pass
