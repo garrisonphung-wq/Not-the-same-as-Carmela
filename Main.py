@@ -23,8 +23,9 @@ CARMEN_NAME = "卡门"
 PANGDUN_NAME = "小胖墩"
 DEFAULT_SERVER_URL = os.environ.get("GAME_SERVER_URL", "ws://127.0.0.1:8765")
 
-# Pure white sky/background, seamless lush green grass ground (no grid)
-BG_COLOR = (255, 255, 255)
+# Storybook sky blue sky/background, seamless lush green grass ground (no grid)
+SKY_BLUE_COLOR = (135, 206, 235)  # Classic bright storybook sky blue
+BG_COLOR = SKY_BLUE_COLOR
 GRASS_GROUND_COLOR = (138, 202, 114)
 GRASS_SHADOW_COLOR = (108, 170, 84)
 GRASS_BLADE_NEAR_DARK = (90, 164, 70)
@@ -1392,12 +1393,13 @@ def main() -> None:
 
         if is_online:
             # When playing the game, you are standing on the lush green island meadow!
-            # The seamless green grass extends all the way to the horizon (no exposed ocean water lines).
+            # The seamless green grass extends all the way to the horizon (sky blue above, grass below).
             if horizon_y < win_h:
                 screen.fill(GRASS_GROUND_COLOR, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
         else:
-            # In offline overview mode: ocean water surrounds the giant island on all sides
-            screen.fill(OCEAN_WATER_COLOR)
+            # In offline overview mode: beautiful sky blue above horizon, ocean water below horizon
+            if horizon_y < win_h:
+                screen.fill(OCEAN_WATER_COLOR, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
 
             # Render the Giant Island (Top lush plateau, Sandy beach edge, and 3D Rocky Cliffs)
             # Compute island outline vertices at top plateau (GROUND_Y) and water base (ISLAND_WATER_Y)
