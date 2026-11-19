@@ -23,8 +23,10 @@ CARMEN_NAME = "卡门"
 PANGDUN_NAME = "小胖墩"
 DEFAULT_SERVER_URL = os.environ.get("GAME_SERVER_URL", "ws://127.0.0.1:8765")
 
-# Storybook sky blue sky/background, seamless lush green grass ground (no grid)
-SKY_BLUE_COLOR = (135, 206, 235)  # Classic bright storybook sky blue
+# Storybook light sky blue sky/background, seamless lush green grass ground (no grid)
+SKY_BLUE_COLOR = (175, 225, 252)  # Bright, soft, lighter storybook sky blue
+SKY_CLOUD_WHITE = (255, 255, 255)
+SKY_CLOUD_SHADOW = (222, 238, 250)
 BG_COLOR = SKY_BLUE_COLOR
 GRASS_GROUND_COLOR = (138, 202, 114)
 GRASS_SHADOW_COLOR = (108, 170, 84)
@@ -838,6 +840,30 @@ def main() -> None:
     # Player id -1 represents local player
     chat_bubbles: dict[int, list[dict[str, Any]]] = {}
 
+        # Storybook fluffy white clouds drifting across the sky dome:
+    # Each cloud has azimuth (heading), elevation angle above horizon, radius scale, and puffs
+    sky_clouds_data = [
+        {"az": 0.05, "el": 0.28, "scale": 17.0, "drift_spd": 0.012},
+        {"az": 0.58, "el": 0.19, "scale": 22.0, "drift_spd": 0.010},
+        {"az": 1.15, "el": 0.36, "scale": 19.0, "drift_spd": 0.011},
+        {"az": 1.72, "el": 0.24, "scale": 25.0, "drift_spd": 0.009},
+        {"az": 2.30, "el": 0.32, "scale": 18.0, "drift_spd": 0.013},
+        {"az": 2.85, "el": 0.18, "scale": 24.0, "drift_spd": 0.010},
+        {"az": 3.42, "el": 0.40, "scale": 21.0, "drift_spd": 0.011},
+        {"az": 4.02, "el": 0.22, "scale": 26.0, "drift_spd": 0.008},
+        {"az": 4.60, "el": 0.34, "scale": 19.0, "drift_spd": 0.012},
+        {"az": 5.18, "el": 0.20, "scale": 23.0, "drift_spd": 0.010},
+        {"az": 5.75, "el": 0.30, "scale": 20.0, "drift_spd": 0.011},
+    ]
+    cloud_puffs = [
+        (0.0, 0.0, 1.0, 0.65),
+        (-0.55, 0.06, 0.72, 0.55),
+        (0.55, 0.06, 0.72, 0.55),
+        (-0.28, -0.22, 0.75, 0.68),
+        (0.28, -0.20, 0.78, 0.70),
+        (0.0, -0.28, 0.65, 0.65),
+    ]
+
     running = True
     while running:
         dt = min(clock.tick(TARGET_FPS) / 1000.0, 0.05)
@@ -1400,6 +1426,45 @@ def main() -> None:
             # In offline overview mode: beautiful sky blue above horizon, ocean water below horizon
             if horizon_y < win_h:
                 screen.fill(OCEAN_WATER_COLOR, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
+
+        # 1a-2. RENDER PUFFY STORYBOOK WHITE CLOUDS IN THE SKY:
+        # Floating high across the sky dome, drifting gently with the breeze!
+        sky_dome_r = 160.0
+        for c_data in sky_clouds_data:
+            c_az = c_data["az"] + anim_time * c_data["drift_spd"]
+            c_el = c_data["el"]
+            c_scale = c_data["scale"]
+
+            # Vector in world sky relative to eye
+            c_dx = sky_dome_r * math.cos(c_el) * math.sin(c_az)
+            c_dz = sky_dome_r * math.cos(c_el) * math.cos(c_az)
+            c_dy = sky_dome_r * math.sin(c_el)
+
+            # Transform into camera coordinates
+            rx = c_dx * cos_yaw - c_dz * sin_yaw
+            rz_fwd = c_dx * sin_yaw + c_dz * cos_yaw
+            c_cy = c_dy * cos_pitch - rz_fwd * sin_pitch
+            c_cz = c_dy * sin_pitch + rz_fwd * cos_pitch
+
+            if c_cz > 1.0:
+                csx = hw + (rx / c_cz) * focal
+                csy = hh - (c_cy / c_cz) * focal
+                base_r = (c_scale / c_cz) * focal
+
+                # Only draw if within screen view
+                if -base_r * 2 <= csx <= win_w + base_r * 2 and -base_r * 2 <= csy <= win_h + base_r * 2:
+                    # Draw subtle cloud shadow base first, then bright fluffy white cloud puffs
+                    for shadow_pass, col in ((True, SKY_CLOUD_SHADOW), (False, SKY_CLOUD_WHITE)):
+                        y_off = (base_r * 0.12) if shadow_pass else 0.0
+                        for px_rel, py_rel, pw_rel, ph_rel in cloud_puffs:
+                            px = csx + px_rel * base_r
+                            py = csy + py_rel * base_r + y_off
+                            pw = max(4, round(base_r * pw_rel * 1.5))
+                            ph = max(3, round(base_r * ph_rel * 1.2))
+                            # Clip below horizon so clouds don't draw on the grass/ocean
+                            p_rect = pygame.Rect(round(px - pw * 0.5), round(py - ph * 0.5), pw, ph)
+                            if p_rect.bottom < horizon_y + 10 or not is_online:
+                                pygame.draw.ellipse(screen, col, p_rect)
 
             # Render the Giant Island (Top lush plateau, Sandy beach edge, and 3D Rocky Cliffs)
             # Compute island outline vertices at top plateau (GROUND_Y) and water base (ISLAND_WATER_Y)
