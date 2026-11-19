@@ -1184,6 +1184,78 @@ def main() -> None:
                     cam_x = math.sin(cur_ang) * max_r
                     cam_z = math.cos(cur_ang) * max_r
 
+            # --- CHICK-TO-CHICK COLLISION & DYNAMIC PUSHING / JUMPING ONTO PLAYERS ---
+            # 1. Players cannot walk through each other.
+            # 2. If one player is stationary and the other rams/moves into them, the moving player pushes them.
+            # 3. If both players are walking/running into each other, they push each other with mutual resistance.
+            # 4. If a player jumps onto another chick, they land and stand directly on top of them!
+            landing_support_y = 0.0
+            CHICK_BODY_RADIUS = 0.58
+            MIN_CHICK_DIST = CHICK_BODY_RADIUS * 2.0  # 1.16m body contact boundary
+
+            if is_online and not is_fighting:
+                my_height = jump_offset_y
+                my_weight = 1.0 + (1.2 if is_running else (0.6 if is_moving else 0.0))
+
+                for pid, pdata in remote_players.items():
+                    if pid not in remote_states:
+                        continue
+                    rs = remote_states[pid]
+                    ox = rs.get("wx", 0.0)
+                    oz = rs.get("wz", 0.0)
+                    other_jump_y = rs.get("jump_offset_y", 0.0)
+                    other_running = pdata.get("running", False)
+                    other_walking = pdata.get("walking", False)
+                    other_moving = other_running or other_walking
+
+                    dx = cam_x - ox
+                    dz = cam_z - oz
+                    horiz_d = math.hypot(dx, dz)
+
+                    # Check jumping onto the other player:
+                    other_top_y = other_jump_y + 1.15
+                    if horiz_d < MIN_CHICK_DIST * 0.92:
+                        if my_height >= other_top_y - 0.28:
+                            # Standing on top of other chick's head/back!
+                            if other_top_y > landing_support_y:
+                                landing_support_y = other_top_y
+                            continue  # Stand on top, avoid pushing feet horizontally
+
+                    # Ground-level body collision and dynamic pushing:
+                    if horiz_d < MIN_CHICK_DIST and abs(my_height - other_jump_y) < 1.10:
+                        overlap = MIN_CHICK_DIST - horiz_d
+                        nx = dx / max(1e-4, horiz_d)
+                        nz = dz / max(1e-4, horiz_d)
+
+                        other_weight = 1.0 + (1.2 if other_running else (0.6 if other_moving else 0.0))
+
+                        # Determine dynamic push ratios based on movement status:
+                        if is_moving and not other_moving:
+                            # Moving player pushes stationary player:
+                            ratio_me = 0.20
+                            ratio_other = 0.80
+                        elif other_moving and not is_moving:
+                            # Stationary player gets pushed by moving player:
+                            ratio_me = 0.80
+                            ratio_other = 0.20
+                        elif is_moving and other_moving:
+                            # Both moving/running into each other:
+                            tot_w = my_weight + other_weight
+                            ratio_me = other_weight / tot_w
+                            ratio_other = my_weight / tot_w
+                        else:
+                            # Both stationary but touching:
+                            ratio_me = 0.50
+                            ratio_other = 0.50
+
+                        # Displace local player:
+                        cam_x += nx * (overlap * ratio_me)
+                        cam_z += nz * (overlap * ratio_me)
+
+                        # Displace remote player:
+                        rs["wx"] = ox - nx * (overlap * ratio_other)
+                        rs["wz"] = oz - nz * (overlap * ratio_other)
+
             # Kick animation progress (triggered with 'K')
             kick_amount = 0.0
             if is_kicking:
@@ -1243,13 +1315,23 @@ def main() -> None:
                 jump_velocity_y -= GRAVITY * dt
                 jump_amount = 0.0      # Not crouching while jumping!
                 wing_flap_amount = 1.0 # Wings flap while flying through the air
-                if jump_offset_y <= 0.0:
-                    jump_offset_y = 0.0
+                # Land on the ground (0.0) or atop another chick (landing_support_y):
+                current_floor = max(0.0, landing_support_y)
+                if jump_velocity_y <= 0.0 and jump_offset_y <= current_floor:
+                    jump_offset_y = current_floor
                     jump_velocity_y = 0.0
-                    jump_state = "idle"   # Landed firmly back on the ground!
+                    jump_state = "idle"   # Landed firmly on the ground or atop the player!
                     jump_amount = 0.0
                     wing_flap_amount = 0.0
             else:
+                # Idle state: if standing on another chick, track their top! If they walk away, fall down!
+                current_floor = max(0.0, landing_support_y)
+                if jump_offset_y > 0.0:
+                    if jump_offset_y > current_floor + 0.08:
+                        jump_state = "airborne"
+                        jump_velocity_y = 0.0
+                    else:
+                        jump_offset_y = current_floor
                 jump_amount = 0.0
                 wing_flap_amount = 0.0
 

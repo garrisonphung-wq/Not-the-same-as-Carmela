@@ -253,6 +253,55 @@ class AICodeCompanion:
                 self.is_running = (self.mode == "run")
                 self.is_walking = (self.mode == "walk")
 
+        # --- CHICK-TO-CHICK COLLISION & DYNAMIC PUSHING FOR AI ---
+        ai_landing_support_y = 0.0
+        MIN_CHICK_DIST = 1.16
+        my_moving = self.is_running or self.is_walking
+        my_weight = 1.0 + (1.2 if self.is_running else (0.6 if my_moving else 0.0))
+
+        for op_id, op_info in list(self.other_players.items()):
+            ox = op_info["wx"]
+            oz = op_info["wz"]
+            o_jump_y = op_info["jump_y"]
+            o_running = op_info["running"]
+            o_walking = op_info["walking"]
+            o_moving = o_running or o_walking
+
+            dx = self.wx - ox
+            dz = self.wz - oz
+            horiz_d = math.hypot(dx, dz)
+
+            other_top_y = o_jump_y + 1.15
+            if horiz_d < MIN_CHICK_DIST * 0.92:
+                if self.jump_offset_y >= other_top_y - 0.28:
+                    if other_top_y > ai_landing_support_y:
+                        ai_landing_support_y = other_top_y
+                    continue
+
+            if horiz_d < MIN_CHICK_DIST and abs(self.jump_offset_y - o_jump_y) < 1.10:
+                overlap = MIN_CHICK_DIST - horiz_d
+                nx = dx / max(1e-4, horiz_d)
+                nz = dz / max(1e-4, horiz_d)
+
+                other_weight = 1.0 + (1.2 if o_running else (0.6 if o_moving else 0.0))
+
+                if my_moving and not o_moving:
+                    ratio_me = 0.20
+                    ratio_other = 0.80
+                elif o_moving and not my_moving:
+                    ratio_me = 0.80
+                    ratio_other = 0.20
+                elif my_moving and o_moving:
+                    tot_w = my_weight + other_weight
+                    ratio_me = other_weight / tot_w
+                    ratio_other = my_weight / tot_w
+                else:
+                    ratio_me = 0.50
+                    ratio_other = 0.50
+
+                self.wx += nx * (overlap * ratio_me)
+                self.wz += nz * (overlap * ratio_me)
+
                 if self.head_timer <= 0.0:
                     self.target_head_yaw = max(-0.6, min(0.6, diff * 0.8 + random.uniform(-0.25, 0.25)))
                     self.target_head_pitch = random.uniform(-0.12, 0.22)
@@ -318,12 +367,20 @@ class AICodeCompanion:
             self.jump_offset_y += self.jump_velocity_y * dt
             self.jump_velocity_y -= self.GRAVITY * dt
             self.jump_amount = 0.0
-            if self.jump_offset_y <= 0.0:
-                self.jump_offset_y = 0.0
+            cur_floor = max(0.0, ai_landing_support_y)
+            if self.jump_velocity_y <= 0.0 and self.jump_offset_y <= cur_floor:
+                self.jump_offset_y = cur_floor
                 self.jump_velocity_y = 0.0
                 self.jump_state = "idle"
                 self.jump_amount = 0.0
         else:
+            cur_floor = max(0.0, ai_landing_support_y)
+            if self.jump_offset_y > 0.0:
+                if self.jump_offset_y > cur_floor + 0.08:
+                    self.jump_state = "airborne"
+                    self.jump_velocity_y = 0.0
+                else:
+                    self.jump_offset_y = cur_floor
             self.jump_amount = 0.0
 
         # Occasional playful kicks / punches / jumps while roaming
@@ -416,7 +473,10 @@ class AICodeCompanion:
                     if pid != self.my_id:
                         wx = float(pdata.get("wx", (float(pdata["x"]) - 0.1) / 0.8 * 24.0 - 12.0))
                         wz = float(pdata.get("wz", (float(pdata["y"]) - 0.1) / 0.8 * 24.0 - 12.0))
-                        self.other_players[pid] = (wx, wz)
+                        jump_y = float(pdata.get("jump_offset_y", 0.0))
+                        is_r = bool(pdata.get("running", False))
+                        is_w = bool(pdata.get("walking", False))
+                        self.other_players[pid] = {"wx": wx, "wz": wz, "jump_y": jump_y, "running": is_r, "walking": is_w}
                         self._update_observed_label(pid, pdata)
 
             elif mtype == "join":
@@ -424,7 +484,10 @@ class AICodeCompanion:
                 if pid != self.my_id:
                     wx = float(msg.get("wx", (float(msg.get("x", 0.5)) - 0.1) / 0.8 * 24.0 - 12.0))
                     wz = float(msg.get("wz", (float(msg.get("y", 0.5)) - 0.1) / 0.8 * 24.0 - 12.0))
-                    self.other_players[pid] = (wx, wz)
+                    jump_y = float(msg.get("jump_offset_y", 0.0))
+                    is_r = bool(msg.get("running", False))
+                    is_w = bool(msg.get("walking", False))
+                    self.other_players[pid] = {"wx": wx, "wz": wz, "jump_y": jump_y, "running": is_r, "walking": is_w}
                     self._update_observed_label(pid, msg)
 
             elif mtype == "pos":
@@ -432,7 +495,10 @@ class AICodeCompanion:
                 if pid != self.my_id:
                     wx = float(msg.get("wx", (float(msg["x"]) - 0.1) / 0.8 * 24.0 - 12.0))
                     wz = float(msg.get("wz", (float(msg["y"]) - 0.1) / 0.8 * 24.0 - 12.0))
-                    self.other_players[pid] = (wx, wz)
+                    jump_y = float(msg.get("jump_offset_y", 0.0))
+                    is_r = bool(msg.get("running", False))
+                    is_w = bool(msg.get("walking", False))
+                    self.other_players[pid] = {"wx": wx, "wz": wz, "jump_y": jump_y, "running": is_r, "walking": is_w}
                     self._update_observed_label(pid, msg)
 
             elif mtype == "leave":
