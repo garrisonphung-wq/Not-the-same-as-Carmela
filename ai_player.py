@@ -253,6 +253,18 @@ class AICodeCompanion:
                 self.is_running = (self.mode == "run")
                 self.is_walking = (self.mode == "walk")
 
+                if self.head_timer <= 0.0:
+                    self.target_head_yaw = max(-0.6, min(0.6, diff * 0.8 + random.uniform(-0.25, 0.25)))
+                    self.target_head_pitch = random.uniform(-0.12, 0.22)
+                    self.head_timer = random.uniform(1.0, 2.4)
+        else:
+            self.is_walking = False
+            self.is_running = False
+            if self.head_timer <= 0.0:
+                self.target_head_yaw = random.uniform(-0.95, 0.95)
+                self.target_head_pitch = random.uniform(-0.25, 0.45)
+                self.head_timer = random.uniform(0.9, 2.2)
+
         # --- CHICK-TO-CHICK COLLISION & DYNAMIC PUSHING FOR AI ---
         ai_landing_support_y = 0.0
         MIN_CHICK_DIST = 1.16
@@ -301,18 +313,6 @@ class AICodeCompanion:
 
                 self.wx += nx * (overlap * ratio_me)
                 self.wz += nz * (overlap * ratio_me)
-
-                if self.head_timer <= 0.0:
-                    self.target_head_yaw = max(-0.6, min(0.6, diff * 0.8 + random.uniform(-0.25, 0.25)))
-                    self.target_head_pitch = random.uniform(-0.12, 0.22)
-                    self.head_timer = random.uniform(1.0, 2.4)
-        else:
-            self.is_walking = False
-            self.is_running = False
-            if self.head_timer <= 0.0:
-                self.target_head_yaw = random.uniform(-0.95, 0.95)
-                self.target_head_pitch = random.uniform(-0.25, 0.45)
-                self.head_timer = random.uniform(0.9, 2.2)
 
         # Smooth natural neck interpolation
         head_alpha = 1.0 - math.exp(-6.0 * dt)

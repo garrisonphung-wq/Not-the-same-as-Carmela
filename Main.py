@@ -817,6 +817,9 @@ def main() -> None:
     drag_start_pos: tuple[int, int] | None = None
 
     mouth_open = False
+    # Riding / piggyback state (when jumped onto another player's back/head):
+    riding_player_id: int | None = None
+    riding_prev_base_pos: tuple[float, float] | None = None
 
     # Natural automatic blinking + manual 'B' key blinking (for online player mode)
     blink_amount = 0.0
@@ -1184,12 +1187,14 @@ def main() -> None:
                     cam_x = math.sin(cur_ang) * max_r
                     cam_z = math.cos(cur_ang) * max_r
 
-            # --- CHICK-TO-CHICK COLLISION & DYNAMIC PUSHING / JUMPING ONTO PLAYERS ---
+            # --- CHICK-TO-CHICK COLLISION, DYNAMIC PUSHING & PIGGYBACK RIDING ---
             # 1. Players cannot walk through each other.
             # 2. If one player is stationary and the other rams/moves into them, the moving player pushes them.
             # 3. If both players are walking/running into each other, they push each other with mutual resistance.
-            # 4. If a player jumps onto another chick, they land and stand directly on top of them!
+            # 4. If a player jumps onto another chick, they land and stay firmly on top of them!
+            #    When the bottom chick walks or runs, the top player rides along smoothly without falling off!
             landing_support_y = 0.0
+            found_carrier_id: int | None = None
             CHICK_BODY_RADIUS = 0.58
             MIN_CHICK_DIST = CHICK_BODY_RADIUS * 2.0  # 1.16m body contact boundary
 
@@ -1212,13 +1217,18 @@ def main() -> None:
                     dz = cam_z - oz
                     horiz_d = math.hypot(dx, dz)
 
-                    # Check jumping onto the other player:
+                    # Check jumping onto and riding the other player:
                     other_top_y = other_jump_y + 1.15
-                    if horiz_d < MIN_CHICK_DIST * 0.92:
-                        if my_height >= other_top_y - 0.28:
-                            # Standing on top of other chick's head/back!
+                    # Allow riding range slightly wider than initial land range so motion doesn't slip off
+                    is_currently_riding_this = (riding_player_id == pid)
+                    ride_range = MIN_CHICK_DIST * 1.25 if is_currently_riding_this else MIN_CHICK_DIST * 0.92
+
+                    if horiz_d < ride_range:
+                        if my_height >= other_top_y - 0.32:
+                            # Standing / riding on top of this chick!
                             if other_top_y > landing_support_y:
                                 landing_support_y = other_top_y
+                                found_carrier_id = pid
                             continue  # Stand on top, avoid pushing feet horizontally
 
                     # Ground-level body collision and dynamic pushing:
@@ -1255,6 +1265,23 @@ def main() -> None:
                         # Displace remote player:
                         rs["wx"] = ox - nx * (overlap * ratio_other)
                         rs["wz"] = oz - nz * (overlap * ratio_other)
+
+                # Smoothly ride along when on top of someone:
+                # If local player is riding carrier, match carrier's horizontal delta!
+                if found_carrier_id is not None and found_carrier_id in remote_states:
+                    c_rs = remote_states[found_carrier_id]
+                    c_pos = (c_rs["wx"], c_rs["wz"])
+                    if riding_player_id == found_carrier_id and riding_prev_base_pos is not None:
+                        # Carry player along with bottom player's movement!
+                        delta_cx = c_pos[0] - riding_prev_base_pos[0]
+                        delta_cz = c_pos[1] - riding_prev_base_pos[1]
+                        cam_x += delta_cx
+                        cam_z += delta_cz
+                    riding_player_id = found_carrier_id
+                    riding_prev_base_pos = c_pos
+                else:
+                    riding_player_id = None
+                    riding_prev_base_pos = None
 
             # Kick animation progress (triggered with 'K')
             kick_amount = 0.0
@@ -1324,14 +1351,17 @@ def main() -> None:
                     jump_amount = 0.0
                     wing_flap_amount = 0.0
             else:
-                # Idle state: if standing on another chick, track their top! If they walk away, fall down!
+                # Idle state: if standing on another chick, stay locked atop them as they move!
                 current_floor = max(0.0, landing_support_y)
                 if jump_offset_y > 0.0:
-                    if jump_offset_y > current_floor + 0.08:
+                    if landing_support_y > 0.0:
+                        # Smoothly stick to their head/back
+                        jump_offset_y = landing_support_y
+                    elif jump_offset_y > 0.12:
                         jump_state = "airborne"
                         jump_velocity_y = 0.0
                     else:
-                        jump_offset_y = current_floor
+                        jump_offset_y = 0.0
                 jump_amount = 0.0
                 wing_flap_amount = 0.0
 
