@@ -150,57 +150,13 @@ class AICodeCompanion:
         threading.Thread(target=server_runner, daemon=True).start()
 
     def _choose_next_action(self) -> None:
-        """
-        AI freely chooses what to do next:
-        - Mostly wanders or sprints to random places anywhere across the grass field.
-        - Often pauses to look around curiously or chirp.
-        - Only rarely (by its own whim) decides to wander near another player.
-        """
-        roll = random.random()
-
-        # If far from center, gently bias back into the open meadow
-        dist_from_origin = math.hypot(self.wx, self.wz)
-        if dist_from_origin > self.WORLD_LIMIT * 0.85:
-            angle = math.atan2(-self.wx, -self.wz) + random.uniform(-0.7, 0.7)
-            dist = random.uniform(8.0, 22.0)
-            self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
-            self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
-            self.mode = "run" if random.random() < 0.35 else "walk"
-            self.mode_timer = random.uniform(3.5, 7.0)
-            return
-
-        if roll < 0.25:
-            # Stop, rest, and look around on the grass
-            self.mode = "idle"
-            self.mode_timer = random.uniform(1.4, 4.0)
-            self.is_walking = False
-            self.is_running = False
-            self.target_head_yaw = random.uniform(-0.9, 0.9)
-            self.target_head_pitch = random.uniform(-0.25, 0.45)
-        elif roll < 0.65:
-            # Stroll playfully in a local radius around their sector
-            angle = random.uniform(0.0, 2.0 * math.pi)
-            dist = random.uniform(6.0, 24.0)
-            self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
-            self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
-            self.mode = "walk"
-            self.mode_timer = random.uniform(3.0, 7.5)
-        elif roll < 0.90:
-            # Run excitedly across the grass
-            angle = random.uniform(0.0, 2.0 * math.pi)
-            dist = random.uniform(12.0, 38.0)
-            self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
-            self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
-            self.mode = "run"
-            self.mode_timer = random.uniform(2.5, 5.5)
-        else:
-            # Curious exploration hop
-            angle = random.uniform(0.0, 2.0 * math.pi)
-            dist = random.uniform(8.0, 28.0)
-            self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx + math.sin(angle) * dist))
-            self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz + math.cos(angle) * dist))
-            self.mode = "walk" if random.random() < 0.65 else "run"
-            self.mode_timer = random.uniform(2.5, 6.0)
+        # AI cannot walk or run; it stays in place and can only jump!
+        self.dest_x = self.wx
+        self.dest_z = self.wz
+        self.mode = "idle"
+        self.mode_timer = random.uniform(1.6, 3.8)
+        self.is_walking = False
+        self.is_running = False
 
     def apply_punch_hit(self, dir_x: float, dir_z: float, headshot: bool, punch_side: float = 1.0) -> None:
         dlen = math.hypot(dir_x, dir_z)
@@ -384,48 +340,12 @@ class AICodeCompanion:
             else:
                 self.mouth_timer = random.uniform(1.8, 4.0)
 
-        if ai_ragdoll_locked:
-            self.is_walking = False
-            self.is_running = False
-        elif self.mode in ("walk", "run"):
-            dx = self.dest_x - self.wx
-            dz = self.dest_z - self.wz
-            dist = math.hypot(dx, dz)
-
-            if dist < 0.6:
-                self._choose_next_action()
-            else:
-                desired_yaw = math.atan2(dx, dz)
-                diff = wrap_angle(desired_yaw - self.rot_y)
-                max_turn = self.TURN_SPEED * dt
-                if abs(diff) <= max_turn:
-                    self.rot_y = desired_yaw
-                else:
-                    self.rot_y = wrap_angle(self.rot_y + math.copysign(max_turn, diff))
-
-                speed = self.RUN_SPEED if self.mode == "run" else self.WALK_SPEED
-                # Slow forward movement while turning sharply
-                align_factor = max(0.25, math.cos(min(math.pi * 0.5, abs(diff))))
-                step_dist = speed * align_factor * dt
-                self.wx += math.sin(self.rot_y) * step_dist
-                self.wz += math.cos(self.rot_y) * step_dist
-                self.wx = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wx))
-                self.wz = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, self.wz))
-
-                self.is_running = (self.mode == "run")
-                self.is_walking = (self.mode == "walk")
-
-                if self.head_timer <= 0.0:
-                    self.target_head_yaw = max(-0.6, min(0.6, diff * 0.8 + random.uniform(-0.25, 0.25)))
-                    self.target_head_pitch = random.uniform(-0.12, 0.22)
-                    self.head_timer = random.uniform(1.0, 2.4)
-        else:
-            self.is_walking = False
-            self.is_running = False
-            if self.head_timer <= 0.0:
-                self.target_head_yaw = random.uniform(-0.95, 0.95)
-                self.target_head_pitch = random.uniform(-0.25, 0.45)
-                self.head_timer = random.uniform(0.9, 2.2)
+        # AI cannot walk, run, turn on its own, or look around—it can only jump!
+        self.is_walking = False
+        self.is_running = False
+        if self.headshot_phase == "none":
+            self.target_head_yaw = 0.0
+            self.target_head_pitch = 0.0
 
         # --- CHICK-TO-CHICK COLLISION & DYNAMIC PUSHING FOR AI ---
         ai_landing_support_y = 0.0
@@ -571,29 +491,13 @@ class AICodeCompanion:
                     self.jump_offset_y = cur_floor
             self.jump_amount = 0.0
 
-        # Occasional playful kicks / punches / jumps while roaming
+        # AI cannot move, kick, punch, or tag—it can only jump!
         self.action_cooldown -= dt
-        if not ai_ragdoll_locked and self.action_cooldown <= 0.0 and not self.is_kicking and not self.is_punching and self.jump_state == "idle":
-            self.action_cooldown = random.uniform(3.5, 7.5)
-            roll = random.random()
-            if roll < 0.28:
-                # Playful jump hop!
-                self.jump_state = "crouching"
-                self.crouch_timer = 0.0
-                self.jump_amount = 0.0
-            elif roll < 0.52:
-                self.is_kicking = True
-                self.kick_timer = 0.0
-                self.kick_side = -self.kick_side
-            elif roll < 0.76:
-                self.is_punching = True
-                self.punch_timer = 0.0
-                self.punch_side = -self.punch_side
-            else:
-                # Playful tag reach (raise hands forward like zombie to play tag!)
-                self.is_tagging = True
-                self.tag_timer = 0.0
-                self.tag_duration = random.uniform(1.8, 3.2)
+        if not ai_ragdoll_locked and self.action_cooldown <= 0.0 and self.jump_state == "idle":
+            self.action_cooldown = random.uniform(2.2, 4.8)
+            self.jump_state = "crouching"
+            self.crouch_timer = 0.0
+            self.jump_amount = 0.0
 
 
     def _build_world_context(self, speaker_id: int, speaker_name: str) -> str:
@@ -609,36 +513,13 @@ class AICodeCompanion:
         return f"你当前状态:{state_str}；{dist_str}；当前共有{len(self.other_players) + 1}只小鸡在岛上。"
 
     def _apply_gemini_action(self, action: str, speaker_id: int) -> None:
-        # While ragdolled, only blinking & mouth opening are allowed (no moving/jumping/kicking/tagging)
-        if self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05:
+        # AI cannot move except jump (and cannot jump while ragdolled)
+        if self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05 or self.headshot_phase != "none":
             return
-        sp = self.other_players.get(speaker_id)
-        if action in ("come", "run_to") and sp is not None:
-            self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, sp["wx"]))
-            self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, sp["wz"]))
-            self.mode = "run" if action == "run_to" else "walk"
-            self.mode_timer = 4.5
-        elif action == "jump" and self.jump_state == "idle":
+        if action == "jump" and self.jump_state == "idle":
             self.jump_state = "crouching"
             self.crouch_timer = 0.0
             self.jump_amount = 0.0
-        elif action == "kick" and not self.is_kicking:
-            self.is_kicking = True
-            self.kick_timer = 0.0
-            self.kick_side = -self.kick_side
-        elif action == "punch" and not self.is_punching:
-            self.is_punching = True
-            self.punch_timer = 0.0
-            self.punch_side = -self.punch_side
-        elif action == "tag":
-            self.is_tagging = True
-            self.tag_timer = 0.0
-            self.tag_duration = 2.6
-        elif action == "idle":
-            self.mode = "idle"
-            self.mode_timer = 3.0
-            self.is_walking = False
-            self.is_running = False
 
     async def _handle_chat_with_gemini(self, sender_id: int, sender_name: str, chat_text: str) -> None:
         if self._reply_lock is None:
