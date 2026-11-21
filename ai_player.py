@@ -216,6 +216,15 @@ class AICodeCompanion:
             self.ragdoll = 1.0
             self.kick_bounced = False
             self.side_lying_timer = 0.0
+            self.is_kicking = False
+            self.kick_timer = 0.0
+            self.kick_amount = 0.0
+            self.is_punching = False
+            self.punch_timer = 0.0
+            self.punch_amount = 0.0
+            self.is_tagging = False
+            self.tag_amount = 0.0
+            self.jump_amount = 0.0
         else:
             # 75% outcome: just get pushed horizontally
             self.knock_vx = nx * 9.5
@@ -261,7 +270,23 @@ class AICodeCompanion:
         self.mouth_timer -= dt
         self.blink_timer -= dt
 
-        if self.mode_timer <= 0.0:
+        ai_ragdoll_locked = (self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05)
+        if ai_ragdoll_locked:
+            self.is_kicking = False
+            self.kick_timer = 0.0
+            self.kick_amount = 0.0
+            self.is_punching = False
+            self.punch_timer = 0.0
+            self.punch_amount = 0.0
+            self.is_tagging = False
+            self.tag_amount = 0.0
+            self.target_head_yaw = 0.0
+            self.target_head_pitch = 0.0
+            if self.jump_state == "crouching":
+                self.jump_state = "idle"
+                self.crouch_timer = 0.0
+                self.jump_amount = 0.0
+        elif self.mode_timer <= 0.0:
             self._choose_next_action()
 
         if self.blink_timer <= 0.0:
@@ -297,7 +322,7 @@ class AICodeCompanion:
             else:
                 self.mouth_timer = random.uniform(1.8, 4.0)
 
-        if self.side_lying_timer > 0.0 or self.is_kick_launched:
+        if ai_ragdoll_locked:
             self.is_walking = False
             self.is_running = False
         elif self.mode in ("walk", "run"):

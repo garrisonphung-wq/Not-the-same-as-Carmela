@@ -1134,27 +1134,26 @@ def main() -> None:
                         # Trigger a blink on demand (and holding B keeps eyes closed)
                         blink_hold_timer = 0.16
                         auto_blink_timer = random.uniform(2.8, 5.0)
-                    elif is_online and not is_fighting and event.key == pygame.K_j:
-                        # Pressing 'J' makes you crouch and jump!
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05) and event.key == pygame.K_j:
+                        # Pressing 'J' makes you crouch and jump! (Disabled during ragdoll mode)
                         if jump_state == "idle":
                             jump_state = "crouching"
                             crouch_timer = 0.0
                             jump_amount = 0.0
                             wing_flap_amount = 0.0
-                    elif is_online and not is_fighting and event.key == pygame.K_k:
-                        # Pressing 'K' triggers a forward martial arts karate kick!
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05) and event.key == pygame.K_k:
+                        # Pressing 'K' triggers a forward martial arts karate kick! (Disabled during ragdoll mode)
                         is_kicking = True
                         kick_timer = 0.0
                         kick_side = -kick_side  # alternate between right and left leg!
                         kick_hit_victims.clear()
-                    elif is_online and not is_fighting and event.key == pygame.K_p:
-                        # Pressing 'P' triggers a forward boxing punch / wing strike!
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05) and event.key == pygame.K_p:
+                        # Pressing 'P' triggers a forward boxing punch / wing strike! (Disabled during ragdoll mode)
                         is_punching = True
                         punch_timer = 0.0
                         punch_side = -punch_side  # alternate between right and left wing!
-                    elif is_online and not is_fighting and event.key == pygame.K_t:
-                        # Pressing 'T' toggles raising both arms forward like a zombie (stops at neck level)
-                        # Used for tag, hide-and-seek tag, and games requiring touching!
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05) and event.key == pygame.K_t:
+                        # Pressing 'T' toggles raising both arms forward like a zombie (Disabled during ragdoll mode)
                         is_tagging = not is_tagging
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # Menu navigation and joining in offline mode
@@ -1319,12 +1318,17 @@ def main() -> None:
             norm_mx = (mx - win_w * 0.5) / max(1.0, win_w * 0.5)
             norm_my = (my - win_h * 0.5) / max(1.0, win_h * 0.5)
 
-            target_head_yaw = max(-MAX_HEAD_YAW, min(MAX_HEAD_YAW, norm_mx * MAX_HEAD_YAW))
-            if norm_my < 0.0:
-                target_head_pitch = -norm_my * MAX_HEAD_PITCH_UP
+            is_ragdoll_mode = (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05)
+            if is_ragdoll_mode:
+                target_head_yaw = 0.0
+                target_head_pitch = 0.0
             else:
-                target_head_pitch = -norm_my * MAX_HEAD_PITCH_DOWN
-            target_head_pitch = max(-MAX_HEAD_PITCH_DOWN, min(MAX_HEAD_PITCH_UP, target_head_pitch))
+                target_head_yaw = max(-MAX_HEAD_YAW, min(MAX_HEAD_YAW, norm_mx * MAX_HEAD_YAW))
+                if norm_my < 0.0:
+                    target_head_pitch = -norm_my * MAX_HEAD_PITCH_UP
+                else:
+                    target_head_pitch = -norm_my * MAX_HEAD_PITCH_DOWN
+                target_head_pitch = max(-MAX_HEAD_PITCH_DOWN, min(MAX_HEAD_PITCH_UP, target_head_pitch))
 
             head_alpha = 1.0 - math.exp(-HEAD_SMOOTH_SPEED * dt)
             head_yaw += (target_head_yaw - head_yaw) * head_alpha
@@ -1373,7 +1377,7 @@ def main() -> None:
 
             # --- VIEW TURNING CONTROLS (Left/Right Arrows + Q/E) ---
             turn_input = 0.0
-            if not is_typing_chat and not is_fighting:
+            if not is_typing_chat and not is_fighting and not is_ragdoll_mode:
                 if keys[pygame.K_LEFT] or keys[pygame.K_q]:
                     turn_input -= 1.0
                 if keys[pygame.K_RIGHT] or keys[pygame.K_e]:
@@ -1403,7 +1407,7 @@ def main() -> None:
             # --- MOVEMENT CONTROLS (Arrow Up/Down + WASD) ---
             move_fwd = 0.0
             move_side = 0.0
-            if not is_typing_chat:
+            if not is_typing_chat and not is_ragdoll_mode:
                 if keys[pygame.K_UP] or keys[pygame.K_w]:
                     move_fwd += 1.0
                 if keys[pygame.K_DOWN] or keys[pygame.K_s]:
@@ -1462,6 +1466,15 @@ def main() -> None:
                         local_ragdoll = 1.0
                         kick_bounced = False
                         side_lying_timer = 0.0
+                        # Cancel any active kick/punch/tag/flap on entering ragdoll mode
+                        is_kicking = False
+                        kick_timer = 0.0
+                        is_punching = False
+                        punch_timer = 0.0
+                        is_tagging = False
+                        tag_amount = 0.0
+                        jump_amount = 0.0
+                        wing_flap_amount = 0.0
                     else:
                         # 75% kick outcome: just get pushed horizontally
                         knock_vx = nx_k * 9.5
@@ -1686,7 +1699,22 @@ def main() -> None:
             # Zombie tag arms animation progress (smoothly raises/lowers hands to neck level)
             # When holding or toggled on with 'T', arms raise up and stay steady at neck level
             keys_down = pygame.key.get_pressed()
-            is_tag_active = is_tagging or (keys_down[pygame.K_t] if not is_typing_chat else False)
+            if is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05:
+                is_kicking = False
+                kick_timer = 0.0
+                kick_amount = 0.0
+                is_punching = False
+                punch_timer = 0.0
+                punch_amount = 0.0
+                is_tagging = False
+                tag_amount = 0.0
+                if jump_state == "crouching":
+                    jump_state = "idle"
+                    crouch_timer = 0.0
+                    jump_amount = 0.0
+            is_tag_active = (not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05)) and (
+                is_tagging or (keys_down[pygame.K_t] if not is_typing_chat else False)
+            )
             if is_tag_active:
                 tag_amount = min(1.0, tag_amount + 12.0 * dt)
             else:
