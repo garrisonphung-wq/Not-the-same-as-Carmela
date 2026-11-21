@@ -1713,6 +1713,14 @@ def main() -> None:
             MIN_CHICK_DIST = CHICK_BODY_RADIUS * 2.0  # 1.16m body contact boundary
 
             if is_online and not is_fighting:
+                # Apply carrier horizontal motion BEFORE distance check so riding stays locked even when carrier runs & jumps
+                if riding_player_id is not None and riding_player_id in remote_states and jump_state != "airborne":
+                    c_rs_pre = remote_states[riding_player_id]
+                    if riding_prev_base_pos is not None:
+                        cam_x += c_rs_pre["wx"] - riding_prev_base_pos[0]
+                        cam_z += c_rs_pre["wz"] - riding_prev_base_pos[1]
+                    riding_prev_base_pos = (c_rs_pre["wx"], c_rs_pre["wz"])
+
                 my_height = jump_offset_y
                 my_weight = 1.0 + (1.2 if is_running else (0.6 if is_moving else 0.0))
 
@@ -1733,13 +1741,12 @@ def main() -> None:
 
                     # Check jumping onto and riding the other player:
                     other_top_y = other_jump_y + 1.15
-                    # Allow riding range slightly wider than initial land range so motion doesn't slip off
                     is_currently_riding_this = (riding_player_id == pid)
                     ride_range = MIN_CHICK_DIST * 1.25 if is_currently_riding_this else MIN_CHICK_DIST * 0.92
 
                     if horiz_d < ride_range:
-                        if my_height >= other_top_y - 0.32:
-                            # Standing / riding on top of this chick!
+                        # Stay locked on top if already riding (even if the bottom chick jumps rapidly upward!)
+                        if (is_currently_riding_this and jump_state != "airborne") or (my_height >= other_top_y - 0.32):
                             if other_top_y > landing_support_y:
                                 landing_support_y = other_top_y
                                 found_carrier_id = pid
@@ -1755,20 +1762,16 @@ def main() -> None:
 
                         # Determine dynamic push ratios based on movement status:
                         if is_moving and not other_moving:
-                            # Moving player pushes stationary player:
                             ratio_me = 0.20
                             ratio_other = 0.80
                         elif other_moving and not is_moving:
-                            # Stationary player gets pushed by moving player:
                             ratio_me = 0.80
                             ratio_other = 0.20
                         elif is_moving and other_moving:
-                            # Both moving/running into each other:
                             tot_w = my_weight + other_weight
                             ratio_me = other_weight / tot_w
                             ratio_other = my_weight / tot_w
                         else:
-                            # Both stationary but touching:
                             ratio_me = 0.50
                             ratio_other = 0.50
 
@@ -1780,19 +1783,11 @@ def main() -> None:
                         rs["wx"] = ox - nx * (overlap * ratio_other)
                         rs["wz"] = oz - nz * (overlap * ratio_other)
 
-                # Smoothly ride along when on top of someone:
-                # If local player is riding carrier, match carrier's horizontal delta!
+                # Update carrier tracking cleanly:
                 if found_carrier_id is not None and found_carrier_id in remote_states:
                     c_rs = remote_states[found_carrier_id]
-                    c_pos = (c_rs["wx"], c_rs["wz"])
-                    if riding_player_id == found_carrier_id and riding_prev_base_pos is not None:
-                        # Carry player along with bottom player's movement!
-                        delta_cx = c_pos[0] - riding_prev_base_pos[0]
-                        delta_cz = c_pos[1] - riding_prev_base_pos[1]
-                        cam_x += delta_cx
-                        cam_z += delta_cz
                     riding_player_id = found_carrier_id
-                    riding_prev_base_pos = c_pos
+                    riding_prev_base_pos = (c_rs["wx"], c_rs["wz"])
                 else:
                     riding_player_id = None
                     riding_prev_base_pos = None
@@ -1925,6 +1920,8 @@ def main() -> None:
             # Step 2: Spring up into the air (un-crouches, launches high into the sky)
             crouch_eye_drop = 0.0
             if jump_state == "crouching":
+                if landing_support_y > 0.0:
+                    jump_offset_y = landing_support_y
                 crouch_timer += dt
                 cp = min(1.0, crouch_timer / crouch_duration)
                 jump_amount = math.sin(cp * (math.pi / 2))
@@ -1933,8 +1930,10 @@ def main() -> None:
                 if crouch_timer >= crouch_duration:
                     jump_state = "airborne"
                     jump_velocity_y = JUMP_IMPULSE
-                    jump_offset_y = 0.08
+                    jump_offset_y = max(jump_offset_y, landing_support_y) + 0.08
                     jump_amount = 0.0  # Fully un-crouch and thrust upward!
+                    riding_player_id = None
+                    riding_prev_base_pos = None
             elif jump_state == "airborne":
                 if launch_accel_timer > 0.0:
                     jump_velocity_y += 74.0 * dt
