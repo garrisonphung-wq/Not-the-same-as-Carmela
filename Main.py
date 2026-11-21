@@ -930,15 +930,18 @@ def main() -> None:
     action_banner_text = ""
     dust_sparks: list[dict[str, Any]] = []
 
-    # Jump action (triggered with 'J' key) - crisp crouch windup then explosive leap!
+    # Charge-to-Jump action ('J' key): hold J to charge more jump height, release J to launch!
     jump_offset_y = 0.0
     jump_velocity_y = 0.0
-    jump_state = "idle"   # "idle" -> "crouching" -> "airborne"
+    jump_state = "idle"   # "idle" -> "crouching" (charging while J held) -> "airborne" (on J release)
     crouch_timer = 0.0
-    crouch_duration = 0.14 # Quick snappy crouch before launching up
+    jump_charge = 0.0      # 0.0 -> 1.0 as J is held longer
+    max_jump_charge_time = 0.85
+    jump_released_this_frame = False
     jump_amount = 0.0      # Crouch depth (1.0 = deep crouch, 0.0 = standing/jumping)
     wing_flap_amount = 0.0 # Wings flap when airborne
-    JUMP_IMPULSE = 8.5     # High energetic leap into the sky
+    MIN_JUMP_HEIGHT = 1.40 # Crisp quick-tap hop height (clears another chick!)
+    MAX_JUMP_HEIGHT = 6.40 # Full-hold super jump height
     GRAVITY = 22.0         # Crisp realistic gravity
 
     # First-person kick action (triggered with 'K' key)
@@ -1093,6 +1096,7 @@ def main() -> None:
         ime_was_active_at_frame_start = bool(ime_comp_text)
         ime_event_this_frame = False
         pending_submit_chat = False
+        jump_released_this_frame = False
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -1208,10 +1212,11 @@ def main() -> None:
                         blink_hold_timer = 0.16
                         auto_blink_timer = random.uniform(2.8, 5.0)
                     elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none") and event.key == pygame.K_j:
-                        # Pressing 'J' makes you crouch and jump! (Disabled during ragdoll mode)
+                        # Hold 'J' to crouch & charge jump height; release 'J' to launch! (Disabled during ragdoll mode)
                         if jump_state == "idle":
                             jump_state = "crouching"
                             crouch_timer = 0.0
+                            jump_charge = 0.0
                             jump_amount = 0.0
                             wing_flap_amount = 0.0
                     elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none") and event.key == pygame.K_k:
@@ -1229,6 +1234,9 @@ def main() -> None:
                     elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none") and event.key == pygame.K_t:
                         # Pressing 'T' toggles raising both arms forward like a zombie (Disabled during ragdoll mode)
                         is_tagging = not is_tagging
+            elif event.type == pygame.KEYUP and event.key == pygame.K_j:
+                if jump_state == "crouching":
+                    jump_released_this_frame = True
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # Menu navigation and joining in offline mode
                 if not is_online:
@@ -1906,6 +1914,7 @@ def main() -> None:
                 if jump_state == "crouching":
                     jump_state = "idle"
                     crouch_timer = 0.0
+                    jump_charge = 0.0
                     jump_amount = 0.0
             is_tag_active = (not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none")) and (
                 is_tagging or (keys_down[pygame.K_t] if not is_typing_chat else False)
@@ -1922,16 +1931,23 @@ def main() -> None:
             if jump_state == "crouching":
                 if landing_support_y > 0.0:
                     jump_offset_y = landing_support_y
-                crouch_timer += dt
-                cp = min(1.0, crouch_timer / crouch_duration)
-                jump_amount = math.sin(cp * (math.pi / 2))
-                crouch_eye_drop = -0.58 * jump_amount  # Camera drops down into crouch
-                wing_flap_amount = 0.0
-                if crouch_timer >= crouch_duration:
+                is_still_holding_j = (not is_typing_chat) and (not jump_released_this_frame) and bool(keys_down[pygame.K_j])
+                if is_still_holding_j:
+                    crouch_timer += dt
+                    jump_charge = min(1.0, crouch_timer / max_jump_charge_time)
+                    # Visual crouch starts snappy (~0.25) and sinks deeper as you hold for more jump height
+                    jump_amount = min(1.0, 0.25 + 0.75 * math.sin(jump_charge * (math.pi / 2)))
+                    crouch_eye_drop = -0.68 * jump_amount
+                    wing_flap_amount = 0.0
+                else:
+                    # Released 'J' -> jump with height proportional to how long 'J' was held!
+                    target_jump_h = MIN_JUMP_HEIGHT + jump_charge * (MAX_JUMP_HEIGHT - MIN_JUMP_HEIGHT)
+                    jump_velocity_y = math.sqrt(2.0 * GRAVITY * target_jump_h)
                     jump_state = "airborne"
-                    jump_velocity_y = JUMP_IMPULSE
                     jump_offset_y = max(jump_offset_y, landing_support_y) + 0.08
                     jump_amount = 0.0  # Fully un-crouch and thrust upward!
+                    crouch_timer = 0.0
+                    jump_charge = 0.0
                     riding_player_id = None
                     riding_prev_base_pos = None
             elif jump_state == "airborne":
