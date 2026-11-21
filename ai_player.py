@@ -68,6 +68,9 @@ class AICodeCompanion:
         self.kick_lay_dir = -1.0
         self.kick_bounced = False
         self.side_lying_timer = 0.0
+        self.headshot_phase = "none"  # "none" | "head_up" | "fall_back"
+        self.headshot_timer = 0.0
+        self.headshot_face_yaw = self.rot_y
         self.head_yaw = 0.0
         self.head_pitch = 0.0
         self.target_head_yaw = 0.0
@@ -199,6 +202,38 @@ class AICodeCompanion:
             self.mode = "walk" if random.random() < 0.65 else "run"
             self.mode_timer = random.uniform(2.5, 6.0)
 
+    def apply_punch_hit(self, dir_x: float, dir_z: float, headshot: bool, punch_side: float = 1.0) -> None:
+        dlen = math.hypot(dir_x, dir_z)
+        nx = dir_x / dlen if dlen > 1e-4 else 0.0
+        nz = dir_z / dlen if dlen > 1e-4 else 1.0
+        if headshot:
+            # 30% outcome: face attacker, tilt head up to sky, fall down backward facing attacker, lay on grass 1 sec!
+            self.knock_vx = nx * 5.2
+            self.knock_vz = nz * 5.2
+            self.headshot_face_yaw = math.atan2(-nx, -nz)
+            self.headshot_phase = "head_up"
+            self.headshot_timer = 0.0
+            self.kick_lay_dir = -1.0  # Fall backward onto back
+            self.kick_roll_dir = 0.0
+            self.is_kick_launched = False
+            self.side_lying_timer = 0.0
+            self.ragdoll = 0.0
+            self.is_walking = False
+            self.is_running = False
+            self.is_kicking = False
+            self.kick_timer = 0.0
+            self.kick_amount = 0.0
+            self.is_punching = False
+            self.punch_timer = 0.0
+            self.punch_amount = 0.0
+            self.is_tagging = False
+            self.tag_amount = 0.0
+            self.jump_amount = 0.0
+        else:
+            # 70% outcome: just get pushed back horizontally
+            self.knock_vx = nx * 8.2
+            self.knock_vz = nz * 8.2
+
     def apply_kick_hit(self, dir_x: float, dir_z: float, launch: bool, roll_dir: float) -> None:
         dlen = math.hypot(dir_x, dir_z)
         nx = dir_x / dlen if dlen > 1e-4 else 0.0
@@ -255,6 +290,43 @@ class AICodeCompanion:
             self.is_running = False
             self.lay_pitch = self.kick_lay_dir * (math.pi * 0.5)
             self.ragdoll = 1.0
+        elif self.headshot_phase == "head_up":
+            self.headshot_timer += dt
+            self.is_walking = False
+            self.is_running = False
+            # Turn to face the attacker
+            diff_y = wrap_angle(self.headshot_face_yaw - self.rot_y)
+            turn_step = 16.0 * dt
+            if abs(diff_y) <= turn_step:
+                self.rot_y = self.headshot_face_yaw
+            else:
+                self.rot_y = wrap_angle(self.rot_y + math.copysign(turn_step, diff_y))
+            # Tilt head straight UP (pi/2)
+            self.target_head_yaw = 0.0
+            self.head_yaw += (0.0 - self.head_yaw) * min(1.0, 14.0 * dt)
+            self.head_pitch = min(math.pi * 0.5, self.head_pitch + 7.0 * dt)
+            self.target_head_pitch = self.head_pitch
+            if self.headshot_timer >= 0.28 and self.head_pitch >= math.pi * 0.46:
+                self.headshot_phase = "fall_back"
+                self.headshot_timer = 0.0
+                self.rot_y = self.headshot_face_yaw
+        elif self.headshot_phase == "fall_back":
+            self.headshot_timer += dt
+            self.is_walking = False
+            self.is_running = False
+            self.rot_y = self.headshot_face_yaw
+            # Fall backward onto back (-pi/2) while keeping face toward sky
+            fall_speed = math.radians(260.0 + 180.0 * min(1.0, self.headshot_timer * 2.5))
+            self.lay_pitch = max(-math.pi * 0.5, self.lay_pitch - fall_speed * dt)
+            progress = min(1.0, abs(self.lay_pitch) / (math.pi * 0.5))
+            self.head_pitch = (math.pi * 0.5) * (1.0 - progress) + 0.12 * progress
+            self.target_head_pitch = self.head_pitch
+            if self.lay_pitch <= -math.pi * 0.5 + 1e-4:
+                self.lay_pitch = -math.pi * 0.5
+                self.rot_z = 0.0
+                self.ragdoll = 1.0
+                self.headshot_phase = "none"
+                self.side_lying_timer = 1.0
         elif not self.is_kick_launched and (abs(self.lay_pitch) > 1e-3 or abs(self.rot_z) > 1e-3 or self.ragdoll > 1e-3):
             # Smoothly recover upright from ragdoll lay-down
             rec_step = math.radians(280.0) * dt
@@ -273,7 +345,7 @@ class AICodeCompanion:
         self.mouth_timer -= dt
         self.blink_timer -= dt
 
-        ai_ragdoll_locked = (self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05)
+        ai_ragdoll_locked = (self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05 or self.headshot_phase != "none")
         if ai_ragdoll_locked:
             self.is_kicking = False
             self.kick_timer = 0.0
@@ -404,10 +476,11 @@ class AICodeCompanion:
                 self.wx += nx * (overlap * ratio_me)
                 self.wz += nz * (overlap * ratio_me)
 
-        # Smooth natural neck interpolation
-        head_alpha = 1.0 - math.exp(-6.0 * dt)
-        self.head_yaw += (self.target_head_yaw - self.head_yaw) * head_alpha
-        self.head_pitch += (self.target_head_pitch - self.head_pitch) * head_alpha
+        # Smooth natural neck interpolation (skip overwrite during headshot sequence)
+        if self.headshot_phase == "none":
+            head_alpha = 1.0 - math.exp(-6.0 * dt)
+            self.head_yaw += (self.target_head_yaw - self.head_yaw) * head_alpha
+            self.head_pitch += (self.target_head_pitch - self.head_pitch) * head_alpha
 
         # Update kick animation
         if self.is_kicking:
@@ -690,6 +763,16 @@ class AICodeCompanion:
                 if sender_id != self.my_id and chat_text:
                     sender_name = str(msg.get("name") or self.other_player_labels.get(sender_id) or f"Player {sender_id}")
                     asyncio.create_task(self._handle_chat_with_gemini(sender_id, sender_name, chat_text))
+
+            elif mtype == "punch_hit":
+                target_id = msg.get("target_id")
+                if target_id is None or int(target_id) == self.my_id:
+                    self.apply_punch_hit(
+                        float(msg.get("dir_x", 0.0)),
+                        float(msg.get("dir_z", 1.0)),
+                        bool(msg.get("headshot", False)),
+                        float(msg.get("punch_side", 1.0)),
+                    )
 
             elif mtype == "kick_hit":
                 target_id = msg.get("target_id")

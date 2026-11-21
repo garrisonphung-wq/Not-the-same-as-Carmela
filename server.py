@@ -251,6 +251,25 @@ class GameRelayServer:
                             await self._clients[target_id].send(json.dumps(hit_msg, separators=(",", ":")))
                         except Exception:
                             pass
+                elif data.get("type") == "punch_hit":
+                    try:
+                        target_id = int(data.get("target_id", -1))
+                    except (TypeError, ValueError):
+                        target_id = -1
+                    if target_id in self._clients and target_id != player_id:
+                        punch_msg = {
+                            "type": "punch_hit",
+                            "from_id": player_id,
+                            "target_id": target_id,
+                            "dir_x": safe_float(data.get("dir_x", 0.0), 0.0, limit=2.0),
+                            "dir_z": safe_float(data.get("dir_z", 1.0), 1.0, limit=2.0),
+                            "headshot": bool(data.get("headshot", False)),
+                            "punch_side": 1.0 if safe_float(data.get("punch_side", 1.0), 1.0, limit=2.0) >= 0.0 else -1.0,
+                        }
+                        try:
+                            await self._clients[target_id].send(json.dumps(punch_msg, separators=(",", ":")))
+                        except Exception:
+                            pass
                 elif data.get("type") == "chat":
                     text = str(data.get("text", "")).strip()[:280]
                     if text:

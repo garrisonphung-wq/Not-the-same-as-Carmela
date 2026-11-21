@@ -358,6 +358,8 @@ class NetworkClient:
         self._incoming_chats: list[dict[str, Any]] = []
         self._outgoing_kick_hits: list[dict[str, Any]] = []
         self._incoming_kick_hits: list[dict[str, Any]] = []
+        self._outgoing_punch_hits: list[dict[str, Any]] = []
+        self._incoming_punch_hits: list[dict[str, Any]] = []
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -488,6 +490,25 @@ class NetworkClient:
                 for pid, data in self.remote_players.items()
             }
             return self.connected, self.is_host, self.my_id, self.my_color, players_copy
+
+    def send_punch_hit(self, target_id: int, dir_x: float, dir_z: float, headshot: bool, punch_side: float = 1.0) -> None:
+        with self._lock:
+            self._outgoing_punch_hits.append({
+                "type": "punch_hit",
+                "target_id": int(target_id),
+                "dir_x": round(dir_x, 4),
+                "dir_z": round(dir_z, 4),
+                "headshot": bool(headshot),
+                "punch_side": 1.0 if punch_side >= 0.0 else -1.0,
+            })
+
+    def pop_incoming_punch_hits(self) -> list[dict[str, Any]]:
+        with self._lock:
+            if not self._incoming_punch_hits:
+                return []
+            out = list(self._incoming_punch_hits)
+            self._incoming_punch_hits.clear()
+            return out
 
     def send_kick_hit(self, target_id: int, dir_x: float, dir_z: float, launch: bool, roll_dir: float) -> None:
         with self._lock:
@@ -643,6 +664,18 @@ class NetworkClient:
             for k_evt in out_kicks:
                 try:
                     await ws.send(json.dumps(k_evt, separators=(",", ":")))
+                except Exception:
+                    pass
+
+            out_punches = []
+            with self._lock:
+                if self._outgoing_punch_hits:
+                    out_punches = list(self._outgoing_punch_hits)
+                    self._outgoing_punch_hits.clear()
+
+            for p_evt in out_punches:
+                try:
+                    await ws.send(json.dumps(p_evt, separators=(",", ":")))
                 except Exception:
                     pass
 
@@ -811,6 +844,10 @@ class NetworkClient:
                 with self._lock:
                     self._incoming_kick_hits.append(msg)
 
+            elif msg_type == "punch_hit":
+                with self._lock:
+                    self._incoming_punch_hits.append(msg)
+
             elif msg_type == "chat":
                 with self._lock:
                     self._incoming_chats.append(msg)
@@ -901,6 +938,10 @@ def main() -> None:
     kick_duration = 0.48
     kick_side = 1.0  # 1.0 for right leg, -1.0 for left leg
     kick_hit_victims: set[int] = set()
+    punch_hit_victims: set[int] = set()
+    local_headshot_phase = "none"
+    local_headshot_timer = 0.0
+    local_headshot_face_yaw = 0.0
     knock_vx = 0.0
     knock_vz = 0.0
     launch_accel_timer = 0.0
@@ -1135,25 +1176,26 @@ def main() -> None:
                         # Trigger a blink on demand (and holding B keeps eyes closed)
                         blink_hold_timer = 0.16
                         auto_blink_timer = random.uniform(2.8, 5.0)
-                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05) and event.key == pygame.K_j:
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none") and event.key == pygame.K_j:
                         # Pressing 'J' makes you crouch and jump! (Disabled during ragdoll mode)
                         if jump_state == "idle":
                             jump_state = "crouching"
                             crouch_timer = 0.0
                             jump_amount = 0.0
                             wing_flap_amount = 0.0
-                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05) and event.key == pygame.K_k:
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none") and event.key == pygame.K_k:
                         # Pressing 'K' triggers a forward martial arts karate kick! (Disabled during ragdoll mode)
                         is_kicking = True
                         kick_timer = 0.0
                         kick_side = -kick_side  # alternate between right and left leg!
                         kick_hit_victims.clear()
-                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05) and event.key == pygame.K_p:
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none") and event.key == pygame.K_p:
                         # Pressing 'P' triggers a forward boxing punch / wing strike! (Disabled during ragdoll mode)
                         is_punching = True
                         punch_timer = 0.0
                         punch_side = -punch_side  # alternate between right and left wing!
-                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05) and event.key == pygame.K_t:
+                        punch_hit_victims.clear()
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none") and event.key == pygame.K_t:
                         # Pressing 'T' toggles raising both arms forward like a zombie (Disabled during ragdoll mode)
                         is_tagging = not is_tagging
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -1326,7 +1368,7 @@ def main() -> None:
             norm_mx = (mx - win_w * 0.5) / max(1.0, win_w * 0.5)
             norm_my = (my - win_h * 0.5) / max(1.0, win_h * 0.5)
 
-            is_ragdoll_mode = (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05)
+            is_ragdoll_mode = (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none")
             if is_ragdoll_mode:
                 target_head_yaw = 0.0
                 target_head_pitch = 0.0
@@ -1338,9 +1380,10 @@ def main() -> None:
                     target_head_pitch = -norm_my * MAX_HEAD_PITCH_DOWN
                 target_head_pitch = max(-MAX_HEAD_PITCH_DOWN, min(MAX_HEAD_PITCH_UP, target_head_pitch))
 
-            head_alpha = 1.0 - math.exp(-HEAD_SMOOTH_SPEED * dt)
-            head_yaw += (target_head_yaw - head_yaw) * head_alpha
-            head_pitch += (target_head_pitch - head_pitch) * head_alpha
+            if local_headshot_phase == "none":
+                head_alpha = 1.0 - math.exp(-HEAD_SMOOTH_SPEED * dt)
+                head_yaw += (target_head_yaw - head_yaw) * head_alpha
+                head_pitch += (target_head_pitch - head_pitch) * head_alpha
 
             # Proximity to Belino (小胖墩) when player is Carmelito
             near_belino = False
@@ -1488,6 +1531,37 @@ def main() -> None:
                         knock_vx = nx_k * 9.5
                         knock_vz = nz_k * 9.5
 
+                for ph in net.pop_incoming_punch_hits():
+                    dx_p = float(ph.get("dir_x", 0.0))
+                    dz_p = float(ph.get("dir_z", 1.0))
+                    dlen_p = math.hypot(dx_p, dz_p)
+                    nx_p = dx_p / dlen_p if dlen_p > 1e-4 else 0.0
+                    nz_p = dz_p / dlen_p if dlen_p > 1e-4 else 1.0
+                    if bool(ph.get("headshot", False)):
+                        # 30% punch headshot: face attacker, head moves up to sky, fall backward onto grass for 1 sec!
+                        knock_vx = nx_p * 5.2
+                        knock_vz = nz_p * 5.2
+                        local_headshot_face_yaw = math.atan2(-nx_p, -nz_p)
+                        local_headshot_phase = "head_up"
+                        local_headshot_timer = 0.0
+                        kick_lay_dir = -1.0
+                        kick_roll_dir = 0.0
+                        is_kick_launched = False
+                        side_lying_timer = 0.0
+                        local_ragdoll = 0.0
+                        is_kicking = False
+                        kick_timer = 0.0
+                        is_punching = False
+                        punch_timer = 0.0
+                        is_tagging = False
+                        tag_amount = 0.0
+                        jump_amount = 0.0
+                        wing_flap_amount = 0.0
+                    else:
+                        # 70% punch outcome: just pushed back
+                        knock_vx = nx_p * 8.2
+                        knock_vz = nz_p * 8.2
+
                 # Apply active knockback push velocity
                 if abs(knock_vx) > 0.01 or abs(knock_vz) > 0.01:
                     new_kx = cam_x + knock_vx * dt
@@ -1505,8 +1579,42 @@ def main() -> None:
                     knock_vx *= decay
                     knock_vz *= decay
 
-                # Laying down on grass recovery (1.0 sec ragdoll rest) after 25% launch landing
-                if side_lying_timer > 0.0:
+                # 30% punch headshot animation: head tilts up -> fall down backward facing attacker -> lay 1s
+                if local_headshot_phase == "head_up":
+                    local_headshot_timer += dt
+                    diff_y = (local_headshot_face_yaw - cam_yaw + math.pi) % (2.0 * math.pi) - math.pi
+                    t_step = 16.0 * dt
+                    if abs(diff_y) <= t_step:
+                        cam_yaw = local_headshot_face_yaw
+                    else:
+                        cam_yaw = (cam_yaw + math.copysign(t_step, diff_y) + math.pi) % (2.0 * math.pi) - math.pi
+                    head_yaw += (0.0 - head_yaw) * min(1.0, 14.0 * dt)
+                    head_pitch = min(math.pi * 0.5, head_pitch + 7.0 * dt)
+                    is_moving = False
+                    is_walking = False
+                    is_running = False
+                    if local_headshot_timer >= 0.28 and head_pitch >= math.pi * 0.46:
+                        local_headshot_phase = "fall_back"
+                        local_headshot_timer = 0.0
+                        cam_yaw = local_headshot_face_yaw
+                elif local_headshot_phase == "fall_back":
+                    local_headshot_timer += dt
+                    cam_yaw = local_headshot_face_yaw
+                    fall_speed = math.radians(260.0 + 180.0 * min(1.0, local_headshot_timer * 2.5))
+                    local_lay_pitch = max(-math.pi * 0.5, local_lay_pitch - fall_speed * dt)
+                    progress = min(1.0, abs(local_lay_pitch) / (math.pi * 0.5))
+                    head_pitch = (math.pi * 0.5) * (1.0 - progress) + 0.12 * progress
+                    is_moving = False
+                    is_walking = False
+                    is_running = False
+                    if local_lay_pitch <= -math.pi * 0.5 + 1e-4:
+                        local_lay_pitch = -math.pi * 0.5
+                        local_rot_z = 0.0
+                        local_ragdoll = 1.0
+                        local_headshot_phase = "none"
+                        side_lying_timer = 1.0
+                # Laying down on grass recovery (1.0 sec ragdoll rest) after 25% launch or 30% headshot
+                elif side_lying_timer > 0.0:
                     side_lying_timer = max(0.0, side_lying_timer - dt)
                     local_lay_pitch = kick_lay_dir * (math.pi * 0.5)
                     local_ragdoll = 1.0
@@ -1704,10 +1812,44 @@ def main() -> None:
                     else:
                         punch_amount = math.cos(((pp - 0.32) / 0.68) * (math.pi / 2))
 
+                    # Check if punching wing/fist reached another chicken during extension
+                    if is_online and not is_fighting and pp <= 0.60 and punch_amount >= 0.45:
+                        fwd_x = math.sin(cam_yaw)
+                        fwd_z = math.cos(cam_yaw)
+                        right_x = math.cos(cam_yaw)
+                        right_z = -math.sin(cam_yaw)
+                        fist_x = cam_x + fwd_x * (0.90 * punch_amount) + right_x * (punch_side * 0.22)
+                        fist_z = cam_z + fwd_z * (0.90 * punch_amount) + right_z * (punch_side * 0.22)
+                        fist_y = jump_offset_y + 0.98
+                        for pid, pdata in remote_players.items():
+                            if pid in punch_hit_victims or pid not in remote_states:
+                                continue
+                            rs = remote_states[pid]
+                            ox = rs.get("wx", 0.0)
+                            oz = rs.get("wz", 0.0)
+                            o_jump_y = rs.get("jump_offset_y", 0.0)
+                            rel_fwd = (ox - cam_x) * fwd_x + (oz - cam_z) * fwd_z
+                            if rel_fwd <= 0.08:
+                                continue
+                            dist_fist = math.hypot(ox - fist_x, oz - fist_z)
+                            reach_rad = 1.15 if resolve_character_id(pdata) == "pangdun" else 1.05
+                            if dist_fist <= reach_rad and abs(fist_y - (o_jump_y + 0.95)) < 1.25:
+                                punch_hit_victims.add(pid)
+                                push_dx = ox - cam_x
+                                push_dz = oz - cam_z
+                                plen = math.hypot(push_dx, push_dz)
+                                if plen > 1e-4:
+                                    push_dx /= plen
+                                    push_dz /= plen
+                                else:
+                                    push_dx, push_dz = fwd_x, fwd_z
+                                is_headshot = (random.random() < 0.30)  # 70% pushed back, 30% headshot
+                                net.send_punch_hit(pid, push_dx, push_dz, headshot=is_headshot, punch_side=punch_side)
+
             # Zombie tag arms animation progress (smoothly raises/lowers hands to neck level)
             # When holding or toggled on with 'T', arms raise up and stay steady at neck level
             keys_down = pygame.key.get_pressed()
-            if is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05:
+            if is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none":
                 is_kicking = False
                 kick_timer = 0.0
                 kick_amount = 0.0
@@ -1720,7 +1862,7 @@ def main() -> None:
                     jump_state = "idle"
                     crouch_timer = 0.0
                     jump_amount = 0.0
-            is_tag_active = (not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05)) and (
+            is_tag_active = (not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none")) and (
                 is_tagging or (keys_down[pygame.K_t] if not is_typing_chat else False)
             )
             if is_tag_active:
