@@ -3174,29 +3174,11 @@ def main() -> None:
             pygame.draw.rect(screen, (255, 255, 255), pic_rect, border_radius=16)
             pygame.draw.rect(screen, (215, 224, 232), pic_rect, width=2, border_radius=16)
 
-            preview_center_x = pic_rect.centerx
-            clean_custom_name = custom_player_name.strip()
-            chick_self_badge = get_nameplate_surface(selected_chick_name, 14)
-            if clean_custom_name:
-                custom_self_badge = get_nameplate_surface(
-                    clean_custom_name,
-                    12,
-                    text_color=(45, 95, 145),
-                    border_color=(175, 210, 240),
-                )
-                custom_y = pic_rect.top + 6
-                chick_y = custom_y + custom_self_badge.get_height() + 3
-                screen.blit(custom_self_badge, (preview_center_x - custom_self_badge.get_width() // 2, custom_y))
-                screen.blit(chick_self_badge, (preview_center_x - chick_self_badge.get_width() // 2, chick_y))
-            else:
-                chick_y = pic_rect.top + 8
-                screen.blit(chick_self_badge, (preview_center_x - chick_self_badge.get_width() // 2, chick_y))
-
-            corner_y = 194 - round(jump_offset_y * 20)
+            corner_y = 185 - round(jump_offset_y * 22)
             model_3d.render(
                 surface=screen,
                 screen_pos=(106, corner_y),
-                scale=64,
+                scale=72,
                 rot_y=0.0,
                 rot_x=0.06,
                 head_yaw=head_yaw,
