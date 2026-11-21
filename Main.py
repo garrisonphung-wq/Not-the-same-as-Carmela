@@ -868,6 +868,7 @@ def main() -> None:
     is_typing_chat = False
     chat_input_text = ""
     ime_comp_text = ""          # Live OS IME composition string (e.g. macOS Pinyin preedit)
+    ime_last_active_time = -10.0 # Timestamp of last OS IME composition/commit to avoid Enter race
     builtin_pinyin_mode = False # Toggleable built-in Pinyin IME (Tab or click badge)
     pinyin_buffer = ""
     pinyin_page = 0
@@ -931,23 +932,31 @@ def main() -> None:
         anim_time += dt
 
         consumed_pinyin_texts.clear()
+        ime_was_active_at_frame_start = bool(ime_comp_text)
+        ime_event_this_frame = False
+        pending_submit_chat = False
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             elif is_online and is_typing_chat and event.type == getattr(pygame, "TEXTEDITING", -1):
                 # Native OS IME composition preview (e.g. macOS Pinyin before committing)
                 ime_comp_text = str(getattr(event, "text", "") or "")
+                ime_event_this_frame = True
+                ime_last_active_time = anim_time
             elif is_online and is_typing_chat and event.type == pygame.TEXTINPUT:
                 ime_comp_text = ""
                 txt_in = str(getattr(event, "text", "") or "")
                 if not txt_in or txt_in in consumed_pinyin_texts:
                     continue
+                if not txt_in.isascii():
+                    ime_event_this_frame = True
+                    ime_last_active_time = anim_time
                 if builtin_pinyin_mode and txt_in.isascii() and txt_in.isalpha():
                     if len(pinyin_buffer) < 24:
                         pinyin_buffer += txt_in.lower()
                         pinyin_page = 0
                 else:
-                    # If built-in pinyin buffer has text and OS IME delivered Chinese directly, flush/append cleanly
+                    # Append committed text (handles both English and OS IME Chinese)
                     if len(chat_input_text) < 60:
                         chat_input_text += txt_in
             elif event.type == pygame.KEYDOWN:
@@ -965,8 +974,9 @@ def main() -> None:
                         cands = lookup_pinyin(pinyin_buffer)
                         page_cands = cands[pinyin_page * 5 : (pinyin_page + 1) * 5]
                         digit_keys = (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_5)
-                        if event.key in digit_keys:
-                            c_idx = digit_keys.index(event.key)
+                        kp_digit_keys = tuple(getattr(pygame, f"K_KP{i}", -1) for i in range(1, 6))
+                        if event.key in digit_keys or event.key in kp_digit_keys:
+                            c_idx = digit_keys.index(event.key) if event.key in digit_keys else kp_digit_keys.index(event.key)
                             if c_idx < len(page_cands):
                                 chat_input_text = (chat_input_text + page_cands[c_idx])[:60]
                                 pinyin_buffer = ""
@@ -1000,27 +1010,12 @@ def main() -> None:
                         if event.key == pygame.K_ESCAPE:
                             close_chat_input()
                         elif is_enter_key:
-                            # Pressing ENTER/RETURN sends chat if text is typed, or closes without saying anything
-                            clean = chat_input_text.strip()
-                            if clean:
-                                net.send_chat(clean)
-                                # Create local chat bubble (duration 5.5s)
-                                if -1 not in chat_bubbles:
-                                    chat_bubbles[-1] = []
-                                chat_bubbles[-1].append({"text": clean, "timer": 5.5, "duration": 5.5})
-                                chat_bubbles[-1] = chat_bubbles[-1][-4:]  # Limit to 4 stacked bubbles
-                                # Append to persistent chatbox history
-                                chat_history.append({
-                                    "sender": selected_chick_name,
-                                    "text": clean,
-                                    "is_self": True,
-                                    "sender_id": -1,
-                                })
-                                if len(chat_history) > 40:
-                                    del chat_history[:-40]
-                            close_chat_input()
+                            # Defer submit until AFTER all TEXTINPUT/TEXTEDITING events in this frame
+                            # have been processed! Prevents macOS IME Enter/select race from dropping Chinese text!
+                            pending_submit_chat = True
                         elif event.key == pygame.K_BACKSPACE:
-                            chat_input_text = chat_input_text[:-1]
+                            if not ime_event_this_frame:
+                                chat_input_text = chat_input_text[:-1]
                 else:
                     if event.key == pygame.K_ESCAPE:
                         running = False
@@ -1153,6 +1148,35 @@ def main() -> None:
                 if not is_online and is_dragging_island:
                     # Dragging mouse rotates the island view around its center
                     overview_yaw += event.rel[0] * 0.008
+
+        if is_online and is_typing_chat and pending_submit_chat:
+            # If OS IME was active at the start of this frame or fired TEXTEDITING/TEXTINPUT
+            # alongside Enter (e.g. confirming a macOS Pinyin candidate), keep chat open so
+            # the newly committed Chinese characters stay visible instead of closing blank!
+            if ime_was_active_at_frame_start or ime_event_this_frame or ime_comp_text:
+                pass
+            else:
+                clean = chat_input_text.strip()
+                if clean:
+                    net.send_chat(clean)
+                    # Create local chat bubble (duration 5.5s)
+                    if -1 not in chat_bubbles:
+                        chat_bubbles[-1] = []
+                    chat_bubbles[-1].append({"text": clean, "timer": 5.5, "duration": 5.5})
+                    chat_bubbles[-1] = chat_bubbles[-1][-4:]  # Limit to 4 stacked bubbles
+                    # Append to persistent chatbox history
+                    chat_history.append({
+                        "sender": selected_chick_name,
+                        "text": clean,
+                        "is_self": True,
+                        "sender_id": -1,
+                    })
+                    if len(chat_history) > 40:
+                        del chat_history[:-40]
+                    close_chat_input()
+                elif (anim_time - ime_last_active_time) >= 0.18:
+                    # Only close empty chat if no recent IME commit just happened
+                    close_chat_input()
 
         keys = pygame.key.get_pressed()
         win_w, win_h = screen.get_size()
