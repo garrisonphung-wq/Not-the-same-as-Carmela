@@ -954,6 +954,7 @@ def main() -> None:
     # Natural automatic blinking + manual 'B' key blinking (for online player mode)
     blink_amount = 0.0
     blink_hold_timer = 0.0
+    blink_cover_progress = 0.0
     auto_blink_timer = random.uniform(2.2, 4.2)
 
     # Locomotion states & smooth weights
@@ -1295,6 +1296,7 @@ def main() -> None:
             total_pitch = head_pitch
             eye_y = cam_y
             blink_amount = 0.0
+            blink_cover_progress = 0.0
             is_blinking = False
         else:
             # --- BLINKING (when online: automatic natural blinks + 'B' key manual blink) ---
@@ -1306,7 +1308,13 @@ def main() -> None:
             if blink_hold_timer > 0.0:
                 blink_hold_timer = max(0.0, blink_hold_timer - dt)
 
-            target_blink = 1.0 if (blink_hold_timer > 0.0 or keys[pygame.K_b]) else 0.0
+            holding_b = (not is_typing_chat) and bool(keys[pygame.K_b])
+            if holding_b:
+                blink_cover_progress = min(1.0, blink_cover_progress + 3.0 * dt)
+            else:
+                blink_cover_progress = max(0.0, blink_cover_progress - 3.0 * dt)
+
+            target_blink = 1.0 if (blink_hold_timer > 0.0 or holding_b) else 0.0
             if blink_amount < target_blink:
                 blink_amount = min(target_blink, blink_amount + 18.0 * dt)
             elif blink_amount > target_blink:
@@ -3313,6 +3321,11 @@ def main() -> None:
                         play_surf.get_height() + 12,
                     )
                     screen.blit(play_surf, (play_x, play_y))
+
+        # Giant black eyelid rectangle covering everything seen while holding 'B'
+        if is_online and blink_cover_progress > 0.001:
+            cover_h = max(1, min(win_h, round(win_h * blink_cover_progress)))
+            pygame.draw.rect(screen, (0, 0, 0), pygame.Rect(0, 0, win_w, cover_h))
 
         pygame.display.flip()
 
