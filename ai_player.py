@@ -11,7 +11,7 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
 import server as game_server
-from carmelito_ai_brain import CarmelitoBrain, PangdunBrain, CarmenBrain
+from carmelito_ai_brain import CarmelitoBrain, PangdunBrain, CarmenBrain, XiaoliuziBrain
 
 CHICK_NAME = "卡梅利多"
 
@@ -112,6 +112,8 @@ class AICodeCompanion:
             self.brain = PangdunBrain()
         elif char_key in ("carmen", "卡门"):
             self.brain = CarmenBrain()
+        elif char_key in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
+            self.brain = XiaoliuziBrain()
         else:
             self.brain = CarmelitoBrain()
 

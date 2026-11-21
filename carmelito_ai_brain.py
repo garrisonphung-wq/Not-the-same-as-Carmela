@@ -507,3 +507,70 @@ class CarmenBrain:
             f"Let's run across the vast fields together, {player_name}! Chirp!",
             "Every day with family and friends is a sunny adventure!",
         ])
+
+
+class XiaoliuziBrain:
+    """Conversational engine for Xiaoliuzi / Coqsix (小六子), the cheeky, loyal henhouse buddy."""
+
+    def __init__(self) -> None:
+        self.gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        self.openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+        self.ollama_url = os.environ.get("OLLAMA_HOST", "").strip()
+
+    def generate_reply(self, message: str, player_name: str = "Friend") -> str:
+        msg = message.strip()
+        if not msg:
+            return "咯咯咯！" if is_chinese_text(player_name) else "Cock-a-doodle-hey!"
+        if is_chinese_text(msg):
+            return self._reply_chinese(msg, player_name)
+        return self._reply_english(msg, player_name)
+
+    def _reply_chinese(self, msg: str, player_name: str) -> str:
+        t = clean_text(msg).lower()
+        if any(w in t for w in ["弟弟", "借", "妹妹", "玩玩", "小鸡"]):
+            return random.choice([
+                "不行不行！这是我自己的小弟弟，才不借给你玩呢！嘿嘿！",
+                "想借我弟弟？门儿都没有！你自己去向卡梅拉妈妈要一个吧！",
+            ])
+        if any(w in t for w in ["你好", "嗨", "hello", "hi", "早上好", "哈喽"]):
+            return random.choice([
+                f"嘿！{player_name}！我是鸡舍里最机灵的小六子！咯咯！",
+                f"哟，{player_name}来啦！看我的尾羽是不是特别神气？",
+            ])
+        if any(w in t for w in ["小六子", "谁", "名字", "尾巴", "羽毛", "鸡冠"]):
+            return random.choice([
+                "本大爷就是小六子（Coqsix）！连我的尖尖鸡冠和栗色尾羽都帅呆了吧！",
+                "平时我爱凑热闹，但关键时刻救贝里奥、打怪兽我可从不含糊！",
+            ])
+        if any(w in t for w in ["抓", "躲", "捉迷藏", "跑", "跳", "撞", "打"]):
+            return random.choice([
+                "嘿嘿，看我脚底抹油——抓不到我吧！咯咯咯！",
+                "谁敢抢我的躲猫猫秘密基地，我就用尾巴扫他！",
+            ])
+        return random.choice([
+            f"哈哈，'{msg}'？听起来好热闹，算我小六子一个！",
+            f"{player_name}，别光站着啦，跟我一起在草地上追逐打闹吧！咯咯！",
+            "鸡舍里有我小六子在，绝对天天都有新鲜乐子！",
+        ])
+
+    def _reply_english(self, msg: str, player_name: str) -> str:
+        t = clean_text(msg).lower()
+        if any(w in t for w in ["brother", "borrow", "chick", "little"]):
+            return random.choice([
+                "No way! You can't borrow my little brother chick—he's MY brother!",
+                "Hands off my baby brother! Go ask Carmela for your own! Cluck!",
+            ])
+        if any(w in t.split() for w in ["hi", "hello", "hey", "yo"]):
+            return random.choice([
+                f"Hey {player_name}! I'm Coqsix—the sharpest cockerel in the coop!",
+                "Check out my spiky red comb and chestnut tail plume! Pretty cool, huh?",
+            ])
+        if any(w in t for w in ["tail", "who", "coqsix", "name", "comb"]):
+            return random.choice([
+                "I'm Coqsix! Named after the coolest tailbone in the henhouse! Cluck!",
+                "I might be mischievous, but when friends are in trouble, I always step up!",
+            ])
+        return random.choice([
+            f"Haha, '{msg}'? Count me in, {player_name}! Cluck cluck!",
+            "Catch me if you can! Nobody outruns Coqsix across the meadow!",
+        ])

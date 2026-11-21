@@ -44,6 +44,15 @@ COLOR_PANGDUN_BEAK = (242, 168, 40)     # Sturdy orange-yellow beak
 COLOR_PANGDUN_LEG = (235, 152, 36)      # Chunky yellow-orange legs
 COLOR_PANGDUN_INK = (42, 40, 52)        # Sharp comic ink outline
 
+# Xiaoliuzi / Coqsix (小六子) Palette - Mischievous, agile caramel-tan cockerel with chestnut tail plume:
+COLOR_XIAOLIUZI_TAN = (218, 152, 86)    # Warm toasted caramel-tan cockerel feathers
+COLOR_XIAOLIUZI_BELLY = (242, 206, 154) # Soft creamy-buff chest & belly down
+COLOR_XIAOLIUZI_ACCENT = (162, 92, 46)  # Rich chestnut-brown tail plume & wing tips
+COLOR_XIAOLIUZI_COMB = (224, 58, 34)    # Fiery orange-red spiky comb
+COLOR_XIAOLIUZI_BEAK = (244, 178, 48)   # Bold golden-amber beak
+COLOR_XIAOLIUZI_LEG = (232, 158, 42)    # Sturdy amber legs
+COLOR_XIAOLIUZI_INK = (56, 32, 18)      # Warm chestnut ink outline
+
 
 def create_cube_grid(
     center: tuple[float, float, float],
@@ -312,29 +321,48 @@ class Carmelito3D:
         char_lower = character.lower()
         is_carmen = (char_lower in ("carmen", "卡门"))
         is_pangdun = (char_lower in ("pangdun", "小胖墩", "belino", "coquenpate"))
+        is_xiaoliuzi = (char_lower in ("xiaoliuzi", "小六子", "coqsix", "克西斯"))
 
         if is_carmen:
             body_col = COLOR_CARMEN_YELLOW
+            belly_col = COLOR_CARMEN_YELLOW
             comb_col = COLOR_CARMEN_COMB
             beak_col = COLOR_CARMEN_BEAK
             leg_col = COLOR_CARMEN_LEG
+            accent_col = COLOR_CARMEN_YELLOW
+            ink_col = COLOR_CARMEN_INK
         elif is_pangdun:
             body_col = COLOR_PANGDUN_WHITE
+            belly_col = COLOR_PANGDUN_WHITE
             comb_col = COLOR_PANGDUN_COMB
             beak_col = COLOR_PANGDUN_BEAK
             leg_col = COLOR_PANGDUN_LEG
+            accent_col = COLOR_PANGDUN_WHITE
+            ink_col = COLOR_PANGDUN_INK
+        elif is_xiaoliuzi:
+            body_col = COLOR_XIAOLIUZI_TAN
+            belly_col = COLOR_XIAOLIUZI_BELLY
+            comb_col = COLOR_XIAOLIUZI_COMB
+            beak_col = COLOR_XIAOLIUZI_BEAK
+            leg_col = COLOR_XIAOLIUZI_LEG
+            accent_col = COLOR_XIAOLIUZI_ACCENT
+            ink_col = COLOR_XIAOLIUZI_INK
         else:
             body_col = COLOR_BODY_PINK
+            belly_col = COLOR_BODY_PINK
             comb_col = COLOR_COMB_RED
             beak_col = COLOR_BEAK_YELLOW
             leg_col = COLOR_LEG_YELLOW
+            accent_col = COLOR_BODY_PINK
+            ink_col = COLOR_INK_LINE
 
         # Proportions for characters:
-        # 小胖墩 (fat white chicken): plump round body with head completely connected to torso!
-        head_s = 0.94 if is_pangdun else 1.0
-        body_w = 1.58 if is_pangdun else 1.0
-        body_h = 1.25 if is_pangdun else 1.0
-        body_d = 1.50 if is_pangdun else 1.0
+        # 小胖墩: plump round body with head completely connected to torso
+        # 小六子 (Coqsix): trim, slightly taller, agile cockerel silhouette
+        head_s = 0.94 if is_pangdun else (0.98 if is_xiaoliuzi else 1.0)
+        body_w = 1.58 if is_pangdun else (0.94 if is_xiaoliuzi else 1.0)
+        body_h = 1.25 if is_pangdun else (1.04 if is_xiaoliuzi else 1.0)
+        body_d = 1.50 if is_pangdun else (0.94 if is_xiaoliuzi else 1.0)
 
         if run_weight is None:
             rw = 1.0 if is_running else 0.0
@@ -422,28 +450,60 @@ class Carmelito3D:
             head_faces.extend(neck)
 
         # --- 2. COMB / CREST (Red rooster comb on top of head) ---
-        # Belino's red comb is distinctly shorter and sits compactly on his skull
+        # Belino's red comb is distinctly shorter; 小六子 (Coqsix) has a spiky, jaunty 5-point crest!
         comb_h_mult = 0.52 if is_pangdun else 1.0
         comb_y_shift = -0.05 if is_pangdun else 0.0
         comb_y = head_center_y + 0.29 + comb_y_shift
 
-        lobe_data = [
-            ((0.0, 0.12 * comb_h_mult, 0.10), (0.13, 0.30 * comb_h_mult, 0.16), (2, 4, 3)),   # Lobe 1
-            ((0.0, 0.08 * comb_h_mult, -0.01), (0.13, 0.28 * comb_h_mult, 0.16), (2, 4, 3)),  # Lobe 2
-            ((0.0, 0.03 * comb_h_mult, -0.12), (0.12, 0.24 * comb_h_mult, 0.15), (2, 3, 3)),  # Lobe 3
-            ((0.0, -0.04 * comb_h_mult, -0.21), (0.11, 0.18 * comb_h_mult, 0.13), (2, 3, 3)), # Lobe 4
-        ]
-        for (dx, dy, dz), (lsx, lsy, lsz), ldiv in lobe_data:
-            lobe = create_cube_grid(
-                center=(dx, comb_y + dy, dz),
-                size=(lsx, lsy, lsz),
-                subdivisions=ldiv,
-                base_color=comb_col,
-                taper_y=-0.2,
-                roundness=0.65,
-                draw_contour=True,
+        if is_xiaoliuzi:
+            # Spiky, slightly tilted cheeky cockerel crest with 5 tapered spikes
+            spike_specs = [
+                ((0.02, -0.02, 0.16), (0.04, 0.20, 0.26), (0.09, 0.055), comb_col),
+                ((-0.02, 0.00, 0.06), (-0.01, 0.28, 0.12), (0.095, 0.06), comb_col),
+                ((0.01, -0.01, -0.04), (0.02, 0.25, -0.07), (0.095, 0.06), comb_col),
+                ((-0.01, -0.03, -0.13), (-0.02, 0.19, -0.22), (0.09, 0.055), comb_col),
+                ((0.00, -0.07, -0.21), (0.00, 0.11, -0.32), (0.08, 0.05), comb_col),
+            ]
+            for (bx, by, bz), (tx, ty, tz), thick, c_col in spike_specs:
+                head_faces.extend(
+                    create_oriented_box(
+                        (bx, comb_y + by, bz),
+                        (tx, comb_y + ty, tz),
+                        thickness=thick,
+                        base_color=c_col,
+                        subdiv_length=2,
+                        draw_contour=True,
+                    )
+                )
+            # Small comb base ridge anchoring the spikes into the skull
+            head_faces.extend(
+                create_cube_grid(
+                    center=(0.0, comb_y - 0.01, -0.03),
+                    size=(0.11, 0.10, 0.36),
+                    subdivisions=(2, 2, 4),
+                    base_color=comb_col,
+                    roundness=0.45,
+                    draw_contour=True,
+                )
             )
-            head_faces.extend(lobe)
+        else:
+            lobe_data = [
+                ((0.0, 0.12 * comb_h_mult, 0.10), (0.13, 0.30 * comb_h_mult, 0.16), (2, 4, 3)),   # Lobe 1
+                ((0.0, 0.08 * comb_h_mult, -0.01), (0.13, 0.28 * comb_h_mult, 0.16), (2, 4, 3)),  # Lobe 2
+                ((0.0, 0.03 * comb_h_mult, -0.12), (0.12, 0.24 * comb_h_mult, 0.15), (2, 3, 3)),  # Lobe 3
+                ((0.0, -0.04 * comb_h_mult, -0.21), (0.11, 0.18 * comb_h_mult, 0.13), (2, 3, 3)), # Lobe 4
+            ]
+            for (dx, dy, dz), (lsx, lsy, lsz), ldiv in lobe_data:
+                lobe = create_cube_grid(
+                    center=(dx, comb_y + dy, dz),
+                    size=(lsx, lsy, lsz),
+                    subdivisions=ldiv,
+                    base_color=comb_col,
+                    taper_y=-0.2,
+                    roundness=0.65,
+                    draw_contour=True,
+                )
+                head_faces.extend(lobe)
 
         # --- 3. EYES & PUPILS (Big white eyes with cute dark pupils + smooth blink) ---
         eye_y = head_center_y + 0.11
@@ -502,6 +562,23 @@ class Carmelito3D:
                             draw_contour=False,
                         )
                     )
+
+        # Cheeky mischievous eyebrows for 小六子 (Coqsix) above his cartoon eyes
+        if is_xiaoliuzi:
+            for eye_side in (-1, 1):
+                ex = eye_side * 0.13
+                brow_outer = (ex + eye_side * 0.085, eye_y + 0.16, 0.28)
+                brow_inner = (ex - eye_side * 0.065, eye_y + 0.125, 0.32)
+                head_faces.extend(
+                    create_oriented_box(
+                        brow_outer,
+                        brow_inner,
+                        thickness=(0.034, 0.030),
+                        base_color=ink_col,
+                        subdiv_length=2,
+                        draw_contour=False,
+                    )
+                )
 
         # --- 4. BEAK (HINGED V-JAW BANANA BEAK + INNER THROAT & TONGUE) ---
         beak_base_y = head_center_y - 0.16
@@ -651,28 +728,48 @@ class Carmelito3D:
             center=(0.0, body_center_y - 0.06, 0.14 * body_d),
             size=(0.48 * body_w, 0.48 * body_h, 0.24 * body_d),
             subdivisions=(5, 5, 4) if is_pangdun else (4, 4, 3),
-            base_color=body_col,
+            base_color=belly_col,
             roundness=0.85 if is_pangdun else 0.75,
             draw_contour=False,
         )
         all_faces.extend(belly)
 
-        tail_data = [
-            ((0.0, 0.16, -0.32), (0.13, 0.28, 0.15)),
-            ((0.0, 0.05, -0.36), (0.14, 0.22, 0.15)),
-            ((0.0, -0.05, -0.32), (0.13, 0.17, 0.13)),
-        ]
-        for (tdx, tdy, tdz), (tsx, tsy, tsz) in tail_data:
-            tail_feat = create_cube_grid(
-                center=(tdx, body_center_y + tdy, tdz),
-                size=(tsx, tsy, tsz),
-                subdivisions=(2, 3, 2),
-                base_color=body_col,
-                taper_y=0.3,
-                roundness=0.6,
-                draw_contour=True,
-            )
-            all_faces.extend(tail_feat)
+        if is_xiaoliuzi:
+            # Signature "Coqsix" (coccyx) perky chestnut-tipped rooster tail plume!
+            tail_plumes = [
+                ((0.0, 0.04, -0.24), (0.0, 0.36, -0.46), (0.11, 0.13), accent_col),
+                ((-0.07, 0.02, -0.24), (-0.12, 0.26, -0.44), (0.09, 0.11), body_col),
+                ((0.07, 0.02, -0.24), (0.12, 0.26, -0.44), (0.09, 0.11), body_col),
+                ((0.0, -0.04, -0.24), (0.0, 0.14, -0.44), (0.10, 0.12), accent_col),
+            ]
+            for (p0x, p0y, p0z), (p1x, p1y, p1z), t_thick, t_col in tail_plumes:
+                all_faces.extend(
+                    create_oriented_box(
+                        (p0x, body_center_y + p0y, p0z),
+                        (p1x, body_center_y + p1y, p1z),
+                        thickness=t_thick,
+                        base_color=t_col,
+                        subdiv_length=2,
+                        draw_contour=True,
+                    )
+                )
+        else:
+            tail_data = [
+                ((0.0, 0.16, -0.32), (0.13, 0.28, 0.15)),
+                ((0.0, 0.05, -0.36), (0.14, 0.22, 0.15)),
+                ((0.0, -0.05, -0.32), (0.13, 0.17, 0.13)),
+            ]
+            for (tdx, tdy, tdz), (tsx, tsy, tsz) in tail_data:
+                tail_feat = create_cube_grid(
+                    center=(tdx, body_center_y + tdy, tdz),
+                    size=(tsx, tsy, tsz),
+                    subdivisions=(2, 3, 2),
+                    base_color=body_col,
+                    taper_y=0.3,
+                    roundness=0.6,
+                    draw_contour=True,
+                )
+                all_faces.extend(tail_feat)
 
         # --- 6. WINGS / ARMS (STAND vs WALK PENDULUM vs RUN SPRINTER PUMP) ---
         for side in (-1, 1):
@@ -822,7 +919,7 @@ class Carmelito3D:
                     center=(hx - side * 0.02, hy + f_dy, hz + f_dz),
                     size=(f_thick, 0.08, 0.09),
                     subdivisions=(2, 2, 2),
-                    base_color=body_col,
+                    base_color=accent_col if is_xiaoliuzi else body_col,
                     roundness=0.62,
                     draw_contour=True,
                 )
@@ -1059,6 +1156,10 @@ class Carmelito3D:
             body_col = COLOR_PANGDUN_WHITE
             leg_col = COLOR_PANGDUN_LEG
             char_scale_mult = 1.15
+        elif char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
+            body_col = COLOR_XIAOLIUZI_TAN
+            leg_col = COLOR_XIAOLIUZI_LEG
+            char_scale_mult = 1.04
         else:
             body_col = COLOR_BODY_PINK
             leg_col = COLOR_LEG_YELLOW
@@ -1289,6 +1390,9 @@ class Carmelito3D:
         elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
             body_col = COLOR_PANGDUN_WHITE
             char_scale = 1.15
+        elif char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
+            body_col = COLOR_XIAOLIUZI_TAN
+            char_scale = 1.04
         else:
             body_col = COLOR_BODY_PINK
             char_scale = 1.0
@@ -1382,6 +1486,9 @@ class Carmelito3D:
         elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
             body_col = COLOR_PANGDUN_WHITE
             char_scale = 1.15
+        elif char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
+            body_col = COLOR_XIAOLIUZI_TAN
+            char_scale = 1.04
         else:
             body_col = COLOR_BODY_PINK
             char_scale = 1.0
@@ -1538,6 +1645,9 @@ class Carmelito3D:
         elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
             body_col = COLOR_PANGDUN_WHITE
             char_scale = 1.15
+        elif char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
+            body_col = COLOR_XIAOLIUZI_TAN
+            char_scale = 1.04
         else:
             body_col = COLOR_BODY_PINK
             char_scale = 1.0
@@ -1645,6 +1755,8 @@ class Carmelito3D:
             char_scale_mult = 0.82
         elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
             char_scale_mult = 1.15  # Plump fat chicken is larger!
+        elif char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
+            char_scale_mult = 1.04  # Agile slightly taller young cockerel!
         else:
             char_scale_mult = 1.0
         scale = scale * char_scale_mult
@@ -1747,6 +1859,8 @@ class Carmelito3D:
                         ink_color = COLOR_CARMEN_INK
                     elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
                         ink_color = COLOR_PANGDUN_INK
+                    elif char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
+                        ink_color = COLOR_XIAOLIUZI_INK
                     else:
                         ink_color = COLOR_INK_LINE
                     pygame.draw.polygon(surface, ink_color, pts, 1)
@@ -1775,6 +1889,7 @@ class Carmelito3D:
         char_l = character.lower()
         is_carmen = (char_l in ("carmen", "卡门"))
         is_pangdun = (char_l in ("pangdun", "小胖墩", "belino", "coquenpate"))
+        is_xiaoliuzi = (char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"))
         if is_carmen:
             cy_screen = h * 0.90 + head_bob_y * 120.0
             scale = h * 0.45
@@ -1783,6 +1898,10 @@ class Carmelito3D:
             cy_screen = h * 0.86 + head_bob_y * 120.0
             scale = h * 0.62  # Chunky prominent beak for 小胖墩
             beak_color = COLOR_PANGDUN_BEAK
+        elif is_xiaoliuzi:
+            cy_screen = h * 0.875 + head_bob_y * 120.0
+            scale = h * 0.56
+            beak_color = COLOR_XIAOLIUZI_BEAK
         else:
             cy_screen = h * 0.88 + head_bob_y * 120.0
             scale = h * 0.55
@@ -1802,7 +1921,7 @@ class Carmelito3D:
             center=(0.0, -0.22, 0.42),
             size=(0.42, 0.18, 0.22),
             subdivisions=(4, 3, 3),
-            base_color=COLOR_CARMEN_BEAK if (character.lower() in ("carmen", "卡门")) else COLOR_BEAK_YELLOW,
+            base_color=beak_color,
             roundness=0.65,
             draw_contour=True,
         )
@@ -1813,7 +1932,7 @@ class Carmelito3D:
             center=(0.0, -0.26, 0.62),
             size=(0.38, 0.17, 0.22),
             subdivisions=(4, 3, 3),
-            base_color=COLOR_CARMEN_BEAK if (character.lower() in ("carmen", "卡门")) else COLOR_BEAK_YELLOW,
+            base_color=beak_color,
             roundness=0.82,
             draw_contour=True,
         )
@@ -1825,7 +1944,7 @@ class Carmelito3D:
                 center=(0.0, -0.42, 0.48),
                 size=(0.34, 0.14, 0.24),
                 subdivisions=(4, 2, 3),
-                base_color=COLOR_CARMEN_BEAK if (character.lower() in ("carmen", "卡门")) else COLOR_BEAK_YELLOW,
+                base_color=beak_color,
                 roundness=0.65,
                 draw_contour=True,
             )
@@ -1844,7 +1963,7 @@ class Carmelito3D:
                 center=(0.0, -0.32, 0.48),
                 size=(0.36, 0.12, 0.24),
                 subdivisions=(4, 2, 3),
-                base_color=COLOR_CARMEN_BEAK if (character.lower() in ("carmen", "卡门")) else COLOR_BEAK_YELLOW,
+                base_color=beak_color,
                 roundness=0.65,
                 draw_contour=True,
             )

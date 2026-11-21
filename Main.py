@@ -18,13 +18,14 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
 import server as game_server
-from carmelito_3d import COLOR_INK_LINE, Carmelito3D
+from carmelito_3d import COLOR_INK_LINE, COLOR_XIAOLIUZI_INK, Carmelito3D
 from pinyin_ime import lookup_pinyin
 
 WINDOW_TITLE = "不一样的卡梅拉"
 CHICK_NAME = "卡梅利多"
 CARMEN_NAME = "卡门"
 PANGDUN_NAME = "小胖墩"
+XIAOLIUZI_NAME = "小六子"
 DEFAULT_SERVER_URL = os.environ.get("GAME_SERVER_URL", "ws://127.0.0.1:8765")
 
 # Storybook light sky blue sky/background, seamless lush green grass ground (no grid)
@@ -248,6 +249,27 @@ def get_outlined_text_surface(
 
 def wrap_angle(angle: float) -> float:
     return (angle + math.pi) % (2.0 * math.pi) - math.pi
+
+
+
+def resolve_character_id(pdata: dict) -> str:
+    c = (pdata.get("character") or "").strip().lower()
+    if c in ("carmen", "卡门"):
+        return "carmen"
+    if c in ("pangdun", "小胖墩", "belino", "coquenpate"):
+        return "pangdun"
+    if c in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
+        return "xiaoliuzi"
+    if c:
+        return c
+    cn = (pdata.get("chick_name") or "").strip()
+    if cn in ("卡门", "Carmen"):
+        return "carmen"
+    if cn in ("小胖墩", "Belino", "Coquenpâte"):
+        return "pangdun"
+    if cn in ("小六子", "Coqsix", "克西斯"):
+        return "xiaoliuzi"
+    return "carmelito"
 
 
 def wrap_text_lines(text: str, font: pygame.font.Font, max_width: int) -> list[str]:
@@ -629,7 +651,7 @@ class NetworkClient:
             "color": tuple(int(c) for c in raw_color),
             "name": pdata.get("name"),
             "chick_name": pdata.get("chick_name") or CHICK_NAME,
-            "character": pdata.get("character") or ("carmen" if pdata.get("chick_name") in ("卡门", "Carmen") else ("pangdun" if pdata.get("chick_name") in ("小胖墩", "Belino", "Coquenpâte") else "carmelito")),
+            "character": resolve_character_id(pdata),
             "is_carmelito": bool(pdata.get("is_carmelito", True)),
             "kick_amount": float(pdata.get("kick_amount", 0.0)),
             "kick_side": float(pdata.get("kick_side", 1.0)),
@@ -775,6 +797,7 @@ def main() -> None:
         ("carmelito", CHICK_NAME),
         ("carmen", CARMEN_NAME),
         ("pangdun", PANGDUN_NAME),
+        ("xiaoliuzi", XIAOLIUZI_NAME),
     ]
 
     # Fight System between Carmelito & Belino (小胖墩)
@@ -1238,7 +1261,7 @@ def main() -> None:
                     rs = remote_states.get(pid)
                     if not rs:
                         continue
-                    r_char = pdata.get("character") or ("carmen" if pdata.get("chick_name") in ("卡门", "Carmen") else ("pangdun" if pdata.get("chick_name") in ("小胖墩", "Belino", "Coquenpâte") else "carmelito"))
+                    r_char = resolve_character_id(pdata)
                     if r_char in ("pangdun", "小胖墩", "belino", "coquenpate"):
                         dist = math.hypot(rs["wx"] - cam_x, rs["wz"] - cam_z)
                         if dist <= 5.8:
@@ -1689,10 +1712,13 @@ def main() -> None:
         # 小胖墩 (fat chicken): slightly taller/heavier stance (eye height = 3.30)
         is_playing_carmen = (is_online and selected_character == "carmen")
         is_playing_pangdun = (is_online and selected_character == "pangdun")
+        is_playing_xiaoliuzi = (is_online and selected_character == "xiaoliuzi")
         if is_playing_carmen:
             current_ground_y = GROUND_Y * 0.75
         elif is_playing_pangdun:
             current_ground_y = GROUND_Y * 1.10
+        elif is_playing_xiaoliuzi:
+            current_ground_y = GROUND_Y * 1.04
         else:
             current_ground_y = GROUND_Y
 
@@ -1896,8 +1922,8 @@ def main() -> None:
                 continue
             if pdata.get("is_carmelito", True):
                 rwx, rwz = rs["wx"], rs["wz"]
-                remote_char = pdata.get("character") or ("carmen" if pdata.get("chick_name") in ("卡门", "Carmen") else ("pangdun" if pdata.get("chick_name") in ("小胖墩", "Belino", "Coquenpâte") else "carmelito"))
-                char_scale = 0.82 if remote_char == "carmen" else (1.15 if remote_char in ("pangdun", "小胖墩", "belino", "coquenpate") else 1.0)
+                remote_char = resolve_character_id(pdata)
+                char_scale = 0.82 if remote_char == "carmen" else (1.15 if remote_char in ("pangdun", "小胖墩", "belino", "coquenpate") else (1.04 if remote_char in ("xiaoliuzi", "小六子", "coqsix", "克西斯") else 1.0))
                 
                 # Ground shadow screen position
                 dy_g = current_ground_y - eye_y
@@ -1921,11 +1947,13 @@ def main() -> None:
             sy = hh - (ry_cam_feet / horiz_dist) * focal
 
             if pdata.get("is_carmelito", True):
-                remote_char = pdata.get("character") or ("carmen" if pdata.get("chick_name") in ("卡门", "Carmen") else ("pangdun" if pdata.get("chick_name") in ("小胖墩", "Belino", "Coquenpâte") else "carmelito"))
+                remote_char = resolve_character_id(pdata)
                 if remote_char == "carmen":
                     rem_scale = CARMELITO_WORLD_SCALE * 0.82
                 elif remote_char in ("pangdun", "小胖墩", "belino", "coquenpate"):
                     rem_scale = CARMELITO_WORLD_SCALE * 1.15
+                elif remote_char in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
+                    rem_scale = CARMELITO_WORLD_SCALE * 1.04
                 else:
                     rem_scale = CARMELITO_WORLD_SCALE
 
