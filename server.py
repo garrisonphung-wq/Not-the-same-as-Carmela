@@ -159,7 +159,7 @@ class GameRelayServer:
                     if "punch_side" in data:
                         p["punch_side"] = safe_float(data.get("punch_side", 1.0), 1.0, limit=2.0)
                     if "jump_offset_y" in data:
-                        p["jump_offset_y"] = safe_float(data.get("jump_offset_y", 0.0), 0.0, limit=20.0)
+                        p["jump_offset_y"] = safe_float(data.get("jump_offset_y", 0.0), 0.0, limit=100000.0)
                     if "jump_amount" in data:
                         p["jump_amount"] = safe_float(data.get("jump_amount", 0.0), 0.0, limit=2.0)
                     if "tag_amount" in data:

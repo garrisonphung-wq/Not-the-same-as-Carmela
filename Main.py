@@ -935,13 +935,13 @@ def main() -> None:
     jump_velocity_y = 0.0
     jump_state = "idle"   # "idle" -> "crouching" (charging while J held) -> "airborne" (on J release)
     crouch_timer = 0.0
-    jump_charge = 0.0      # 0.0 -> 1.0 as J is held longer
+    jump_charge = 0.0      # Visual crouch progress (0.0 -> 1.0), while jump height keeps growing uncapped!
     max_jump_charge_time = 0.85
     jump_released_this_frame = False
     jump_amount = 0.0      # Crouch depth (1.0 = deep crouch, 0.0 = standing/jumping)
     wing_flap_amount = 0.0 # Wings flap when airborne
     MIN_JUMP_HEIGHT = 1.40 # Crisp quick-tap hop height (clears another chick!)
-    MAX_JUMP_HEIGHT = 6.40 # Full-hold super jump height
+    JUMP_HEIGHT_PER_SEC = 6.0  # Uncapped extra jump height per second J is held!
     GRAVITY = 22.0         # Crisp realistic gravity
 
     # First-person kick action (triggered with 'K' key)
@@ -1941,7 +1941,7 @@ def main() -> None:
                     wing_flap_amount = 0.0
                 else:
                     # Released 'J' -> jump with height proportional to how long 'J' was held!
-                    target_jump_h = MIN_JUMP_HEIGHT + jump_charge * (MAX_JUMP_HEIGHT - MIN_JUMP_HEIGHT)
+                    target_jump_h = MIN_JUMP_HEIGHT + crouch_timer * JUMP_HEIGHT_PER_SEC
                     jump_velocity_y = math.sqrt(2.0 * GRAVITY * target_jump_h)
                     jump_state = "airborne"
                     jump_offset_y = max(jump_offset_y, landing_support_y) + 0.08
