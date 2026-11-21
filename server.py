@@ -252,7 +252,7 @@ class GameRelayServer:
                         except Exception:
                             pass
                 elif data.get("type") == "chat":
-                    text = str(data.get("text", "")).strip()[:100]
+                    text = str(data.get("text", "")).strip()[:280]
                     if text:
                         p = self._players.get(player_id, {})
                         sender_name = str(data.get("name") or p.get("name") or p.get("chick_name") or "卡梅利多")[:32]

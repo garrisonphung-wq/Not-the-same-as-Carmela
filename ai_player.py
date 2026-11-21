@@ -12,6 +12,7 @@ from websockets.exceptions import ConnectionClosed
 
 import server as game_server
 from carmelito_ai_brain import CarmelitoBrain, PangdunBrain, CarmenBrain, XiaoliuziBrain
+from gemini_brain import GeminiChickBrain
 
 CHICK_NAME = "卡梅利多"
 
@@ -118,6 +119,8 @@ class AICodeCompanion:
         self.blink_timer = random.uniform(2.0, 4.5)
         self.chat_timer = random.uniform(6.0, 14.0)
         self._pending_chats: list[tuple[float, str]] = []  # (send_time, chat_text)
+        self.gemini = GeminiChickBrain(character=character, chick_name=chick_name)
+        self._reply_lock: asyncio.Lock | None = None
         char_key = character.lower()
         if char_key in ("pangdun", "小胖墩", "belino", "coquenpate"):
             self.brain = PangdunBrain()
@@ -297,20 +300,7 @@ class AICodeCompanion:
                 self.is_blinking = True
                 self.blink_timer = 0.16
 
-        self.chat_timer -= dt
-        if self.chat_timer <= 0.0:
-            self.chat_timer = random.uniform(9.0, 18.0)
-            phrases = [
-                "咕咕！天气真好！",
-                "看我的，跑得飞快！",
-                "我想去看海！",
-                "卡梅利多最勇敢啦！",
-                "草地真舒服！",
-                "来抓我呀！",
-                "今天也是元气满满的一天！",
-                "呼呼，跑累了歇会儿~",
-            ]
-            self._pending_chats.append((time.time() + 0.2, random.choice(phrases)))
+        # Spontaneous mouth movement is subtle; real replies come from GeminiChickBrain on incoming chat!
 
         if self.mouth_timer <= 0.0:
             if self.mouth_open:
@@ -510,7 +500,7 @@ class AICodeCompanion:
 
         # Occasional playful kicks / punches / jumps while roaming
         self.action_cooldown -= dt
-        if self.action_cooldown <= 0.0 and not self.is_kicking and not self.is_punching and self.jump_state == "idle":
+        if not ai_ragdoll_locked and self.action_cooldown <= 0.0 and not self.is_kicking and not self.is_punching and self.jump_state == "idle":
             self.action_cooldown = random.uniform(3.5, 7.5)
             roll = random.random()
             if roll < 0.28:
@@ -531,6 +521,69 @@ class AICodeCompanion:
                 self.is_tagging = True
                 self.tag_timer = 0.0
                 self.tag_duration = random.uniform(1.8, 3.2)
+
+
+    def _build_world_context(self, speaker_id: int, speaker_name: str) -> str:
+        state_str = "摔倒躺在草地上(ragdoll)" if (self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05) else (
+            "正在跑" if self.is_running else ("正在走" if self.is_walking else "在草地上站着")
+        )
+        sp = self.other_players.get(speaker_id)
+        if sp is not None:
+            dist = math.hypot(sp["wx"] - self.wx, sp["wz"] - self.wz)
+            dist_str = f"{speaker_name}距离你约{dist:.1f}米"
+        else:
+            dist_str = f"{speaker_name}在草地上"
+        return f"你当前状态:{state_str}；{dist_str}；当前共有{len(self.other_players) + 1}只小鸡在岛上。"
+
+    def _apply_gemini_action(self, action: str, speaker_id: int) -> None:
+        # While ragdolled, only blinking & mouth opening are allowed (no moving/jumping/kicking/tagging)
+        if self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05:
+            return
+        sp = self.other_players.get(speaker_id)
+        if action in ("come", "run_to") and sp is not None:
+            self.dest_x = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, sp["wx"]))
+            self.dest_z = max(-self.WORLD_LIMIT, min(self.WORLD_LIMIT, sp["wz"]))
+            self.mode = "run" if action == "run_to" else "walk"
+            self.mode_timer = 4.5
+        elif action == "jump" and self.jump_state == "idle":
+            self.jump_state = "crouching"
+            self.crouch_timer = 0.0
+            self.jump_amount = 0.0
+        elif action == "kick" and not self.is_kicking:
+            self.is_kicking = True
+            self.kick_timer = 0.0
+            self.kick_side = -self.kick_side
+        elif action == "punch" and not self.is_punching:
+            self.is_punching = True
+            self.punch_timer = 0.0
+            self.punch_side = -self.punch_side
+        elif action == "tag":
+            self.is_tagging = True
+            self.tag_timer = 0.0
+            self.tag_duration = 2.6
+        elif action == "idle":
+            self.mode = "idle"
+            self.mode_timer = 3.0
+            self.is_walking = False
+            self.is_running = False
+
+    async def _handle_chat_with_gemini(self, sender_id: int, sender_name: str, chat_text: str) -> None:
+        if self._reply_lock is None:
+            self._reply_lock = asyncio.Lock()
+        async with self._reply_lock:
+            ctx = self._build_world_context(sender_id, sender_name)
+            reply_text, action = await asyncio.to_thread(
+                self.gemini.reply_to_player,
+                sender_name,
+                chat_text,
+                ctx,
+            )
+            reply_text = reply_text.strip()[:260]
+            if reply_text:
+                self._pending_chats.append((time.time(), reply_text))
+                self.mouth_open = True
+                self.mouth_timer = min(2.0, max(0.65, len(reply_text) * 0.045))
+            self._apply_gemini_action(action, sender_id)
 
     async def run(self) -> None:
         print(f"🤖 {self.name} ({self.chick_name}) connecting to {self.server_url}...", flush=True)
@@ -630,6 +683,13 @@ class AICodeCompanion:
                 pid = int(msg["id"])
                 self.other_players.pop(pid, None)
                 self.other_player_labels.pop(pid, None)
+
+            elif mtype == "chat":
+                sender_id = int(msg.get("id", -1))
+                chat_text = str(msg.get("text", "")).strip()
+                if sender_id != self.my_id and chat_text:
+                    sender_name = str(msg.get("name") or self.other_player_labels.get(sender_id) or f"Player {sender_id}")
+                    asyncio.create_task(self._handle_chat_with_gemini(sender_id, sender_name, chat_text))
 
             elif mtype == "kick_hit":
                 target_id = msg.get("target_id")
