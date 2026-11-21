@@ -1310,9 +1310,9 @@ def main() -> None:
 
             holding_b = (not is_typing_chat) and bool(keys[pygame.K_b])
             if holding_b:
-                blink_cover_progress = min(1.0, blink_cover_progress + 3.0 * dt)
+                blink_cover_progress = min(1.0, blink_cover_progress + 8.5 * dt)
             else:
-                blink_cover_progress = max(0.0, blink_cover_progress - 3.0 * dt)
+                blink_cover_progress = max(0.0, blink_cover_progress - 8.5 * dt)
 
             target_blink = 1.0 if (blink_hold_timer > 0.0 or holding_b) else 0.0
             if blink_amount < target_blink:
@@ -2845,34 +2845,6 @@ def main() -> None:
                     if draw_ink:
                         pygame.draw.polygon(screen, COLOR_INK_LINE, pts, 1)
 
-        # --- 2. TOP-LEFT CORNER PICTURE: ONLY VISIBLE WHEN ONLINE (EQUIPPED CARMELITO) ---
-        if is_online:
-            pic_rect = pygame.Rect(16, 16, 180, 200)
-            shadow_rect = pygame.Rect(18, 18, 180, 200)
-            pygame.draw.rect(screen, (232, 236, 242), shadow_rect, border_radius=16)
-            pygame.draw.rect(screen, (255, 255, 255), pic_rect, border_radius=16)
-            pygame.draw.rect(screen, (215, 224, 232), pic_rect, width=2, border_radius=16)
-
-            corner_y = 185 - round(jump_offset_y * 22)
-            model_3d.render(
-                surface=screen,
-                screen_pos=(106, corner_y),
-                scale=72,
-                rot_y=0.0,
-                rot_x=0.06,
-                head_yaw=head_yaw,
-                head_pitch=head_pitch,
-                mouth_open=mouth_open,
-                run_cycle=motion_cycle,
-                is_running=is_running,
-                run_weight=run_weight,
-                is_walking=is_walking,
-                walk_weight=walk_weight,
-                blink=blink_amount,
-                character=selected_character,
-                jump_amount=jump_amount,
-            )
-
         # --- 2b. 3D CHAT BUBBLE ANCHORED DIRECTLY ABOVE LOCAL PLAYER (VISIBLE WHEN LOOKING UP) ---
         if is_online:
             # Carmelito's head/comb is above eye level. The chat bubble floats in 3D world space
@@ -2997,6 +2969,39 @@ def main() -> None:
                     carmelito_fight_button_rect = pygame.Rect(-100, -100, 0, 0)
                     belino_fight_button_rect = pygame.Rect(-100, -100, 0, 0)
                     fight_leave_button_rect = pygame.Rect(-100, -100, 0, 0)
+
+        # Giant black eyelid rectangle covering the world view while holding 'B'
+        if is_online and blink_cover_progress > 0.001:
+            cover_h = max(1, min(win_h, round(win_h * blink_cover_progress)))
+            pygame.draw.rect(screen, (0, 0, 0), pygame.Rect(0, 0, win_w, cover_h))
+
+        # --- 2. TOP-LEFT CORNER PICTURE: ONLY VISIBLE WHEN ONLINE (EQUIPPED CARMELITO) ---
+        if is_online:
+            pic_rect = pygame.Rect(16, 16, 180, 200)
+            shadow_rect = pygame.Rect(18, 18, 180, 200)
+            pygame.draw.rect(screen, (232, 236, 242), shadow_rect, border_radius=16)
+            pygame.draw.rect(screen, (255, 255, 255), pic_rect, border_radius=16)
+            pygame.draw.rect(screen, (215, 224, 232), pic_rect, width=2, border_radius=16)
+
+            corner_y = 185 - round(jump_offset_y * 22)
+            model_3d.render(
+                surface=screen,
+                screen_pos=(106, corner_y),
+                scale=72,
+                rot_y=0.0,
+                rot_x=0.06,
+                head_yaw=head_yaw,
+                head_pitch=head_pitch,
+                mouth_open=mouth_open,
+                run_cycle=motion_cycle,
+                is_running=is_running,
+                run_weight=run_weight,
+                is_walking=is_walking,
+                walk_weight=walk_weight,
+                blink=blink_amount,
+                character=selected_character,
+                jump_amount=jump_amount,
+            )
 
             # --- 2d. TOP-RIGHT PERSISTENT CHATBOX (shows everyone's messages) ---
             if is_online:
@@ -3321,11 +3326,6 @@ def main() -> None:
                         play_surf.get_height() + 12,
                     )
                     screen.blit(play_surf, (play_x, play_y))
-
-        # Giant black eyelid rectangle covering everything seen while holding 'B'
-        if is_online and blink_cover_progress > 0.001:
-            cover_h = max(1, min(win_h, round(win_h * blink_cover_progress)))
-            pygame.draw.rect(screen, (0, 0, 0), pygame.Rect(0, 0, win_w, cover_h))
 
         pygame.display.flip()
 
