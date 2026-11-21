@@ -539,7 +539,7 @@ class NetworkClient:
             return hits
 
     def send_chat(self, text: str) -> None:
-        clean_text = str(text).strip()[:100]
+        clean_text = str(text).strip()[:260]
         if clean_text:
             with self._lock:
                 self._outgoing_chats.append(clean_text)
@@ -616,6 +616,7 @@ class NetworkClient:
                 async with connect(self.server_url, ping_interval=15, ping_timeout=15) as ws:
                     with self._lock:
                         self.connected = True
+                        self._pos_dirty = True
                     tasks = [
                         asyncio.create_task(self._receiver_loop(ws)),
                         asyncio.create_task(self._sender_loop(ws)),
@@ -2138,10 +2139,14 @@ def main() -> None:
                     stride_spd = (3.2 * rs["run_weight"]) + (1.8 * rs["walk_weight"] * (1.0 - rs["run_weight"]))
                     rs["motion_cycle"] += dt * max(0.4, stride_spd)
 
-        # If local chick is ragdoll-laying down on grass, smoothly tilt pitch toward sky/grass and lower eye level
-        if is_online and not is_fighting and abs(local_lay_pitch) > 1e-3:
-            total_pitch = max(-1.25, min(1.25, total_pitch + (-local_lay_pitch * 0.65)))
-            eye_y -= abs(math.sin(local_lay_pitch)) * 0.42
+        # Keep first-person yaw & pitch synced immediately during headshot / ragdoll states
+        if is_online and not is_fighting:
+            if local_headshot_phase != "none":
+                total_yaw = cam_yaw + head_yaw
+                total_pitch = max(-1.35, min(1.35, head_pitch))
+            if abs(local_lay_pitch) > 1e-3:
+                total_pitch = max(-1.35, min(1.35, total_pitch + (-local_lay_pitch * 0.65)))
+                eye_y -= abs(math.sin(local_lay_pitch)) * 0.42
 
         # --- 1. RENDER WHAT YOU SEE: THE GIANT ISLAND, CHICKENS, GRASS, HORIZON ---
         screen.fill(BG_COLOR)

@@ -76,6 +76,7 @@ class GameRelayServer:
 
         self._clients[player_id] = conn
         self._players[player_id] = {
+            "in_game": False,
             "x": 0.5,
             "y": 0.5,
             "wx": 0.0,
@@ -111,35 +112,10 @@ class GameRelayServer:
                 "color": color,
                 "players": {
                     str(pid): data for pid, data in self._players.items()
+                    if data.get("in_game", False)
                 },
             }
             await conn.send(json.dumps(welcome_msg, separators=(",", ":")))
-
-            await self.broadcast(
-                {
-                    "type": "join",
-                    "id": player_id,
-                    "x": 0.5,
-                    "y": 0.5,
-                    "wx": 0.0,
-                    "wz": 0.0,
-                    "color": color,
-                    "name": None,
-                    "chick_name": "卡梅利多",
-                    "running": False,
-                    "walking": False,
-                    "mouth": False,
-                    "blink": False,
-                    "rot_y": 0.0,
-                    "rot_z": 0.0,
-                    "lay_pitch": 0.0,
-                    "ragdoll": 0.0,
-                    "head_yaw": 0.0,
-                    "head_pitch": 0.0,
-                    "is_carmelito": True,
-                },
-                exclude_id=player_id,
-            )
 
             async for raw_message in conn:
                 if not isinstance(raw_message, str):
@@ -226,12 +202,20 @@ class GameRelayServer:
                     }
                     if p["chick_name"]:
                         bcast_msg["chick_name"] = p["chick_name"]
-                    if "name" in data and data["name"]:
-                        name_str = str(data["name"])[:32]
-                        p["name"] = name_str
-                        bcast_msg["name"] = name_str
+                    if "name" in data:
+                        name_str = str(data["name"] or "").strip()[:32]
+                        p["name"] = name_str if name_str else None
+                    if p.get("name"):
+                        bcast_msg["name"] = p["name"]
 
-                    await self.broadcast(bcast_msg, exclude_id=player_id)
+                    if not p.get("in_game", False):
+                        p["in_game"] = True
+                        join_msg = dict(bcast_msg)
+                        join_msg["type"] = "join"
+                        join_msg["color"] = p["color"]
+                        await self.broadcast(join_msg, exclude_id=player_id)
+                    else:
+                        await self.broadcast(bcast_msg, exclude_id=player_id)
                 elif data.get("type") == "kick_hit":
                     try:
                         target_id = int(data.get("target_id", -1))
@@ -286,8 +270,9 @@ class GameRelayServer:
             pass
         finally:
             self._clients.pop(player_id, None)
-            self._players.pop(player_id, None)
-            await self.broadcast({"type": "leave", "id": player_id})
+            gone = self._players.pop(player_id, None)
+            if gone and gone.get("in_game", False):
+                await self.broadcast({"type": "leave", "id": player_id})
 
 
 def health_check(conn: ServerConnection, request: Any) -> Any:
