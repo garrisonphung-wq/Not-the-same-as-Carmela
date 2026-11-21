@@ -88,6 +88,7 @@ class GameRelayServer:
             "mouth": False,
             "blink": False,
             "rot_y": 0.0,
+            "rot_z": 0.0,
             "head_yaw": 0.0,
             "head_pitch": 0.0,
             "is_carmelito": True,
@@ -128,6 +129,7 @@ class GameRelayServer:
                     "mouth": False,
                     "blink": False,
                     "rot_y": 0.0,
+                    "rot_z": 0.0,
                     "head_yaw": 0.0,
                     "head_pitch": 0.0,
                     "is_carmelito": True,
@@ -160,6 +162,8 @@ class GameRelayServer:
                     p["mouth"] = bool(data.get("mouth", False))
                     p["blink"] = bool(data.get("blink", False))
                     p["rot_y"] = safe_float(data.get("rot_y", p["rot_y"]), p["rot_y"], limit=100.0)
+                    if "rot_z" in data:
+                        p["rot_z"] = safe_float(data.get("rot_z", 0.0), 0.0, limit=10.0)
                     p["head_yaw"] = safe_float(data.get("head_yaw", p["head_yaw"]), p["head_yaw"], limit=10.0)
                     p["head_pitch"] = safe_float(data.get("head_pitch", p["head_pitch"]), p["head_pitch"], limit=10.0)
                     if "kick_amount" in data:
@@ -197,6 +201,7 @@ class GameRelayServer:
                         "mouth": p["mouth"],
                         "blink": p["blink"],
                         "rot_y": p["rot_y"],
+                        "rot_z": p.get("rot_z", 0.0),
                         "head_yaw": p["head_yaw"],
                         "head_pitch": p["head_pitch"],
                         "is_carmelito": p["is_carmelito"],
@@ -217,6 +222,25 @@ class GameRelayServer:
                         bcast_msg["name"] = name_str
 
                     await self.broadcast(bcast_msg, exclude_id=player_id)
+                elif data.get("type") == "kick_hit":
+                    try:
+                        target_id = int(data.get("target_id", -1))
+                    except (TypeError, ValueError):
+                        target_id = -1
+                    if target_id in self._clients and target_id != player_id:
+                        hit_msg = {
+                            "type": "kick_hit",
+                            "from_id": player_id,
+                            "target_id": target_id,
+                            "dir_x": safe_float(data.get("dir_x", 0.0), 0.0, limit=2.0),
+                            "dir_z": safe_float(data.get("dir_z", 1.0), 1.0, limit=2.0),
+                            "launch": bool(data.get("launch", False)),
+                            "roll_dir": 1.0 if safe_float(data.get("roll_dir", 1.0), 1.0, limit=2.0) >= 0.0 else -1.0,
+                        }
+                        try:
+                            await self._clients[target_id].send(json.dumps(hit_msg, separators=(",", ":")))
+                        except Exception:
+                            pass
                 elif data.get("type") == "chat":
                     text = str(data.get("text", "")).strip()[:100]
                     if text:

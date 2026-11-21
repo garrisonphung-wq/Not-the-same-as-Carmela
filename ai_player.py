@@ -56,6 +56,13 @@ class AICodeCompanion:
         self.wx = 2.2
         self.wz = 4.5
         self.rot_y = math.pi * 0.85  # Initially facing somewhat toward center/player
+        self.rot_z = 0.0             # Sideways roll (0 = standing, ±pi/2 = lying on side)
+        self.knock_vx = 0.0
+        self.knock_vz = 0.0
+        self.launch_accel_timer = 0.0
+        self.is_kick_launched = False
+        self.kick_roll_dir = 1.0
+        self.side_lying_timer = 0.0
         self.head_yaw = 0.0
         self.head_pitch = 0.0
         self.target_head_yaw = 0.0
@@ -185,7 +192,55 @@ class AICodeCompanion:
             self.mode = "walk" if random.random() < 0.65 else "run"
             self.mode_timer = random.uniform(2.5, 6.0)
 
+    def apply_kick_hit(self, dir_x: float, dir_z: float, launch: bool, roll_dir: float) -> None:
+        dlen = math.hypot(dir_x, dir_z)
+        nx = dir_x / dlen if dlen > 1e-4 else 0.0
+        nz = dir_z / dlen if dlen > 1e-4 else 1.0
+        if launch:
+            # 25% outcome: pushed + start going up by acceleration + keep turning to land sideways (NOT a backflip!)
+            self.knock_vx = nx * 11.5
+            self.knock_vz = nz * 11.5
+            self.is_kick_launched = True
+            self.launch_accel_timer = 0.18
+            self.jump_state = "airborne"
+            self.jump_velocity_y = 0.6
+            self.jump_offset_y = max(self.jump_offset_y, 0.08)
+            self.kick_roll_dir = 1.0 if roll_dir >= 0.0 else -1.0
+            self.side_lying_timer = 0.0
+        else:
+            # 75% outcome: just get pushed horizontally
+            self.knock_vx = nx * 9.5
+            self.knock_vz = nz * 9.5
+
     def step_ai(self, dt: float) -> None:
+        # Apply horizontal knockback / push velocity
+        if abs(self.knock_vx) > 0.01 or abs(self.knock_vz) > 0.01:
+            self.wx += self.knock_vx * dt
+            self.wz += self.knock_vz * dt
+            drag = 1.1 if self.jump_state == "airborne" else 5.5
+            decay = max(0.0, 1.0 - drag * dt)
+            self.knock_vx *= decay
+            self.knock_vz *= decay
+            # Keep inside island boundary
+            r_cur = math.hypot(self.wx, self.wz)
+            if r_cur > self.WORLD_LIMIT:
+                self.wx = self.wx / r_cur * self.WORLD_LIMIT
+                self.wz = self.wz / r_cur * self.WORLD_LIMIT
+
+        # Pause normal wandering while lying sideways after a 25% kick launch
+        if self.side_lying_timer > 0.0:
+            self.side_lying_timer = max(0.0, self.side_lying_timer - dt)
+            self.is_walking = False
+            self.is_running = False
+            self.rot_z = self.kick_roll_dir * (math.pi * 0.5)
+        elif not self.is_kick_launched and abs(self.rot_z) > 1e-3:
+            # Smoothly roll back upright to standing
+            rec_step = math.radians(240.0) * dt
+            if abs(self.rot_z) <= rec_step:
+                self.rot_z = 0.0
+            else:
+                self.rot_z -= math.copysign(rec_step, self.rot_z)
+
         self.mode_timer -= dt
         self.head_timer -= dt
         self.mouth_timer -= dt
@@ -227,7 +282,10 @@ class AICodeCompanion:
             else:
                 self.mouth_timer = random.uniform(1.8, 4.0)
 
-        if self.mode in ("walk", "run"):
+        if self.side_lying_timer > 0.0 or self.is_kick_launched:
+            self.is_walking = False
+            self.is_running = False
+        elif self.mode in ("walk", "run"):
             dx = self.dest_x - self.wx
             dz = self.dest_z - self.wz
             dist = math.hypot(dx, dz)
@@ -366,15 +424,30 @@ class AICodeCompanion:
                 self.jump_offset_y = 0.08
                 self.jump_amount = 0.0
         elif self.jump_state == "airborne":
+            if self.launch_accel_timer > 0.0:
+                self.jump_velocity_y += 74.0 * dt
+                self.launch_accel_timer = max(0.0, self.launch_accel_timer - dt)
             self.jump_offset_y += self.jump_velocity_y * dt
             self.jump_velocity_y -= self.GRAVITY * dt
             self.jump_amount = 0.0
+            if self.is_kick_launched:
+                # Keep turning steadily toward ±90 deg so AI chick lands sideways (never a backflip!)
+                target_roll = self.kick_roll_dir * (math.pi * 0.5)
+                roll_step = math.radians(96.0) * dt * self.kick_roll_dir
+                if self.kick_roll_dir > 0:
+                    self.rot_z = min(target_roll, self.rot_z + roll_step)
+                else:
+                    self.rot_z = max(target_roll, self.rot_z + roll_step)
             cur_floor = max(0.0, ai_landing_support_y)
             if self.jump_velocity_y <= 0.0 and self.jump_offset_y <= cur_floor:
                 self.jump_offset_y = cur_floor
                 self.jump_velocity_y = 0.0
                 self.jump_state = "idle"
                 self.jump_amount = 0.0
+                if self.is_kick_launched:
+                    self.is_kick_launched = False
+                    self.rot_z = self.kick_roll_dir * (math.pi * 0.5)
+                    self.side_lying_timer = 1.35
         else:
             cur_floor = max(0.0, ai_landing_support_y)
             if self.jump_offset_y > 0.0:
@@ -508,6 +581,16 @@ class AICodeCompanion:
                 self.other_players.pop(pid, None)
                 self.other_player_labels.pop(pid, None)
 
+            elif mtype == "kick_hit":
+                target_id = msg.get("target_id")
+                if target_id is None or int(target_id) == self.my_id:
+                    self.apply_kick_hit(
+                        float(msg.get("dir_x", 0.0)),
+                        float(msg.get("dir_z", 1.0)),
+                        bool(msg.get("launch", False)),
+                        float(msg.get("roll_dir", 1.0)),
+                    )
+
             elif mtype == "chat":
                 sender_id = int(msg.get("id", -1))
                 chat_text = str(msg.get("text", "")).strip()
@@ -552,6 +635,7 @@ class AICodeCompanion:
                     "mouth": self.mouth_open,
                     "blink": self.is_blinking,
                     "rot_y": round(self.rot_y, 4),
+                    "rot_z": round(self.rot_z, 4),
                     "head_yaw": round(self.head_yaw, 4),
                     "head_pitch": round(self.head_pitch, 4),
                     "is_carmelito": True,

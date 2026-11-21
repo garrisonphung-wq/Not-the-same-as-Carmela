@@ -340,6 +340,7 @@ class NetworkClient:
         self._local_mouth = False
         self._local_blink = False
         self._local_rot_y = 0.0
+        self._local_rot_z = 0.0
         self._local_head_yaw = 0.0
         self._local_head_pitch = 0.0
         self._local_kick_amount = 0.0
@@ -353,6 +354,8 @@ class NetworkClient:
 
         self._outgoing_chats: list[str] = []
         self._incoming_chats: list[dict[str, Any]] = []
+        self._outgoing_kick_hits: list[dict[str, Any]] = []
+        self._incoming_kick_hits: list[dict[str, Any]] = []
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -381,6 +384,7 @@ class NetworkClient:
         mouth_open: bool,
         is_walking: bool = False,
         rot_y: float = 0.0,
+        rot_z: float = 0.0,
         wx: float = 0.0,
         wz: float = 0.0,
         head_yaw: float = 0.0,
@@ -409,6 +413,7 @@ class NetworkClient:
                 or (mouth_open != self._local_mouth)
                 or (blink != self._local_blink)
                 or (abs(rot_y - self._local_rot_y) > 0.01)
+                or (abs(rot_z - self._local_rot_z) > 0.01)
                 or (abs(head_yaw - self._local_head_yaw) > 0.01)
                 or (abs(head_pitch - self._local_head_pitch) > 0.01)
                 or (abs(kick_amount - self._local_kick_amount) > 0.02)
@@ -429,6 +434,7 @@ class NetworkClient:
                 self._local_mouth = mouth_open
                 self._local_blink = blink
                 self._local_rot_y = rot_y
+                self._local_rot_z = rot_z
                 self._local_head_yaw = head_yaw
                 self._local_head_pitch = head_pitch
                 self._local_kick_amount = kick_amount
@@ -453,6 +459,7 @@ class NetworkClient:
                     "mouth": data.get("mouth", False),
                     "blink": data.get("blink", False),
                     "rot_y": data.get("rot_y", 0.0),
+                    "rot_z": data.get("rot_z", 0.0),
                     "head_yaw": data.get("head_yaw", 0.0),
                     "head_pitch": data.get("head_pitch", 0.0),
                     "color": data["color"],
@@ -471,6 +478,27 @@ class NetworkClient:
                 for pid, data in self.remote_players.items()
             }
             return self.connected, self.is_host, self.my_id, self.my_color, players_copy
+
+    def send_kick_hit(self, target_id: int, dir_x: float, dir_z: float, launch: bool, roll_dir: float) -> None:
+        with self._lock:
+            self._outgoing_kick_hits.append(
+                {
+                    "type": "kick_hit",
+                    "target_id": int(target_id),
+                    "dir_x": round(float(dir_x), 4),
+                    "dir_z": round(float(dir_z), 4),
+                    "launch": bool(launch),
+                    "roll_dir": 1.0 if roll_dir >= 0.0 else -1.0,
+                }
+            )
+
+    def pop_incoming_kick_hits(self) -> list[dict[str, Any]]:
+        with self._lock:
+            if not self._incoming_kick_hits:
+                return []
+            hits = list(self._incoming_kick_hits)
+            self._incoming_kick_hits.clear()
+            return hits
 
     def send_chat(self, text: str) -> None:
         clean_text = str(text).strip()[:100]
@@ -596,6 +624,18 @@ class NetworkClient:
                 except Exception:
                     pass
 
+            out_kicks = []
+            with self._lock:
+                if self._outgoing_kick_hits:
+                    out_kicks = list(self._outgoing_kick_hits)
+                    self._outgoing_kick_hits.clear()
+
+            for k_evt in out_kicks:
+                try:
+                    await ws.send(json.dumps(k_evt, separators=(",", ":")))
+                except Exception:
+                    pass
+
             payload = None
             with self._lock:
                 if self._is_online and self._pos_dirty:
@@ -611,6 +651,7 @@ class NetworkClient:
                             "mouth": self._local_mouth,
                             "blink": self._local_blink,
                             "rot_y": round(self._local_rot_y, 4),
+                            "rot_z": round(self._local_rot_z, 4),
                             "head_yaw": round(self._local_head_yaw, 4),
                             "head_pitch": round(self._local_head_pitch, 4),
                             "is_carmelito": True,
@@ -646,6 +687,7 @@ class NetworkClient:
             "mouth": bool(pdata.get("mouth", False)),
             "blink": bool(pdata.get("blink", False)),
             "rot_y": float(pdata.get("rot_y", 0.0)),
+            "rot_z": float(pdata.get("rot_z", 0.0)),
             "head_yaw": float(pdata.get("head_yaw", 0.0)),
             "head_pitch": float(pdata.get("head_pitch", 0.0)),
             "color": tuple(int(c) for c in raw_color),
@@ -713,6 +755,8 @@ class NetworkClient:
                         rp["blink"] = bool(msg.get("blink", False))
                         if "rot_y" in msg:
                             rp["rot_y"] = float(msg["rot_y"])
+                        if "rot_z" in msg:
+                            rp["rot_z"] = float(msg["rot_z"])
                         if "head_yaw" in msg:
                             rp["head_yaw"] = float(msg["head_yaw"])
                         if "head_pitch" in msg:
@@ -744,6 +788,10 @@ class NetworkClient:
                 pid = int(msg["id"])
                 with self._lock:
                     self.remote_players.pop(pid, None)
+
+            elif msg_type == "kick_hit":
+                with self._lock:
+                    self._incoming_kick_hits.append(msg)
 
             elif msg_type == "chat":
                 with self._lock:
@@ -834,6 +882,14 @@ def main() -> None:
     kick_timer = 0.0
     kick_duration = 0.48
     kick_side = 1.0  # 1.0 for right leg, -1.0 for left leg
+    kick_hit_victims: set[int] = set()
+    knock_vx = 0.0
+    knock_vz = 0.0
+    launch_accel_timer = 0.0
+    is_kick_launched = False
+    kick_roll_dir = 1.0
+    local_rot_z = 0.0
+    side_lying_timer = 0.0
 
     # First-person punch action (triggered with 'P' key)
     is_punching = False
@@ -1067,6 +1123,7 @@ def main() -> None:
                         is_kicking = True
                         kick_timer = 0.0
                         kick_side = -kick_side  # alternate between right and left leg!
+                        kick_hit_victims.clear()
                     elif is_online and not is_fighting and event.key == pygame.K_p:
                         # Pressing 'P' triggers a forward boxing punch / wing strike!
                         is_punching = True
@@ -1359,6 +1416,61 @@ def main() -> None:
                 stride_speed = (3.2 * run_weight) + (1.8 * walk_weight * (1.0 - run_weight))
                 motion_cycle += dt * max(0.4, stride_speed)
 
+            # Process any incoming kick hits from other players / AI
+            if is_online and not is_fighting:
+                for kh in net.pop_incoming_kick_hits():
+                    dx_k = float(kh.get("dir_x", 0.0))
+                    dz_k = float(kh.get("dir_z", 1.0))
+                    dlen_k = math.hypot(dx_k, dz_k)
+                    nx_k = dx_k / dlen_k if dlen_k > 1e-4 else 0.0
+                    nz_k = dz_k / dlen_k if dlen_k > 1e-4 else 1.0
+                    if bool(kh.get("launch", False)):
+                        # 25% kick outcome: pushed + start going up by acceleration + turn sideways to land sideways (NOT backflip!)
+                        knock_vx = nx_k * 11.5
+                        knock_vz = nz_k * 11.5
+                        is_kick_launched = True
+                        launch_accel_timer = 0.18
+                        jump_state = "airborne"
+                        jump_velocity_y = 0.6
+                        jump_offset_y = max(jump_offset_y, 0.08)
+                        kick_roll_dir = 1.0 if float(kh.get("roll_dir", 1.0)) >= 0.0 else -1.0
+                        side_lying_timer = 0.0
+                    else:
+                        # 75% kick outcome: just get pushed horizontally
+                        knock_vx = nx_k * 9.5
+                        knock_vz = nz_k * 9.5
+
+                # Apply active knockback push velocity
+                if abs(knock_vx) > 0.01 or abs(knock_vz) > 0.01:
+                    new_kx = cam_x + knock_vx * dt
+                    new_kz = cam_z + knock_vz * dt
+                    if math.hypot(new_kx, new_kz) <= ISLAND_RADIUS - 2.5:
+                        cam_x = new_kx
+                        cam_z = new_kz
+                    else:
+                        cur_ang = math.atan2(new_kx, new_kz)
+                        max_r = ISLAND_RADIUS - 2.5
+                        cam_x = math.sin(cur_ang) * max_r
+                        cam_z = math.cos(cur_ang) * max_r
+                    drag = 1.1 if jump_state == "airborne" else 5.5
+                    decay = max(0.0, 1.0 - drag * dt)
+                    knock_vx *= decay
+                    knock_vz *= decay
+
+                # Sideways lying recovery after 25% launch landing
+                if side_lying_timer > 0.0:
+                    side_lying_timer = max(0.0, side_lying_timer - dt)
+                    local_rot_z = kick_roll_dir * (math.pi * 0.5)
+                    is_moving = False
+                    is_walking = False
+                    is_running = False
+                elif not is_kick_launched and abs(local_rot_z) > 1e-3:
+                    rec_step = math.radians(240.0) * dt
+                    if abs(local_rot_z) <= rec_step:
+                        local_rot_z = 0.0
+                    else:
+                        local_rot_z -= math.copysign(rec_step, local_rot_z)
+
             if is_moving and not is_fighting:
                 fwd_n = move_fwd / move_mag
                 side_n = move_side / move_mag
@@ -1488,6 +1600,41 @@ def main() -> None:
                     else:
                         kick_amount = math.cos(((kp - 0.38) / 0.62) * (math.pi / 2))
 
+                    # Check if kicking foot reached another chick during extension
+                    if is_online and not is_fighting and kp <= 0.65 and kick_amount >= 0.45:
+                        fwd_x = math.sin(cam_yaw)
+                        fwd_z = math.cos(cam_yaw)
+                        right_x = math.cos(cam_yaw)
+                        right_z = -math.sin(cam_yaw)
+                        foot_x = cam_x + fwd_x * (0.95 * kick_amount) + right_x * (kick_side * 0.16)
+                        foot_z = cam_z + fwd_z * (0.95 * kick_amount) + right_z * (kick_side * 0.16)
+                        foot_y = jump_offset_y + 0.35 * kick_amount
+                        for pid, pdata in remote_players.items():
+                            if pid in kick_hit_victims or pid not in remote_states:
+                                continue
+                            rs = remote_states[pid]
+                            ox = rs.get("wx", 0.0)
+                            oz = rs.get("wz", 0.0)
+                            o_jump_y = rs.get("jump_offset_y", 0.0)
+                            # Must be roughly in front of the kicker and within kicking foot reach
+                            rel_fwd = (ox - cam_x) * fwd_x + (oz - cam_z) * fwd_z
+                            if rel_fwd <= 0.10:
+                                continue
+                            dist_foot = math.hypot(ox - foot_x, oz - foot_z)
+                            reach_rad = 1.15 if resolve_character_id(pdata) == "pangdun" else 1.05
+                            if dist_foot <= reach_rad and abs(foot_y - (o_jump_y + 0.45)) < 1.15:
+                                kick_hit_victims.add(pid)
+                                push_dx = ox - cam_x
+                                push_dz = oz - cam_z
+                                plen = math.hypot(push_dx, push_dz)
+                                if plen > 1e-4:
+                                    push_dx /= plen
+                                    push_dz /= plen
+                                else:
+                                    push_dx, push_dz = fwd_x, fwd_z
+                                is_launch = (random.random() < 0.25)  # 75% push, 25% push + up accel + sideways land
+                                net.send_kick_hit(pid, push_dx, push_dz, launch=is_launch, roll_dir=kick_side)
+
             # Punch animation progress (triggered with 'P')
             punch_amount = 0.0
             if is_punching:
@@ -1528,10 +1675,21 @@ def main() -> None:
                     jump_offset_y = 0.08
                     jump_amount = 0.0  # Fully un-crouch and thrust upward!
             elif jump_state == "airborne":
+                if launch_accel_timer > 0.0:
+                    jump_velocity_y += 74.0 * dt
+                    launch_accel_timer = max(0.0, launch_accel_timer - dt)
                 jump_offset_y += jump_velocity_y * dt
                 jump_velocity_y -= GRAVITY * dt
                 jump_amount = 0.0      # Not crouching while jumping!
                 wing_flap_amount = 1.0 # Wings flap while flying through the air
+                if is_kick_launched:
+                    # Keep turning gradually toward ±90 deg so chick lands sideways (never a backflip!)
+                    target_roll = kick_roll_dir * (math.pi * 0.5)
+                    roll_step = math.radians(96.0) * dt * kick_roll_dir
+                    if kick_roll_dir > 0:
+                        local_rot_z = min(target_roll, local_rot_z + roll_step)
+                    else:
+                        local_rot_z = max(target_roll, local_rot_z + roll_step)
                 # Land on the ground (0.0) or atop another chick (landing_support_y):
                 current_floor = max(0.0, landing_support_y)
                 if jump_velocity_y <= 0.0 and jump_offset_y <= current_floor:
@@ -1540,6 +1698,10 @@ def main() -> None:
                     jump_state = "idle"   # Landed firmly on the ground or atop the player!
                     jump_amount = 0.0
                     wing_flap_amount = 0.0
+                    if is_kick_launched:
+                        is_kick_launched = False
+                        local_rot_z = kick_roll_dir * (math.pi * 0.5)
+                        side_lying_timer = 1.35
             else:
                 # Idle state: if standing on another chick, stay locked atop them as they move!
                 current_floor = max(0.0, landing_support_y)
@@ -1571,6 +1733,7 @@ def main() -> None:
                 mouth_open,
                 is_walking=is_walking,
                 rot_y=cam_yaw,
+                rot_z=local_rot_z,
                 wx=cam_x,
                 wz=cam_z,
                 head_yaw=head_yaw,
@@ -1635,6 +1798,7 @@ def main() -> None:
                 tw_z = (pdata["ny"] - 0.1) / 0.8 * 24.0 - 12.0
 
             t_rot_y = pdata.get("rot_y", 0.0)
+            t_rot_z = float(pdata.get("rot_z", 0.0))
             t_head_yaw = pdata.get("head_yaw", 0.0)
             t_head_pitch = pdata.get("head_pitch", 0.0)
             t_run = 1.0 if pdata.get("running", False) else 0.0
@@ -1653,6 +1817,7 @@ def main() -> None:
                     "wx": tw_x,
                     "wz": tw_z,
                     "rot_y": t_rot_y,
+                    "rot_z": t_rot_z,
                     "head_yaw": t_head_yaw,
                     "head_pitch": t_head_pitch,
                     "run_weight": t_run,
@@ -1672,6 +1837,7 @@ def main() -> None:
                 rs["wx"] += (tw_x - rs["wx"]) * remote_alpha
                 rs["wz"] += (tw_z - rs["wz"]) * remote_alpha
                 rs["rot_y"] = wrap_angle(rs["rot_y"] + wrap_angle(t_rot_y - rs["rot_y"]) * remote_alpha)
+                rs["rot_z"] = rs.get("rot_z", 0.0) + (t_rot_z - rs.get("rot_z", 0.0)) * min(1.0, 18.0 * dt)
                 rs["head_yaw"] += (t_head_yaw - rs["head_yaw"]) * remote_alpha
                 rs["head_pitch"] += (t_head_pitch - rs["head_pitch"]) * remote_alpha
                 rs["run_weight"] += (t_run - rs["run_weight"]) * min(1.0, 8.0 * dt)
@@ -1722,26 +1888,47 @@ def main() -> None:
         else:
             current_ground_y = GROUND_Y
 
+        cam_roll = local_rot_z if (is_online and not is_fighting) else 0.0
+        has_cam_roll = abs(cam_roll) > 1e-4
+        cos_roll = math.cos(cam_roll)
+        sin_roll = math.sin(cam_roll)
+
+        def roll_cam_xy(rx: float, ry: float) -> tuple[float, float]:
+            if has_cam_roll:
+                return (rx * cos_roll + ry * sin_roll, -rx * sin_roll + ry * cos_roll)
+            return (rx, ry)
+
         def to_cam(wx: float, wy: float, wz: float) -> tuple[float, float, float]:
             dx = wx - cam_x
             dy = wy - eye_y
             dz = wz - cam_z
             rx = dx * cos_yaw - dz * sin_yaw
             rz = dx * sin_yaw + dz * cos_yaw
-            return (rx, dy * cos_pitch - rz * sin_pitch, dy * sin_pitch + rz * cos_pitch)
+            ry = dy * cos_pitch - rz * sin_pitch
+            rz_p = dy * sin_pitch + rz * cos_pitch
+            if has_cam_roll:
+                rx, ry = roll_cam_xy(rx, ry)
+            return (rx, ry, rz_p)
 
-        # 1a. Horizon & ground / ocean rendering:
-        horizon_y = max(0, min(win_h, round(hh + math.tan(total_pitch) * focal)))
-
-        if is_online:
-            # When playing the game, you are standing on the lush green island meadow!
-            # The seamless green grass extends all the way to the horizon (sky blue above, grass below).
-            if horizon_y < win_h:
-                screen.fill(GRASS_GROUND_COLOR, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
+        # 1a. Horizon & ground / ocean rendering (supports sideways roll when kicked!):
+        raw_horizon_y = hh + math.tan(total_pitch) * focal
+        horizon_y = max(0, min(win_h, round(raw_horizon_y)))
+        ground_col_fill = GRASS_GROUND_COLOR if is_online else OCEAN_WATER_COLOR
+        if abs(local_rot_z) > 1e-3 and is_online:
+            # Draw tilted grass ground polygon below rotated horizon line
+            cos_r = math.cos(local_rot_z)
+            sin_r = math.sin(local_rot_z)
+            hy_rel = raw_horizon_y - hh
+            big = max(win_w, win_h) * 2.5
+            local_ground_pts = [(-big, hy_rel), (big, hy_rel), (big, hy_rel + big), (-big, hy_rel + big)]
+            tilted_ground_pts = [
+                (round(hw + px * cos_r - py * sin_r), round(hh + px * sin_r + py * cos_r))
+                for px, py in local_ground_pts
+            ]
+            pygame.draw.polygon(screen, ground_col_fill, tilted_ground_pts)
         else:
-            # In offline overview mode: beautiful sky blue above horizon, ocean water below horizon
             if horizon_y < win_h:
-                screen.fill(OCEAN_WATER_COLOR, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
+                screen.fill(ground_col_fill, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
 
         # 1a-2. RENDER PUFFY STORYBOOK WHITE CLOUDS IN THE SKY:
         # Floating high across the sky dome, drifting gently with the breeze!
@@ -1763,8 +1950,9 @@ def main() -> None:
             c_cz = c_dy * sin_pitch + rz_fwd * cos_pitch
 
             if c_cz > 1.0:
-                csx = hw + (rx / c_cz) * focal
-                csy = hh - (c_cy / c_cz) * focal
+                r_cx, r_cy = roll_cam_xy(rx, c_cy)
+                csx = hw + (r_cx / c_cz) * focal
+                csy = hh - (r_cy / c_cz) * focal
                 base_r = (c_scale / c_cz) * focal
 
                 # Only draw if within screen view
@@ -1779,7 +1967,7 @@ def main() -> None:
                             ph = max(3, round(base_r * ph_rel * 1.2))
                             # Clip below horizon so clouds don't draw on the grass/ocean
                             p_rect = pygame.Rect(round(px - pw * 0.5), round(py - ph * 0.5), pw, ph)
-                            if p_rect.bottom < horizon_y + 10 or not is_online:
+                            if has_cam_roll or p_rect.bottom < horizon_y + 10 or not is_online:
                                 pygame.draw.ellipse(screen, col, p_rect)
 
             # Render the Giant Island (Top lush plateau, Sandy beach edge, and 3D Rocky Cliffs)
@@ -1866,7 +2054,8 @@ def main() -> None:
                             continue
 
                         b_cam = to_cam(bx, current_ground_y, bz)
-                        if b_cam[2] > near_z and abs(b_cam[0]) <= b_cam[2] * half_fov_tan + 0.5:
+                        fov_lim = b_cam[2] * (half_fov_tan * (1.8 if has_cam_roll else 1.0)) + 0.5
+                        if b_cam[2] > near_z and abs(b_cam[0]) <= fov_lim:
                             blades.append((b_cam[2], bx, bz, b_cam, th, b_scale, sway_amp))
 
         blades.sort(key=lambda item: item[0], reverse=True)
@@ -1928,8 +2117,9 @@ def main() -> None:
                 # Ground shadow screen position
                 dy_g = current_ground_y - eye_y
                 g_ry_cam = dy_g * cos_pitch - rz_forward * sin_pitch
-                g_sx = hw + (rx_unpitched / horiz_dist) * focal
-                g_sy = hh - (g_ry_cam / horiz_dist) * focal
+                g_rx_r, g_ry_r = roll_cam_xy(rx_unpitched, g_ry_cam)
+                g_sx = hw + (g_rx_r / horiz_dist) * focal
+                g_sy = hh - (g_ry_r / horiz_dist) * focal
                 
                 sh_w = max(8, round((1.18 * char_scale / horiz_dist) * focal))
                 sh_h = max(3, round((0.38 * char_scale / horiz_dist) * focal))
@@ -1943,8 +2133,9 @@ def main() -> None:
                 continue  # Rendered in dedicated battle clash scene below!
 
             # Chick feet screen position on grass
-            sx = hw + (rx_unpitched / horiz_dist) * focal
-            sy = hh - (ry_cam_feet / horiz_dist) * focal
+            rem_rx_r, rem_ry_r = roll_cam_xy(rx_unpitched, ry_cam_feet)
+            sx = hw + (rem_rx_r / horiz_dist) * focal
+            sy = hh - (rem_ry_r / horiz_dist) * focal
 
             if pdata.get("is_carmelito", True):
                 remote_char = resolve_character_id(pdata)
@@ -1968,6 +2159,7 @@ def main() -> None:
                     scale=model_scale,
                     rot_y=rel_rot_y,
                     rot_x=rel_rot_x,
+                    rot_z=rs.get("rot_z", 0.0) - cam_roll,
                     head_yaw=rs["head_yaw"],
                     head_pitch=rs["head_pitch"],
                     mouth_open=pdata.get("mouth", False),

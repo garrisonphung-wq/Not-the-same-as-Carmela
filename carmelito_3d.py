@@ -1847,6 +1847,7 @@ class Carmelito3D:
         scale: float,
         rot_y: float = 0.0,
         rot_x: float = 0.08,
+        rot_z: float = 0.0,
         head_yaw: float = 0.0,
         head_pitch: float = 0.0,
         mouth_open: bool = False,
@@ -1904,6 +1905,11 @@ class Carmelito3D:
         sin_y = math.sin(rot_y)
         cos_x = math.cos(rot_x)
         sin_x = math.sin(rot_x)
+        has_roll = abs(rot_z) > 1e-4
+        cos_z = math.cos(rot_z)
+        sin_z = math.sin(rot_z)
+        roll_pivot_y = 0.72
+        roll_drop_y = abs(sin_z) * 0.38
 
         projected_faces = []
 
@@ -1911,10 +1917,19 @@ class Carmelito3D:
             trans_verts = []
             sum_z = 0.0
             for vx, vy, vz in quad_verts:
+                # Apply local sideways roll around Z first so chick tips/lands on its side (never a backflip!)
+                if has_roll:
+                    dy_p = vy - roll_pivot_y
+                    lvx = vx * cos_z - dy_p * sin_z
+                    lvy = vx * sin_z + dy_p * cos_z + roll_pivot_y - roll_drop_y
+                else:
+                    lvx = vx
+                    lvy = vy
+
                 # Rotate around Y axis
-                rx1 = vx * cos_y + vz * sin_y
-                ry1 = vy
-                rz1 = -vx * sin_y + vz * cos_y
+                rx1 = lvx * cos_y + vz * sin_y
+                ry1 = lvy
+                rz1 = -lvx * sin_y + vz * cos_y
 
                 # Rotate around X axis (elevation pitch)
                 rx2 = rx1
