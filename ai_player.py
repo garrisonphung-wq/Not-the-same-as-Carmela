@@ -56,7 +56,7 @@ class AICodeCompanion:
         self.riding_pid: int | None = None
         self.riding_prev_pos: tuple[float, float] | None = None
         self.climb_jump_cooldown = random.uniform(0.3, 1.1)
-        self.climb_impulse = self.JUMP_IMPULSE
+        self.climb_impulse = 8.5
 
         self.my_id: int | None = None
         self.my_color: list[int] = [120, 195, 255]
