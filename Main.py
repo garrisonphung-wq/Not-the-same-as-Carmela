@@ -341,6 +341,8 @@ class NetworkClient:
         self._local_blink = False
         self._local_rot_y = 0.0
         self._local_rot_z = 0.0
+        self._local_lay_pitch = 0.0
+        self._local_ragdoll = 0.0
         self._local_head_yaw = 0.0
         self._local_head_pitch = 0.0
         self._local_kick_amount = 0.0
@@ -385,6 +387,8 @@ class NetworkClient:
         is_walking: bool = False,
         rot_y: float = 0.0,
         rot_z: float = 0.0,
+        lay_pitch: float = 0.0,
+        ragdoll: float = 0.0,
         wx: float = 0.0,
         wz: float = 0.0,
         head_yaw: float = 0.0,
@@ -414,6 +418,8 @@ class NetworkClient:
                 or (blink != self._local_blink)
                 or (abs(rot_y - self._local_rot_y) > 0.01)
                 or (abs(rot_z - self._local_rot_z) > 0.01)
+                or (abs(lay_pitch - self._local_lay_pitch) > 0.01)
+                or (abs(ragdoll - self._local_ragdoll) > 0.02)
                 or (abs(head_yaw - self._local_head_yaw) > 0.01)
                 or (abs(head_pitch - self._local_head_pitch) > 0.01)
                 or (abs(kick_amount - self._local_kick_amount) > 0.02)
@@ -435,6 +441,8 @@ class NetworkClient:
                 self._local_blink = blink
                 self._local_rot_y = rot_y
                 self._local_rot_z = rot_z
+                self._local_lay_pitch = lay_pitch
+                self._local_ragdoll = ragdoll
                 self._local_head_yaw = head_yaw
                 self._local_head_pitch = head_pitch
                 self._local_kick_amount = kick_amount
@@ -460,6 +468,8 @@ class NetworkClient:
                     "blink": data.get("blink", False),
                     "rot_y": data.get("rot_y", 0.0),
                     "rot_z": data.get("rot_z", 0.0),
+                    "lay_pitch": data.get("lay_pitch", 0.0),
+                    "ragdoll": data.get("ragdoll", 0.0),
                     "head_yaw": data.get("head_yaw", 0.0),
                     "head_pitch": data.get("head_pitch", 0.0),
                     "color": data["color"],
@@ -652,6 +662,8 @@ class NetworkClient:
                             "blink": self._local_blink,
                             "rot_y": round(self._local_rot_y, 4),
                             "rot_z": round(self._local_rot_z, 4),
+                            "lay_pitch": round(self._local_lay_pitch, 4),
+                            "ragdoll": round(self._local_ragdoll, 3),
                             "head_yaw": round(self._local_head_yaw, 4),
                             "head_pitch": round(self._local_head_pitch, 4),
                             "is_carmelito": True,
@@ -688,6 +700,8 @@ class NetworkClient:
             "blink": bool(pdata.get("blink", False)),
             "rot_y": float(pdata.get("rot_y", 0.0)),
             "rot_z": float(pdata.get("rot_z", 0.0)),
+            "lay_pitch": float(pdata.get("lay_pitch", 0.0)),
+            "ragdoll": float(pdata.get("ragdoll", 0.0)),
             "head_yaw": float(pdata.get("head_yaw", 0.0)),
             "head_pitch": float(pdata.get("head_pitch", 0.0)),
             "color": tuple(int(c) for c in raw_color),
@@ -757,6 +771,10 @@ class NetworkClient:
                             rp["rot_y"] = float(msg["rot_y"])
                         if "rot_z" in msg:
                             rp["rot_z"] = float(msg["rot_z"])
+                        if "lay_pitch" in msg:
+                            rp["lay_pitch"] = float(msg["lay_pitch"])
+                        if "ragdoll" in msg:
+                            rp["ragdoll"] = float(msg["ragdoll"])
                         if "head_yaw" in msg:
                             rp["head_yaw"] = float(msg["head_yaw"])
                         if "head_pitch" in msg:
@@ -889,6 +907,9 @@ def main() -> None:
     is_kick_launched = False
     kick_roll_dir = 1.0
     local_rot_z = 0.0
+    local_lay_pitch = 0.0
+    local_ragdoll = 0.0
+    kick_lay_dir = -1.0
     side_lying_timer = 0.0
 
     # First-person punch action (triggered with 'P' key)
@@ -1425,7 +1446,7 @@ def main() -> None:
                     nx_k = dx_k / dlen_k if dlen_k > 1e-4 else 0.0
                     nz_k = dz_k / dlen_k if dlen_k > 1e-4 else 1.0
                     if bool(kh.get("launch", False)):
-                        # 25% kick outcome: pushed + start going up by acceleration + turn sideways to land sideways (NOT backflip!)
+                        # 25% kick outcome: pushed + accelerate up + ragdoll mode + land laying down on grass for 1 sec!
                         knock_vx = nx_k * 11.5
                         knock_vz = nz_k * 11.5
                         is_kick_launched = True
@@ -1434,6 +1455,9 @@ def main() -> None:
                         jump_velocity_y = 0.6
                         jump_offset_y = max(jump_offset_y, 0.08)
                         kick_roll_dir = 1.0 if float(kh.get("roll_dir", 1.0)) >= 0.0 else -1.0
+                        fwd_dot = nx_k * math.sin(cam_yaw) + nz_k * math.cos(cam_yaw)
+                        kick_lay_dir = 1.0 if fwd_dot > 0.0 else -1.0
+                        local_ragdoll = 1.0
                         side_lying_timer = 0.0
                     else:
                         # 75% kick outcome: just get pushed horizontally
@@ -1457,19 +1481,25 @@ def main() -> None:
                     knock_vx *= decay
                     knock_vz *= decay
 
-                # Sideways lying recovery after 25% launch landing
+                # Laying down on grass recovery (1.0 sec ragdoll rest) after 25% launch landing
                 if side_lying_timer > 0.0:
                     side_lying_timer = max(0.0, side_lying_timer - dt)
-                    local_rot_z = kick_roll_dir * (math.pi * 0.5)
+                    local_lay_pitch = kick_lay_dir * (math.pi * 0.5)
+                    local_ragdoll = 1.0
                     is_moving = False
                     is_walking = False
                     is_running = False
-                elif not is_kick_launched and abs(local_rot_z) > 1e-3:
-                    rec_step = math.radians(240.0) * dt
+                elif not is_kick_launched and (abs(local_lay_pitch) > 1e-3 or abs(local_rot_z) > 1e-3 or local_ragdoll > 1e-3):
+                    rec_step = math.radians(280.0) * dt
+                    if abs(local_lay_pitch) <= rec_step:
+                        local_lay_pitch = 0.0
+                    else:
+                        local_lay_pitch -= math.copysign(rec_step, local_lay_pitch)
                     if abs(local_rot_z) <= rec_step:
                         local_rot_z = 0.0
                     else:
                         local_rot_z -= math.copysign(rec_step, local_rot_z)
+                    local_ragdoll = max(0.0, local_ragdoll - 3.5 * dt)
 
             if is_moving and not is_fighting:
                 fwd_n = move_fwd / move_mag
@@ -1683,13 +1713,16 @@ def main() -> None:
                 jump_amount = 0.0      # Not crouching while jumping!
                 wing_flap_amount = 1.0 # Wings flap while flying through the air
                 if is_kick_launched:
-                    # Keep turning gradually toward ±90 deg so chick lands sideways (never a backflip!)
-                    target_roll = kick_roll_dir * (math.pi * 0.5)
-                    roll_step = math.radians(96.0) * dt * kick_roll_dir
-                    if kick_roll_dir > 0:
-                        local_rot_z = min(target_roll, local_rot_z + roll_step)
+                    # Ragdoll mode: smoothly tip toward ±90 deg to land laying flat down on grass (NOT a backflip!)
+                    local_ragdoll = 1.0
+                    target_lay = kick_lay_dir * (math.pi * 0.5)
+                    lay_step = math.radians(102.0) * dt * kick_lay_dir
+                    if kick_lay_dir > 0:
+                        local_lay_pitch = min(target_lay, local_lay_pitch + lay_step)
                     else:
-                        local_rot_z = max(target_roll, local_rot_z + roll_step)
+                        local_lay_pitch = max(target_lay, local_lay_pitch + lay_step)
+                    target_wobble = kick_roll_dir * math.radians(14.0)
+                    local_rot_z += (target_wobble - local_rot_z) * min(1.0, 6.0 * dt)
                 # Land on the ground (0.0) or atop another chick (landing_support_y):
                 current_floor = max(0.0, landing_support_y)
                 if jump_velocity_y <= 0.0 and jump_offset_y <= current_floor:
@@ -1700,8 +1733,10 @@ def main() -> None:
                     wing_flap_amount = 0.0
                     if is_kick_launched:
                         is_kick_launched = False
-                        local_rot_z = kick_roll_dir * (math.pi * 0.5)
-                        side_lying_timer = 1.35
+                        local_lay_pitch = kick_lay_dir * (math.pi * 0.5)
+                        local_rot_z = kick_roll_dir * math.radians(12.0)
+                        local_ragdoll = 1.0
+                        side_lying_timer = 1.0
             else:
                 # Idle state: if standing on another chick, stay locked atop them as they move!
                 current_floor = max(0.0, landing_support_y)
@@ -1734,6 +1769,8 @@ def main() -> None:
                 is_walking=is_walking,
                 rot_y=cam_yaw,
                 rot_z=local_rot_z,
+                lay_pitch=local_lay_pitch,
+                ragdoll=local_ragdoll,
                 wx=cam_x,
                 wz=cam_z,
                 head_yaw=head_yaw,
@@ -1799,6 +1836,8 @@ def main() -> None:
 
             t_rot_y = pdata.get("rot_y", 0.0)
             t_rot_z = float(pdata.get("rot_z", 0.0))
+            t_lay_pitch = float(pdata.get("lay_pitch", 0.0))
+            t_ragdoll = float(pdata.get("ragdoll", 0.0))
             t_head_yaw = pdata.get("head_yaw", 0.0)
             t_head_pitch = pdata.get("head_pitch", 0.0)
             t_run = 1.0 if pdata.get("running", False) else 0.0
@@ -1818,6 +1857,8 @@ def main() -> None:
                     "wz": tw_z,
                     "rot_y": t_rot_y,
                     "rot_z": t_rot_z,
+                    "lay_pitch": t_lay_pitch,
+                    "ragdoll": t_ragdoll,
                     "head_yaw": t_head_yaw,
                     "head_pitch": t_head_pitch,
                     "run_weight": t_run,
@@ -1838,6 +1879,8 @@ def main() -> None:
                 rs["wz"] += (tw_z - rs["wz"]) * remote_alpha
                 rs["rot_y"] = wrap_angle(rs["rot_y"] + wrap_angle(t_rot_y - rs["rot_y"]) * remote_alpha)
                 rs["rot_z"] = rs.get("rot_z", 0.0) + (t_rot_z - rs.get("rot_z", 0.0)) * min(1.0, 18.0 * dt)
+                rs["lay_pitch"] = rs.get("lay_pitch", 0.0) + (t_lay_pitch - rs.get("lay_pitch", 0.0)) * min(1.0, 18.0 * dt)
+                rs["ragdoll"] = rs.get("ragdoll", 0.0) + (t_ragdoll - rs.get("ragdoll", 0.0)) * min(1.0, 18.0 * dt)
                 rs["head_yaw"] += (t_head_yaw - rs["head_yaw"]) * remote_alpha
                 rs["head_pitch"] += (t_head_pitch - rs["head_pitch"]) * remote_alpha
                 rs["run_weight"] += (t_run - rs["run_weight"]) * min(1.0, 8.0 * dt)
@@ -1859,6 +1902,11 @@ def main() -> None:
                 if loco > 0.001:
                     stride_spd = (3.2 * rs["run_weight"]) + (1.8 * rs["walk_weight"] * (1.0 - rs["run_weight"]))
                     rs["motion_cycle"] += dt * max(0.4, stride_spd)
+
+        # If local chick is ragdoll-laying down on grass, smoothly tilt pitch toward sky/grass and lower eye level
+        if is_online and not is_fighting and abs(local_lay_pitch) > 1e-3:
+            total_pitch = max(-1.25, min(1.25, total_pitch + (-local_lay_pitch * 0.65)))
+            eye_y -= abs(math.sin(local_lay_pitch)) * 0.42
 
         # --- 1. RENDER WHAT YOU SEE: THE GIANT ISLAND, CHICKENS, GRASS, HORIZON ---
         screen.fill(BG_COLOR)
@@ -2160,6 +2208,9 @@ def main() -> None:
                     rot_y=rel_rot_y,
                     rot_x=rel_rot_x,
                     rot_z=rs.get("rot_z", 0.0) - cam_roll,
+                    lay_pitch=rs.get("lay_pitch", 0.0),
+                    ragdoll=rs.get("ragdoll", 0.0),
+                    ragdoll_seed=anim_time + pid * 1.73,
                     head_yaw=rs["head_yaw"],
                     head_pitch=rs["head_pitch"],
                     mouth_open=pdata.get("mouth", False),

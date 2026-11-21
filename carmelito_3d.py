@@ -306,6 +306,8 @@ class Carmelito3D:
         punch_side: float = 1.0,
         jump_amount: float = 0.0,
         tag_amount: float = 0.0,
+        ragdoll: float = 0.0,
+        ragdoll_seed: float = 0.0,
     ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
         """
         Builds Carmelito 3D model with 100% faithful storybook geometry:
@@ -771,6 +773,10 @@ class Carmelito3D:
             head_faces.extend(lower_beak)
 
         # Transform head faces: apply head_s (scaled around head_center_y) and neck pivot rotation
+        if ragdoll > 0.001:
+            rg = max(0.0, min(1.0, ragdoll))
+            head_yaw = head_yaw * (1.0 - rg) + math.sin(ragdoll_seed * 4.3 + 0.7) * 0.42 * rg
+            head_pitch = head_pitch * (1.0 - rg) + math.cos(ragdoll_seed * 3.1) * 0.28 * rg
         pivot_y = head_center_y - 0.28
         has_rot = (abs(head_yaw) > 1e-4 or abs(head_pitch) > 1e-4)
         cos_hy = math.cos(head_yaw) if has_rot else 1.0
@@ -977,6 +983,24 @@ class Carmelito3D:
                 elbow_pt = lerp_vec3(elbow_pt, z_elbow, effective_tag)
                 hand_pt = lerp_vec3(hand_pt, z_hand, effective_tag)
 
+            # Ragdoll mode: floppy, splayed-out asymmetrical wings!
+            if ragdoll > 0.001:
+                rg = max(0.0, min(1.0, ragdoll))
+                w_flop = math.sin(ragdoll_seed * 6.2 + side * 1.4) * 0.16
+                w_fwd = math.cos(ragdoll_seed * 4.7 + side * 2.1) * 0.22
+                rg_elbow = (
+                    side * (0.48 + 0.10 * rg),
+                    body_center_y + (0.04 + w_flop) * rg,
+                    w_fwd * 0.6 * rg,
+                )
+                rg_hand = (
+                    side * (0.68 + 0.12 * rg),
+                    body_center_y - 0.08 + w_flop * 1.8 * rg,
+                    w_fwd * 1.3 * rg,
+                )
+                elbow_pt = lerp_vec3(elbow_pt, rg_elbow, rg)
+                hand_pt = lerp_vec3(hand_pt, rg_hand, rg)
+
             # Upper Arm
             upper_arm = create_oriented_box(
                 shoulder_pt, elbow_pt,
@@ -1134,6 +1158,24 @@ class Carmelito3D:
                 knee_pt = lerp_vec3(knee_pt, k_knee, k_ext)
                 ankle_pt = lerp_vec3(ankle_pt, k_ankle, k_ext)
                 foot_angle = foot_angle * (1.0 - k_ext) + k_foot_ang * k_ext
+
+            if ragdoll > 0.001:
+                rg = max(0.0, min(1.0, ragdoll))
+                l_wob = math.sin(ragdoll_seed * 5.5 + side * 1.9) * 0.10
+                rg_knee = (
+                    leg_x * (1.45 + 0.25 * rg) + side * 0.05 * rg,
+                    hip_attach_y - 0.18 * rg + l_wob * 0.5 * rg,
+                    0.12 * rg + side * 0.07 * rg,
+                )
+                rg_ankle = (
+                    leg_x * (1.75 + 0.35 * rg) + side * 0.08 * rg,
+                    0.11 + l_wob * rg,
+                    0.24 * rg + side * 0.14 * rg,
+                )
+                rg_foot_ang = -0.65 * rg + l_wob * 0.8 * rg
+                knee_pt = lerp_vec3(knee_pt, rg_knee, rg)
+                ankle_pt = lerp_vec3(ankle_pt, rg_ankle, rg)
+                foot_angle = foot_angle * (1.0 - rg) + rg_foot_ang * rg
 
             leg_t_thigh = 0.048 if is_xiaoliuzi else 0.075
             leg_t_shank = 0.038 if is_xiaoliuzi else 0.060
@@ -1848,6 +1890,9 @@ class Carmelito3D:
         rot_y: float = 0.0,
         rot_x: float = 0.08,
         rot_z: float = 0.0,
+        lay_pitch: float = 0.0,
+        ragdoll: float = 0.0,
+        ragdoll_seed: float = 0.0,
         head_yaw: float = 0.0,
         head_pitch: float = 0.0,
         mouth_open: bool = False,
@@ -1899,6 +1944,8 @@ class Carmelito3D:
             punch_side=punch_side,
             jump_amount=jump_amount,
             tag_amount=tag_amount,
+            ragdoll=ragdoll,
+            ragdoll_seed=ragdoll_seed,
         )
 
         cos_y = math.cos(rot_y)
@@ -1908,8 +1955,12 @@ class Carmelito3D:
         has_roll = abs(rot_z) > 1e-4
         cos_z = math.cos(rot_z)
         sin_z = math.sin(rot_z)
+        has_lay = abs(lay_pitch) > 1e-4
+        cos_lp = math.cos(lay_pitch)
+        sin_lp = math.sin(lay_pitch)
         roll_pivot_y = 0.72
-        roll_drop_y = abs(sin_z) * 0.38
+        # When lying flat down (lay_pitch -> ±pi/2), lower pivot smoothly so chick rests flat on the grass!
+        roll_drop_y = max(abs(sin_lp) * 0.40, abs(sin_z) * 0.38)
 
         projected_faces = []
 
@@ -1917,19 +1968,28 @@ class Carmelito3D:
             trans_verts = []
             sum_z = 0.0
             for vx, vy, vz in quad_verts:
-                # Apply local sideways roll around Z first so chick tips/lands on its side (never a backflip!)
+                lvx = vx
+                lvy = vy
+                lvz = vz
+                # 1) Apply subtle ragdoll/local Z tilt
                 if has_roll:
-                    dy_p = vy - roll_pivot_y
-                    lvx = vx * cos_z - dy_p * sin_z
-                    lvy = vx * sin_z + dy_p * cos_z + roll_pivot_y - roll_drop_y
-                else:
-                    lvx = vx
-                    lvy = vy
+                    dy_p = lvy - roll_pivot_y
+                    nx_r = lvx * cos_z - dy_p * sin_z
+                    ny_r = lvx * sin_z + dy_p * cos_z + roll_pivot_y
+                    lvx, lvy = nx_r, ny_r
+                # 2) Apply local lay-down pitch around X (0 -> ±90 deg so chick lands laying flat down, NOT a backflip!)
+                if has_lay:
+                    dy_l = lvy - roll_pivot_y
+                    ny_l = dy_l * cos_lp - lvz * sin_lp + roll_pivot_y
+                    nz_l = dy_l * sin_lp + lvz * cos_lp
+                    lvy, lvz = ny_l, nz_l
+                if has_roll or has_lay:
+                    lvy -= roll_drop_y
 
                 # Rotate around Y axis
-                rx1 = lvx * cos_y + vz * sin_y
+                rx1 = lvx * cos_y + lvz * sin_y
                 ry1 = lvy
-                rz1 = -lvx * sin_y + vz * cos_y
+                rz1 = -lvx * sin_y + lvz * cos_y
 
                 # Rotate around X axis (elevation pitch)
                 rx2 = rx1

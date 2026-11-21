@@ -56,12 +56,15 @@ class AICodeCompanion:
         self.wx = 2.2
         self.wz = 4.5
         self.rot_y = math.pi * 0.85  # Initially facing somewhat toward center/player
-        self.rot_z = 0.0             # Sideways roll (0 = standing, ±pi/2 = lying on side)
+        self.rot_z = 0.0             # Subtle ragdoll tilt wobble
+        self.lay_pitch = 0.0         # Local lay-down pitch (0 = standing, ±pi/2 = laying flat on grass)
+        self.ragdoll = 0.0           # 0..1 floppy ragdoll limbs & head
         self.knock_vx = 0.0
         self.knock_vz = 0.0
         self.launch_accel_timer = 0.0
         self.is_kick_launched = False
         self.kick_roll_dir = 1.0
+        self.kick_lay_dir = -1.0
         self.side_lying_timer = 0.0
         self.head_yaw = 0.0
         self.head_pitch = 0.0
@@ -197,7 +200,7 @@ class AICodeCompanion:
         nx = dir_x / dlen if dlen > 1e-4 else 0.0
         nz = dir_z / dlen if dlen > 1e-4 else 1.0
         if launch:
-            # 25% outcome: pushed + start going up by acceleration + keep turning to land sideways (NOT a backflip!)
+            # 25% outcome: pushed + accelerate up + ragdoll mode + land laying down on grass for 1 sec!
             self.knock_vx = nx * 11.5
             self.knock_vz = nz * 11.5
             self.is_kick_launched = True
@@ -206,6 +209,10 @@ class AICodeCompanion:
             self.jump_velocity_y = 0.6
             self.jump_offset_y = max(self.jump_offset_y, 0.08)
             self.kick_roll_dir = 1.0 if roll_dir >= 0.0 else -1.0
+            # Fall onto back (-1) if hit from front, or onto belly (+1) if hit from behind
+            fwd_dot = nx * math.sin(self.rot_y) + nz * math.cos(self.rot_y)
+            self.kick_lay_dir = 1.0 if fwd_dot > 0.0 else -1.0
+            self.ragdoll = 1.0
             self.side_lying_timer = 0.0
         else:
             # 75% outcome: just get pushed horizontally
@@ -227,19 +234,25 @@ class AICodeCompanion:
                 self.wx = self.wx / r_cur * self.WORLD_LIMIT
                 self.wz = self.wz / r_cur * self.WORLD_LIMIT
 
-        # Pause normal wandering while lying sideways after a 25% kick launch
+        # Pause normal wandering while laying down on the grass for 1 sec in ragdoll mode
         if self.side_lying_timer > 0.0:
             self.side_lying_timer = max(0.0, self.side_lying_timer - dt)
             self.is_walking = False
             self.is_running = False
-            self.rot_z = self.kick_roll_dir * (math.pi * 0.5)
-        elif not self.is_kick_launched and abs(self.rot_z) > 1e-3:
-            # Smoothly roll back upright to standing
-            rec_step = math.radians(240.0) * dt
+            self.lay_pitch = self.kick_lay_dir * (math.pi * 0.5)
+            self.ragdoll = 1.0
+        elif not self.is_kick_launched and (abs(self.lay_pitch) > 1e-3 or abs(self.rot_z) > 1e-3 or self.ragdoll > 1e-3):
+            # Smoothly recover upright from ragdoll lay-down
+            rec_step = math.radians(280.0) * dt
+            if abs(self.lay_pitch) <= rec_step:
+                self.lay_pitch = 0.0
+            else:
+                self.lay_pitch -= math.copysign(rec_step, self.lay_pitch)
             if abs(self.rot_z) <= rec_step:
                 self.rot_z = 0.0
             else:
                 self.rot_z -= math.copysign(rec_step, self.rot_z)
+            self.ragdoll = max(0.0, self.ragdoll - 3.5 * dt)
 
         self.mode_timer -= dt
         self.head_timer -= dt
@@ -431,13 +444,17 @@ class AICodeCompanion:
             self.jump_velocity_y -= self.GRAVITY * dt
             self.jump_amount = 0.0
             if self.is_kick_launched:
-                # Keep turning steadily toward ±90 deg so AI chick lands sideways (never a backflip!)
-                target_roll = self.kick_roll_dir * (math.pi * 0.5)
-                roll_step = math.radians(96.0) * dt * self.kick_roll_dir
-                if self.kick_roll_dir > 0:
-                    self.rot_z = min(target_roll, self.rot_z + roll_step)
+                # Ragdoll mode: smoothly tip toward ±90 deg to land laying down flat on the grass (NOT a backflip!)
+                self.ragdoll = 1.0
+                target_lay = self.kick_lay_dir * (math.pi * 0.5)
+                lay_step = math.radians(102.0) * dt * self.kick_lay_dir
+                if self.kick_lay_dir > 0:
+                    self.lay_pitch = min(target_lay, self.lay_pitch + lay_step)
                 else:
-                    self.rot_z = max(target_roll, self.rot_z + roll_step)
+                    self.lay_pitch = max(target_lay, self.lay_pitch + lay_step)
+                # Subtle floppy ragdoll side wobble
+                target_wobble = self.kick_roll_dir * math.radians(14.0)
+                self.rot_z += (target_wobble - self.rot_z) * min(1.0, 6.0 * dt)
             cur_floor = max(0.0, ai_landing_support_y)
             if self.jump_velocity_y <= 0.0 and self.jump_offset_y <= cur_floor:
                 self.jump_offset_y = cur_floor
@@ -446,8 +463,10 @@ class AICodeCompanion:
                 self.jump_amount = 0.0
                 if self.is_kick_launched:
                     self.is_kick_launched = False
-                    self.rot_z = self.kick_roll_dir * (math.pi * 0.5)
-                    self.side_lying_timer = 1.35
+                    self.lay_pitch = self.kick_lay_dir * (math.pi * 0.5)
+                    self.rot_z = self.kick_roll_dir * math.radians(12.0)
+                    self.ragdoll = 1.0
+                    self.side_lying_timer = 1.0
         else:
             cur_floor = max(0.0, ai_landing_support_y)
             if self.jump_offset_y > 0.0:
@@ -636,6 +655,8 @@ class AICodeCompanion:
                     "blink": self.is_blinking,
                     "rot_y": round(self.rot_y, 4),
                     "rot_z": round(self.rot_z, 4),
+                    "lay_pitch": round(self.lay_pitch, 4),
+                    "ragdoll": round(self.ragdoll, 3),
                     "head_yaw": round(self.head_yaw, 4),
                     "head_pitch": round(self.head_pitch, 4),
                     "is_carmelito": True,

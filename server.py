@@ -89,6 +89,8 @@ class GameRelayServer:
             "blink": False,
             "rot_y": 0.0,
             "rot_z": 0.0,
+            "lay_pitch": 0.0,
+            "ragdoll": 0.0,
             "head_yaw": 0.0,
             "head_pitch": 0.0,
             "is_carmelito": True,
@@ -130,6 +132,8 @@ class GameRelayServer:
                     "blink": False,
                     "rot_y": 0.0,
                     "rot_z": 0.0,
+                    "lay_pitch": 0.0,
+                    "ragdoll": 0.0,
                     "head_yaw": 0.0,
                     "head_pitch": 0.0,
                     "is_carmelito": True,
@@ -164,6 +168,10 @@ class GameRelayServer:
                     p["rot_y"] = safe_float(data.get("rot_y", p["rot_y"]), p["rot_y"], limit=100.0)
                     if "rot_z" in data:
                         p["rot_z"] = safe_float(data.get("rot_z", 0.0), 0.0, limit=10.0)
+                    if "lay_pitch" in data:
+                        p["lay_pitch"] = safe_float(data.get("lay_pitch", 0.0), 0.0, limit=10.0)
+                    if "ragdoll" in data:
+                        p["ragdoll"] = safe_float(data.get("ragdoll", 0.0), 0.0, limit=2.0)
                     p["head_yaw"] = safe_float(data.get("head_yaw", p["head_yaw"]), p["head_yaw"], limit=10.0)
                     p["head_pitch"] = safe_float(data.get("head_pitch", p["head_pitch"]), p["head_pitch"], limit=10.0)
                     if "kick_amount" in data:
@@ -202,6 +210,8 @@ class GameRelayServer:
                         "blink": p["blink"],
                         "rot_y": p["rot_y"],
                         "rot_z": p.get("rot_z", 0.0),
+                        "lay_pitch": p.get("lay_pitch", 0.0),
+                        "ragdoll": p.get("ragdoll", 0.0),
                         "head_yaw": p["head_yaw"],
                         "head_pitch": p["head_pitch"],
                         "is_carmelito": p["is_carmelito"],
