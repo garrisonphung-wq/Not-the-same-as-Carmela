@@ -327,6 +327,7 @@ class NetworkClient:
         self.my_id: int | None = None
         self.my_color = LOCAL_DOT_COLOR
         self.chick_name = CHICK_NAME
+        self.player_name: str | None = None
         self.character_id = "carmelito"
 
         self.remote_players: dict[int, dict[str, Any]] = {}
@@ -368,6 +369,12 @@ class NetworkClient:
         with self._lock:
             self.character_id = character_id
             self.chick_name = chick_name
+            self._pos_dirty = True
+
+    def set_player_name(self, player_name: str | None) -> None:
+        clean = str(player_name or "").strip()[:24]
+        with self._lock:
+            self.player_name = clean if clean else None
             self._pos_dirty = True
 
     def set_online(self, online: bool = True) -> None:
@@ -651,7 +658,7 @@ class NetworkClient:
 
             for c_text in out_chats:
                 try:
-                    await ws.send(json.dumps({"type": "chat", "text": c_text, "name": self.chick_name}))
+                    await ws.send(json.dumps({"type": "chat", "text": c_text, "name": self.player_name or self.chick_name}))
                 except Exception:
                     pass
 
@@ -701,6 +708,7 @@ class NetworkClient:
                             "head_pitch": round(self._local_head_pitch, 4),
                             "is_carmelito": True,
                             "chick_name": self.chick_name,
+                            **({"name": self.player_name} if self.player_name else {}),
                             "character": self.character_id,
                             "kick_amount": round(self._local_kick_amount, 3),
                             "kick_side": round(self._local_kick_side, 1),
@@ -1007,6 +1015,11 @@ def main() -> None:
     remote_states: dict[int, dict[str, float]] = {}
 
     play_button_rect = pygame.Rect(0, 0, 10, 10)
+    name_button_rect = pygame.Rect(-100, -100, 0, 0)
+    name_input_rect = pygame.Rect(-100, -100, 0, 0)
+    custom_player_name = ""
+    is_typing_menu_name = False
+    menu_ime_comp_text = ""
 
     # Chat system state
     is_typing_chat = False
@@ -1082,6 +1095,13 @@ def main() -> None:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif not is_online and menu_state == "title" and is_typing_menu_name and event.type == getattr(pygame, "TEXTEDITING", -1):
+                menu_ime_comp_text = str(getattr(event, "text", "") or "")
+            elif not is_online and menu_state == "title" and is_typing_menu_name and event.type == pygame.TEXTINPUT:
+                menu_ime_comp_text = ""
+                txt_in = str(getattr(event, "text", "") or "")
+                if txt_in and len(custom_player_name) < 20:
+                    custom_player_name = (custom_player_name + txt_in)[:20]
             elif is_online and is_typing_chat and event.type == getattr(pygame, "TEXTEDITING", -1):
                 # Native OS IME composition preview (e.g. macOS Pinyin before committing)
                 ime_comp_text = str(getattr(event, "text", "") or "")
@@ -1106,7 +1126,17 @@ def main() -> None:
             elif event.type == pygame.KEYDOWN:
                 # Accept both standard Return/Enter and Numpad Enter:
                 is_enter_key = event.key in (pygame.K_RETURN, getattr(pygame, "K_KP_ENTER", pygame.K_RETURN))
-                if is_online and is_typing_chat:
+                if not is_online and menu_state == "title" and is_typing_menu_name:
+                    if event.key == pygame.K_BACKSPACE:
+                        if not menu_ime_comp_text and custom_player_name:
+                            custom_player_name = custom_player_name[:-1]
+                    elif is_enter_key or event.key == pygame.K_ESCAPE:
+                        if not menu_ime_comp_text:
+                            is_typing_menu_name = False
+                            if hasattr(pygame.key, "stop_text_input"):
+                                pygame.key.stop_text_input()
+                    # Do nothing else while typing in the menu name box!
+                elif is_online and is_typing_chat:
                     if event.key == pygame.K_TAB:
                         # Toggle built-in Chinese Pinyin mode
                         if builtin_pinyin_mode and pinyin_buffer:
@@ -1202,11 +1232,29 @@ def main() -> None:
                 # Menu navigation and joining in offline mode
                 if not is_online:
                     if menu_state == "title":
-                        if play_button_rect.collidepoint(event.pos):
+                        if name_button_rect.collidepoint(event.pos) or name_input_rect.collidepoint(event.pos):
+                            is_typing_menu_name = True
+                            menu_ime_comp_text = ""
+                            if hasattr(pygame.key, "start_text_input"):
+                                pygame.key.start_text_input()
+                            if hasattr(pygame.key, "set_text_input_rect"):
+                                pygame.key.set_text_input_rect(name_input_rect)
+                            is_dragging_island = False
+                        elif play_button_rect.collidepoint(event.pos):
                             # Clicking PLAY opens character select: Carmelito appears spinning, with name and USE button
+                            if is_typing_menu_name:
+                                is_typing_menu_name = False
+                                menu_ime_comp_text = ""
+                                if hasattr(pygame.key, "stop_text_input"):
+                                    pygame.key.stop_text_input()
                             menu_state = "character_select"
                             is_dragging_island = False
                         else:
+                            if is_typing_menu_name:
+                                is_typing_menu_name = False
+                                menu_ime_comp_text = ""
+                                if hasattr(pygame.key, "stop_text_input"):
+                                    pygame.key.stop_text_input()
                             is_dragging_island = True
                             drag_start_pos = event.pos
                     elif menu_state in ("character_select", "character_used"):
@@ -1231,6 +1279,7 @@ def main() -> None:
                             # Clicking spawned PLAY button launches the game with chosen chick!
                             is_online = True
                             has_entered_game = True
+                            net.set_player_name(custom_player_name)
                             net.set_character(selected_character, selected_chick_name)
                             net.set_online(True)
                             cam_x = ground_cam_x
@@ -1311,7 +1360,7 @@ def main() -> None:
                     chat_bubbles[-1] = chat_bubbles[-1][-4:]  # Limit to 4 stacked bubbles
                     # Append to persistent chatbox history
                     chat_history.append({
-                        "sender": selected_chick_name,
+                        "sender": custom_player_name.strip() or selected_chick_name,
                         "text": clean,
                         "is_self": True,
                         "sender_id": -1,
@@ -3125,11 +3174,29 @@ def main() -> None:
             pygame.draw.rect(screen, (255, 255, 255), pic_rect, border_radius=16)
             pygame.draw.rect(screen, (215, 224, 232), pic_rect, width=2, border_radius=16)
 
-            corner_y = 185 - round(jump_offset_y * 22)
+            preview_center_x = pic_rect.centerx
+            clean_custom_name = custom_player_name.strip()
+            chick_self_badge = get_nameplate_surface(selected_chick_name, 14)
+            if clean_custom_name:
+                custom_self_badge = get_nameplate_surface(
+                    clean_custom_name,
+                    12,
+                    text_color=(45, 95, 145),
+                    border_color=(175, 210, 240),
+                )
+                custom_y = pic_rect.top + 6
+                chick_y = custom_y + custom_self_badge.get_height() + 3
+                screen.blit(custom_self_badge, (preview_center_x - custom_self_badge.get_width() // 2, custom_y))
+                screen.blit(chick_self_badge, (preview_center_x - chick_self_badge.get_width() // 2, chick_y))
+            else:
+                chick_y = pic_rect.top + 8
+                screen.blit(chick_self_badge, (preview_center_x - chick_self_badge.get_width() // 2, chick_y))
+
+            corner_y = 194 - round(jump_offset_y * 20)
             model_3d.render(
                 surface=screen,
                 screen_pos=(106, corner_y),
-                scale=72,
+                scale=64,
                 rot_y=0.0,
                 rot_x=0.06,
                 head_yaw=head_yaw,
@@ -3352,7 +3419,66 @@ def main() -> None:
                 use_button_rect = pygame.Rect(-100, -100, 0, 0)
                 screen.blit(play_surf, (play_x, play_y))
 
+                # "name:" button + typeable white box directly under PLAY
+                lbl_px = max(18, min(32, ((round(play_px * 0.68)) // 2) * 2))
+                lbl_outline_px = max(2, round(lbl_px * 0.075))
+                name_lbl_surf = get_outlined_text_surface("name:", lbl_px, outline_px=lbl_outline_px)
+
+                box_w = max(170, min(260, round(win_w * 0.24)))
+                box_h = max(34, name_lbl_surf.get_height() + 8)
+                row_gap = 10
+                total_row_w = name_lbl_surf.get_width() + row_gap + box_w
+                row_x = (win_w - total_row_w) // 2
+                row_y = play_button_rect.bottom + max(14, round(win_h * 0.024))
+
+                lbl_y = row_y + (box_h - name_lbl_surf.get_height()) // 2
+                name_button_rect = pygame.Rect(
+                    row_x - 6,
+                    row_y - 2,
+                    name_lbl_surf.get_width() + 12,
+                    box_h + 4,
+                )
+                screen.blit(name_lbl_surf, (row_x, lbl_y))
+
+                box_x = row_x + name_lbl_surf.get_width() + row_gap
+                name_input_rect = pygame.Rect(box_x, row_y, box_w, box_h)
+                if is_typing_menu_name and hasattr(pygame.key, "set_text_input_rect"):
+                    pygame.key.set_text_input_rect(name_input_rect)
+
+                # White box shadow, fill & active/inactive border
+                pygame.draw.rect(screen, (180, 195, 210), pygame.Rect(box_x + 2, row_y + 2, box_w, box_h), border_radius=10)
+                pygame.draw.rect(screen, (255, 255, 255), name_input_rect, border_radius=10)
+                border_col = (55, 130, 225) if is_typing_menu_name else (140, 160, 185)
+                pygame.draw.rect(screen, border_col, name_input_rect, width=2, border_radius=10)
+
+                name_font = get_chinese_font(max(16, min(22, box_h - 12)))
+                disp_text = custom_player_name + (menu_ime_comp_text if is_typing_menu_name else "")
+                clip_prev = screen.get_clip()
+                screen.set_clip(pygame.Rect(box_x + 8, row_y + 2, box_w - 16, box_h - 4))
+                text_y = row_y + (box_h - name_font.get_height()) // 2
+                if disp_text:
+                    c_surf = name_font.render(custom_player_name, True, (28, 36, 48))
+                    max_txt_w = box_w - 20
+                    draw_nx = box_x + 10
+                    ime_w = name_font.size(menu_ime_comp_text)[0] if (is_typing_menu_name and menu_ime_comp_text) else 0
+                    if c_surf.get_width() + ime_w > max_txt_w:
+                        draw_nx -= (c_surf.get_width() + ime_w - max_txt_w)
+                    screen.blit(c_surf, (draw_nx, text_y))
+                    cur_nx = draw_nx + c_surf.get_width()
+                    if is_typing_menu_name and menu_ime_comp_text:
+                        comp_s = name_font.render(menu_ime_comp_text, True, (35, 115, 220))
+                        screen.blit(comp_s, (cur_nx, text_y))
+                        cur_nx += comp_s.get_width()
+                    if is_typing_menu_name and (int(anim_time * 2.5) % 2) == 0:
+                        pygame.draw.line(screen, (28, 36, 48), (cur_nx + 1, text_y + 2), (cur_nx + 1, text_y + name_font.get_height() - 2), 2)
+                else:
+                    if is_typing_menu_name and (int(anim_time * 2.5) % 2) == 0:
+                        pygame.draw.line(screen, (28, 36, 48), (box_x + 10, text_y + 2), (box_x + 10, text_y + name_font.get_height() - 2), 2)
+                screen.set_clip(clip_prev)
+
             elif menu_state in ("character_select", "character_used"):
+                name_button_rect = pygame.Rect(-100, -100, 0, 0)
+                name_input_rect = pygame.Rect(-100, -100, 0, 0)
                 # Single character card in the center with a Right Arrow button to switch chicks!
                 play_button_rect = pygame.Rect(-100, -100, 0, 0)
 
