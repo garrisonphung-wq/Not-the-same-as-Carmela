@@ -308,6 +308,7 @@ class Carmelito3D:
         tag_amount: float = 0.0,
         ragdoll: float = 0.0,
         ragdoll_seed: float = 0.0,
+        ragdoll_pose: dict | None = None,
     ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
         """
         Builds Carmelito 3D model with 100% faithful storybook geometry:
@@ -775,8 +776,12 @@ class Carmelito3D:
         # Transform head faces: apply head_s (scaled around head_center_y) and neck pivot rotation
         if ragdoll > 0.001:
             rg = max(0.0, min(1.0, ragdoll))
-            head_yaw = head_yaw * (1.0 - rg) + math.sin(ragdoll_seed * 4.3 + 0.7) * 0.42 * rg
-            head_pitch = head_pitch * (1.0 - rg) + math.cos(ragdoll_seed * 3.1) * 0.28 * rg
+            if ragdoll_pose is not None:
+                head_yaw = head_yaw * (1.0 - rg) + float(ragdoll_pose.get("head_yaw", 0.0)) * rg
+                head_pitch = head_pitch * (1.0 - rg) + float(ragdoll_pose.get("head_pitch", 0.0)) * rg
+            else:
+                head_yaw = head_yaw * (1.0 - rg) + 0.28 * rg
+                head_pitch = head_pitch * (1.0 - rg) + 0.22 * rg
         pivot_y = head_center_y - 0.28
         has_rot = (abs(head_yaw) > 1e-4 or abs(head_pitch) > 1e-4)
         cos_hy = math.cos(head_yaw) if has_rot else 1.0
@@ -983,21 +988,17 @@ class Carmelito3D:
                 elbow_pt = lerp_vec3(elbow_pt, z_elbow, effective_tag)
                 hand_pt = lerp_vec3(hand_pt, z_hand, effective_tag)
 
-            # Ragdoll mode: floppy, splayed-out asymmetrical wings!
+            # Ragdoll mode: physics-simulated limp wings (no spinning!)
             if ragdoll > 0.001:
                 rg = max(0.0, min(1.0, ragdoll))
-                w_flop = math.sin(ragdoll_seed * 6.2 + side * 1.4) * 0.16
-                w_fwd = math.cos(ragdoll_seed * 4.7 + side * 2.1) * 0.22
-                rg_elbow = (
-                    side * (0.48 + 0.10 * rg),
-                    body_center_y + (0.04 + w_flop) * rg,
-                    w_fwd * 0.6 * rg,
-                )
-                rg_hand = (
-                    side * (0.68 + 0.12 * rg),
-                    body_center_y - 0.08 + w_flop * 1.8 * rg,
-                    w_fwd * 1.3 * rg,
-                )
+                if ragdoll_pose is not None:
+                    ek = "l_elbow" if side < 0 else "r_elbow"
+                    hk = "l_hand" if side < 0 else "r_hand"
+                    rg_elbow = ragdoll_pose.get(ek, elbow_pt)
+                    rg_hand = ragdoll_pose.get(hk, hand_pt)
+                else:
+                    rg_elbow = (side * 0.52, body_center_y - 0.06, -0.05)
+                    rg_hand = (side * 0.72, body_center_y - 0.24, -0.10)
                 elbow_pt = lerp_vec3(elbow_pt, rg_elbow, rg)
                 hand_pt = lerp_vec3(hand_pt, rg_hand, rg)
 
@@ -1161,18 +1162,18 @@ class Carmelito3D:
 
             if ragdoll > 0.001:
                 rg = max(0.0, min(1.0, ragdoll))
-                l_wob = math.sin(ragdoll_seed * 5.5 + side * 1.9) * 0.10
-                rg_knee = (
-                    leg_x * (1.45 + 0.25 * rg) + side * 0.05 * rg,
-                    hip_attach_y - 0.18 * rg + l_wob * 0.5 * rg,
-                    0.12 * rg + side * 0.07 * rg,
-                )
-                rg_ankle = (
-                    leg_x * (1.75 + 0.35 * rg) + side * 0.08 * rg,
-                    0.11 + l_wob * rg,
-                    0.24 * rg + side * 0.14 * rg,
-                )
-                rg_foot_ang = -0.65 * rg + l_wob * 0.8 * rg
+                if ragdoll_pose is not None:
+                    kk = "l_knee" if side < 0 else "r_knee"
+                    ak = "l_ankle" if side < 0 else "r_ankle"
+                    rg_knee = ragdoll_pose.get(kk, knee_pt)
+                    rg_ankle = ragdoll_pose.get(ak, ankle_pt)
+                    shin_dy = rg_ankle[1] - rg_knee[1]
+                    shin_dz = rg_ankle[2] - rg_knee[2]
+                    rg_foot_ang = max(-0.85, min(0.85, math.atan2(shin_dz, max(0.05, -shin_dy)) * 0.55 - 0.35))
+                else:
+                    rg_knee = (leg_x * 1.35, hip_attach_y - 0.18, 0.10)
+                    rg_ankle = (leg_x * 1.55, 0.10, 0.20)
+                    rg_foot_ang = -0.55
                 knee_pt = lerp_vec3(knee_pt, rg_knee, rg)
                 ankle_pt = lerp_vec3(ankle_pt, rg_ankle, rg)
                 foot_angle = foot_angle * (1.0 - rg) + rg_foot_ang * rg
@@ -1946,6 +1947,7 @@ class Carmelito3D:
             tag_amount=tag_amount,
             ragdoll=ragdoll,
             ragdoll_seed=ragdoll_seed,
+            ragdoll_pose=ragdoll_pose,
         )
 
         cos_y = math.cos(rot_y)
@@ -2251,3 +2253,312 @@ class Carmelito3D:
                 pygame.draw.polygon(surface, f_col, pts)
                 if draw_ink:
                     pygame.draw.polygon(surface, COLOR_INK_LINE, pts, 1)
+
+
+class ChickRagdollSim:
+    """
+    Lightweight Verlet + distance-constraint + ground-floor ragdoll physics solver
+    for a chick's head, wings (elbows/hands), and legs (knees/ankles).
+    Limbs react to gravity, torso acceleration/velocity, and rest completely still on the grass!
+    """
+
+    JOINTS = (
+        "head",
+        "l_elbow", "l_hand",
+        "r_elbow", "r_hand",
+        "l_knee", "l_ankle",
+        "r_knee", "r_ankle",
+    )
+
+    def __init__(self) -> None:
+        self.active = False
+        self.pos: dict[str, list[float]] = {}
+        self.prev: dict[str, list[float]] = {}
+        self.pose_cache: dict | None = None
+
+    def reset(self) -> None:
+        self.active = False
+        self.pos.clear()
+        self.prev.clear()
+        self.pose_cache = None
+
+    @staticmethod
+    def _local_to_world(
+        lx: float,
+        ly: float,
+        lz: float,
+        wx: float,
+        jump_y: float,
+        wz: float,
+        world_rot_y: float,
+        rot_z: float,
+        lay_pitch: float,
+        scale: float,
+    ) -> list[float]:
+        pivot_y = 0.72
+        cos_z = math.cos(rot_z)
+        sin_z = math.sin(rot_z)
+        cos_lp = math.cos(lay_pitch)
+        sin_lp = math.sin(lay_pitch)
+        roll_drop_y = max(abs(sin_lp) * 0.40, abs(sin_z) * 0.38)
+
+        # 1. Local Z tilt
+        if abs(rot_z) > 1e-4:
+            dy = ly - pivot_y
+            tx = lx * cos_z - dy * sin_z
+            ty = lx * sin_z + dy * cos_z + pivot_y
+            tz = lz
+        else:
+            tx, ty, tz = lx, ly, lz
+
+        # 2. Local X lay pitch
+        if abs(lay_pitch) > 1e-4:
+            dy = ty - pivot_y
+            ny = dy * cos_lp - tz * sin_lp + pivot_y
+            nz = dy * sin_lp + tz * cos_lp
+            ty, tz = ny, nz
+
+        if abs(rot_z) > 1e-4 or abs(lay_pitch) > 1e-4:
+            ty -= roll_drop_y
+
+        # 3. Scale & world yaw around Y
+        sx = tx * scale
+        sy = ty * scale
+        sz = tz * scale
+        cos_y = math.cos(world_rot_y)
+        sin_y = math.sin(world_rot_y)
+        # Forward (+Z local) aligns with (sin(world_rot_y), cos(world_rot_y)), Right (+X local) aligns with (-cos, sin)
+        world_x = wx - sx * cos_y + sz * sin_y
+        world_y = jump_y + sy
+        world_z = wz + sx * sin_y + sz * cos_y
+        return [world_x, world_y, world_z]
+
+    @staticmethod
+    def _world_to_local(
+        px: float,
+        py: float,
+        pz: float,
+        wx: float,
+        jump_y: float,
+        wz: float,
+        world_rot_y: float,
+        rot_z: float,
+        lay_pitch: float,
+        scale: float,
+    ) -> tuple[float, float, float]:
+        # Inverse step 3: undo translation, world yaw, scale
+        dx = px - wx
+        dy_w = py - jump_y
+        dz = pz - wz
+        cos_y = math.cos(world_rot_y)
+        sin_y = math.sin(world_rot_y)
+        inv_s = 1.0 / max(0.1, scale)
+        tx = (-dx * cos_y + dz * sin_y) * inv_s
+        ty = dy_w * inv_s
+        tz = (dx * sin_y + dz * cos_y) * inv_s
+
+        pivot_y = 0.72
+        cos_z = math.cos(rot_z)
+        sin_z = math.sin(rot_z)
+        cos_lp = math.cos(lay_pitch)
+        sin_lp = math.sin(lay_pitch)
+        roll_drop_y = max(abs(sin_lp) * 0.40, abs(sin_z) * 0.38)
+        if abs(rot_z) > 1e-4 or abs(lay_pitch) > 1e-4:
+            ty += roll_drop_y
+
+        # Inverse step 2: undo lay_pitch (-lay_pitch)
+        if abs(lay_pitch) > 1e-4:
+            dy = ty - pivot_y
+            ny = dy * cos_lp + tz * sin_lp + pivot_y
+            nz = -dy * sin_lp + tz * cos_lp
+            ty, tz = ny, nz
+
+        # Inverse step 1: undo rot_z (-rot_z)
+        if abs(rot_z) > 1e-4:
+            dy = ty - pivot_y
+            nx = tx * cos_z + dy * sin_z
+            ny = -tx * sin_z + dy * cos_z + pivot_y
+            tx, ty = nx, ny
+
+        return (tx, ty, tz)
+
+    @staticmethod
+    def _constrain_dist(p_a: list[float], p_b: list[float], target_len: float, pin_a: bool = False) -> None:
+        dx = p_b[0] - p_a[0]
+        dy = p_b[1] - p_a[1]
+        dz = p_b[2] - p_a[2]
+        d = math.sqrt(dx * dx + dy * dy + dz * dz)
+        if d < 1e-6:
+            p_b[1] -= target_len
+            return
+        diff = (d - target_len) / d
+        if pin_a:
+            p_b[0] -= dx * diff
+            p_b[1] -= dy * diff
+            p_b[2] -= dz * diff
+        else:
+            half = 0.5 * diff
+            p_a[0] += dx * half
+            p_a[1] += dy * half
+            p_a[2] += dz * half
+            p_b[0] -= dx * half
+            p_b[1] -= dy * half
+            p_b[2] -= dz * half
+
+    def step(
+        self,
+        dt: float,
+        wx: float,
+        jump_y: float,
+        wz: float,
+        world_rot_y: float,
+        rot_z: float,
+        lay_pitch: float,
+        ragdoll: float,
+        scale: float = 1.0,
+    ) -> dict | None:
+        if ragdoll <= 0.01:
+            if self.active:
+                self.reset()
+            return None
+
+        l2w = lambda lx, ly, lz: self._local_to_world(
+            lx, ly, lz, wx, jump_y, wz, world_rot_y, rot_z, lay_pitch, scale
+        )
+        w2l = lambda p: self._world_to_local(
+            p[0], p[1], p[2], wx, jump_y, wz, world_rot_y, rot_z, lay_pitch, scale
+        )
+
+        # Default standing anchors in local space
+        l_sh_loc = (-0.32, 1.00, 0.02)
+        r_sh_loc = (0.32, 1.00, 0.02)
+        l_hp_loc = (-0.14, 0.48, 0.0)
+        r_hp_loc = (0.14, 0.48, 0.0)
+        nk_loc = (0.0, 1.16, 0.0)
+
+        if not self.active:
+            self.active = True
+            init_locals = {
+                "head": (0.0, 1.46, 0.0),
+                "l_elbow": (-0.38, 0.82, -0.02),
+                "l_hand": (-0.42, 0.56, 0.02),
+                "r_elbow": (0.38, 0.82, -0.02),
+                "r_hand": (0.42, 0.56, 0.02),
+                "l_knee": (-0.16, 0.28, 0.02),
+                "l_ankle": (-0.17, 0.08, 0.01),
+                "r_knee": (0.16, 0.28, 0.02),
+                "r_ankle": (0.17, 0.08, 0.01),
+            }
+            for k, loc in init_locals.items():
+                p = l2w(*loc)
+                self.pos[k] = list(p)
+                self.prev[k] = list(p)
+
+        dt_clamped = max(1e-4, min(0.033, dt))
+        sub_steps = 2
+        sub_dt = dt_clamped / sub_steps
+
+        l_sh = l2w(*l_sh_loc)
+        r_sh = l2w(*r_sh_loc)
+        l_hp = l2w(*l_hp_loc)
+        r_hp = l2w(*r_hp_loc)
+        nk = l2w(*nk_loc)
+        torso_c = l2w(0.0, 0.86, 0.0)
+
+        len_neck = 0.30 * scale
+        len_uarm = 0.24 * scale
+        len_farm = 0.28 * scale
+        len_thigh = 0.24 * scale
+        len_shank = 0.24 * scale
+        torso_rad = 0.33 * scale
+
+        radii = {
+            "head": 0.26 * scale,
+            "l_elbow": 0.08 * scale,
+            "l_hand": 0.07 * scale,
+            "r_elbow": 0.08 * scale,
+            "r_hand": 0.07 * scale,
+            "l_knee": 0.08 * scale,
+            "l_ankle": 0.07 * scale,
+            "r_knee": 0.08 * scale,
+            "r_ankle": 0.07 * scale,
+        }
+
+        for _ in range(sub_steps):
+            # 1. Verlet integration with gravity & air/ground damping
+            for k in self.JOINTS:
+                p = self.pos[k]
+                pr = self.prev[k]
+                floor_y = radii[k]
+                on_ground = p[1] <= floor_y + 0.015
+                damp = 0.65 if on_ground else 0.965
+                vx = (p[0] - pr[0]) * damp
+                vy = (p[1] - pr[1]) * damp
+                vz = (p[2] - pr[2]) * damp
+                # Sleep dead micro-jitter when resting on grass
+                if on_ground and (vx * vx + vy * vy + vz * vz) < 1e-6:
+                    pr[0], pr[1], pr[2] = p[0], p[1], p[2]
+                    continue
+                nx = p[0] + vx
+                ny = p[1] + vy - 24.0 * sub_dt * sub_dt
+                nz = p[2] + vz
+                pr[0], pr[1], pr[2] = p[0], p[1], p[2]
+                p[0], p[1], p[2] = nx, ny, nz
+
+            # 2. Distance constraints + torso push-out + grass floor collision
+            for _it in range(4):
+                self._constrain_dist(nk, self.pos["head"], len_neck, pin_a=True)
+                self._constrain_dist(l_sh, self.pos["l_elbow"], len_uarm, pin_a=True)
+                self._constrain_dist(self.pos["l_elbow"], self.pos["l_hand"], len_farm, pin_a=False)
+                self._constrain_dist(r_sh, self.pos["r_elbow"], len_uarm, pin_a=True)
+                self._constrain_dist(self.pos["r_elbow"], self.pos["r_hand"], len_farm, pin_a=False)
+                self._constrain_dist(l_hp, self.pos["l_knee"], len_thigh, pin_a=True)
+                self._constrain_dist(self.pos["l_knee"], self.pos["l_ankle"], len_shank, pin_a=False)
+                self._constrain_dist(r_hp, self.pos["r_knee"], len_thigh, pin_a=True)
+                self._constrain_dist(self.pos["r_knee"], self.pos["r_ankle"], len_shank, pin_a=False)
+
+                for k in self.JOINTS:
+                    p = self.pos[k]
+                    # Prevent limbs clipping into torso belly
+                    if k != "head":
+                        tdx = p[0] - torso_c[0]
+                        tdy = p[1] - torso_c[1]
+                        tdz = p[2] - torso_c[2]
+                        td2 = tdx * tdx + tdy * tdy + tdz * tdz
+                        if 1e-6 < td2 < torso_rad * torso_rad:
+                            td = math.sqrt(td2)
+                            push = (torso_rad - td) / td
+                            p[0] += tdx * push
+                            p[1] += tdy * push
+                            p[2] += tdz * push
+                    # Grass floor collision with strong ground friction
+                    floor_y = radii[k]
+                    if p[1] < floor_y:
+                        p[1] = floor_y
+                        pr = self.prev[k]
+                        pr[0] = p[0] - (p[0] - pr[0]) * 0.30
+                        pr[2] = p[2] - (p[2] - pr[2]) * 0.30
+                        if pr[1] < floor_y:
+                            pr[1] = floor_y
+
+        # 3. Convert solved world particles back into chick local pose
+        head_loc = w2l(self.pos["head"])
+        hdx = head_loc[0] - nk_loc[0]
+        hdy = head_loc[1] - nk_loc[1]
+        hdz = head_loc[2] - nk_loc[2]
+        head_yaw = max(-0.55, min(0.55, math.atan2(hdx, max(0.14, hdy))))
+        head_pitch = max(-0.55, min(0.55, math.atan2(hdz, max(0.14, hdy))))
+
+        self.pose_cache = {
+            "l_elbow": w2l(self.pos["l_elbow"]),
+            "l_hand": w2l(self.pos["l_hand"]),
+            "r_elbow": w2l(self.pos["r_elbow"]),
+            "r_hand": w2l(self.pos["r_hand"]),
+            "l_knee": w2l(self.pos["l_knee"]),
+            "l_ankle": w2l(self.pos["l_ankle"]),
+            "r_knee": w2l(self.pos["r_knee"]),
+            "r_ankle": w2l(self.pos["r_ankle"]),
+            "head_yaw": head_yaw,
+            "head_pitch": head_pitch,
+        }
+        return self.pose_cache

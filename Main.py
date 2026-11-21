@@ -910,7 +910,9 @@ def main() -> None:
     local_lay_pitch = 0.0
     local_ragdoll = 0.0
     kick_lay_dir = -1.0
+    kick_bounced = False
     side_lying_timer = 0.0
+    remote_ragdolls: dict[int, ChickRagdollSim] = {}
 
     # First-person punch action (triggered with 'P' key)
     is_punching = False
@@ -1458,6 +1460,7 @@ def main() -> None:
                         fwd_dot = nx_k * math.sin(cam_yaw) + nz_k * math.cos(cam_yaw)
                         kick_lay_dir = 1.0 if fwd_dot > 0.0 else -1.0
                         local_ragdoll = 1.0
+                        kick_bounced = False
                         side_lying_timer = 0.0
                     else:
                         # 75% kick outcome: just get pushed horizontally
@@ -1713,30 +1716,35 @@ def main() -> None:
                 jump_amount = 0.0      # Not crouching while jumping!
                 wing_flap_amount = 1.0 # Wings flap while flying through the air
                 if is_kick_launched:
-                    # Ragdoll mode: smoothly tip toward ±90 deg to land laying flat down on grass (NOT a backflip!)
+                    # Ragdoll mode: tip into loose sprawl toward ±90 deg to land laying flat down on grass (NOT a backflip!)
                     local_ragdoll = 1.0
                     target_lay = kick_lay_dir * (math.pi * 0.5)
-                    lay_step = math.radians(102.0) * dt * kick_lay_dir
+                    lay_step = math.radians(165.0) * dt * kick_lay_dir
                     if kick_lay_dir > 0:
                         local_lay_pitch = min(target_lay, local_lay_pitch + lay_step)
                     else:
                         local_lay_pitch = max(target_lay, local_lay_pitch + lay_step)
-                    target_wobble = kick_roll_dir * math.radians(14.0)
-                    local_rot_z += (target_wobble - local_rot_z) * min(1.0, 6.0 * dt)
+                    target_wobble = kick_roll_dir * math.radians(24.0)
+                    local_rot_z += (target_wobble - local_rot_z) * min(1.0, 7.0 * dt)
                 # Land on the ground (0.0) or atop another chick (landing_support_y):
                 current_floor = max(0.0, landing_support_y)
                 if jump_velocity_y <= 0.0 and jump_offset_y <= current_floor:
-                    jump_offset_y = current_floor
-                    jump_velocity_y = 0.0
-                    jump_state = "idle"   # Landed firmly on the ground or atop the player!
-                    jump_amount = 0.0
-                    wing_flap_amount = 0.0
-                    if is_kick_launched:
-                        is_kick_launched = False
-                        local_lay_pitch = kick_lay_dir * (math.pi * 0.5)
-                        local_rot_z = kick_roll_dir * math.radians(12.0)
-                        local_ragdoll = 1.0
-                        side_lying_timer = 1.0
+                    if is_kick_launched and not kick_bounced and jump_velocity_y < -4.2:
+                        jump_offset_y = current_floor + 0.01
+                        jump_velocity_y = min(2.1, -jump_velocity_y * 0.22)
+                        kick_bounced = True
+                    else:
+                        jump_offset_y = current_floor
+                        jump_velocity_y = 0.0
+                        jump_state = "idle"   # Landed firmly on the ground or atop the player!
+                        jump_amount = 0.0
+                        wing_flap_amount = 0.0
+                        if is_kick_launched:
+                            is_kick_launched = False
+                            local_lay_pitch = kick_lay_dir * (math.pi * 0.5)
+                            local_rot_z = kick_roll_dir * math.radians(22.0)
+                            local_ragdoll = 1.0
+                            side_lying_timer = 1.0
             else:
                 # Idle state: if standing on another chick, stay locked atop them as they move!
                 current_floor = max(0.0, landing_support_y)
@@ -2201,6 +2209,26 @@ def main() -> None:
                 rel_rot_y = math.pi - (rs["rot_y"] - total_yaw)
                 rel_rot_x = max(-0.55, min(0.65, 0.04 - total_pitch))
 
+                rem_rg_val = rs.get("ragdoll", 0.0)
+                if rem_rg_val > 0.01:
+                    if pid not in remote_ragdolls:
+                        remote_ragdolls[pid] = ChickRagdollSim()
+                    rem_rg_pose = remote_ragdolls[pid].step(
+                        dt=dt,
+                        wx=rs["wx"],
+                        jump_y=rs.get("jump_offset_y", 0.0),
+                        wz=rs["wz"],
+                        world_rot_y=rs["rot_y"],
+                        rot_z=rs.get("rot_z", 0.0),
+                        lay_pitch=rs.get("lay_pitch", 0.0),
+                        ragdoll=rem_rg_val,
+                        scale=rem_scale,
+                    )
+                else:
+                    if pid in remote_ragdolls:
+                        remote_ragdolls[pid].reset()
+                    rem_rg_pose = None
+
                 model_3d.render(
                     surface=screen,
                     screen_pos=(sx, sy),
@@ -2209,8 +2237,9 @@ def main() -> None:
                     rot_x=rel_rot_x,
                     rot_z=rs.get("rot_z", 0.0) - cam_roll,
                     lay_pitch=rs.get("lay_pitch", 0.0),
-                    ragdoll=rs.get("ragdoll", 0.0),
-                    ragdoll_seed=anim_time + pid * 1.73,
+                    ragdoll=rem_rg_val,
+                    ragdoll_seed=pid * 1.73,
+                    ragdoll_pose=rem_rg_pose,
                     head_yaw=rs["head_yaw"],
                     head_pitch=rs["head_pitch"],
                     mouth_open=pdata.get("mouth", False),

@@ -65,6 +65,7 @@ class AICodeCompanion:
         self.is_kick_launched = False
         self.kick_roll_dir = 1.0
         self.kick_lay_dir = -1.0
+        self.kick_bounced = False
         self.side_lying_timer = 0.0
         self.head_yaw = 0.0
         self.head_pitch = 0.0
@@ -213,6 +214,7 @@ class AICodeCompanion:
             fwd_dot = nx * math.sin(self.rot_y) + nz * math.cos(self.rot_y)
             self.kick_lay_dir = 1.0 if fwd_dot > 0.0 else -1.0
             self.ragdoll = 1.0
+            self.kick_bounced = False
             self.side_lying_timer = 0.0
         else:
             # 75% outcome: just get pushed horizontally
@@ -444,29 +446,33 @@ class AICodeCompanion:
             self.jump_velocity_y -= self.GRAVITY * dt
             self.jump_amount = 0.0
             if self.is_kick_launched:
-                # Ragdoll mode: smoothly tip toward ±90 deg to land laying down flat on the grass (NOT a backflip!)
+                # Ragdoll mode: tip into loose sprawl toward ±90 deg to land laying flat down on grass (NOT a backflip!)
                 self.ragdoll = 1.0
                 target_lay = self.kick_lay_dir * (math.pi * 0.5)
-                lay_step = math.radians(102.0) * dt * self.kick_lay_dir
+                lay_step = math.radians(165.0) * dt * self.kick_lay_dir
                 if self.kick_lay_dir > 0:
                     self.lay_pitch = min(target_lay, self.lay_pitch + lay_step)
                 else:
                     self.lay_pitch = max(target_lay, self.lay_pitch + lay_step)
-                # Subtle floppy ragdoll side wobble
-                target_wobble = self.kick_roll_dir * math.radians(14.0)
-                self.rot_z += (target_wobble - self.rot_z) * min(1.0, 6.0 * dt)
+                target_wobble = self.kick_roll_dir * math.radians(24.0)
+                self.rot_z += (target_wobble - self.rot_z) * min(1.0, 7.0 * dt)
             cur_floor = max(0.0, ai_landing_support_y)
             if self.jump_velocity_y <= 0.0 and self.jump_offset_y <= cur_floor:
-                self.jump_offset_y = cur_floor
-                self.jump_velocity_y = 0.0
-                self.jump_state = "idle"
-                self.jump_amount = 0.0
-                if self.is_kick_launched:
-                    self.is_kick_launched = False
-                    self.lay_pitch = self.kick_lay_dir * (math.pi * 0.5)
-                    self.rot_z = self.kick_roll_dir * math.radians(12.0)
-                    self.ragdoll = 1.0
-                    self.side_lying_timer = 1.0
+                if self.is_kick_launched and not self.kick_bounced and self.jump_velocity_y < -4.2:
+                    self.jump_offset_y = cur_floor + 0.01
+                    self.jump_velocity_y = min(2.1, -self.jump_velocity_y * 0.22)
+                    self.kick_bounced = True
+                else:
+                    self.jump_offset_y = cur_floor
+                    self.jump_velocity_y = 0.0
+                    self.jump_state = "idle"
+                    self.jump_amount = 0.0
+                    if self.is_kick_launched:
+                        self.is_kick_launched = False
+                        self.lay_pitch = self.kick_lay_dir * (math.pi * 0.5)
+                        self.rot_z = self.kick_roll_dir * math.radians(22.0)
+                        self.ragdoll = 1.0
+                        self.side_lying_timer = 1.0
         else:
             cur_floor = max(0.0, ai_landing_support_y)
             if self.jump_offset_y > 0.0:
