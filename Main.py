@@ -10,12 +10,16 @@ import time
 from typing import Any
 from urllib.parse import urlparse
 
+# Enable native OS IME candidate window (e.g. macOS Chinese Pinyin via Fn/Globe key)
+os.environ.setdefault("SDL_IME_SHOW_UI", "1")
+
 import pygame
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
 import server as game_server
 from carmelito_3d import COLOR_INK_LINE, Carmelito3D
+from pinyin_ime import lookup_pinyin
 
 WINDOW_TITLE = "不一样的卡梅拉"
 CHICK_NAME = "卡梅利多"
@@ -244,6 +248,24 @@ def get_outlined_text_surface(
 
 def wrap_angle(angle: float) -> float:
     return (angle + math.pi) % (2.0 * math.pi) - math.pi
+
+
+def wrap_text_lines(text: str, font: pygame.font.Font, max_width: int) -> list[str]:
+    """Wrap mixed Chinese/English text into lines fitting within max_width pixels."""
+    if not text:
+        return [""]
+    lines: list[str] = []
+    cur_line = ""
+    for ch in text:
+        test_line = cur_line + ch
+        if font.size(test_line)[0] <= max_width or not cur_line:
+            cur_line = test_line
+        else:
+            lines.append(cur_line)
+            cur_line = ch
+    if cur_line:
+        lines.append(cur_line)
+    return lines
 
 
 def create_window(fullscreen: bool) -> pygame.Surface:
@@ -689,6 +711,12 @@ class NetworkClient:
                             rp["punch_amount"] = float(msg["punch_amount"])
                         if "punch_side" in msg:
                             rp["punch_side"] = float(msg["punch_side"])
+                        if "jump_offset_y" in msg:
+                            rp["jump_offset_y"] = float(msg["jump_offset_y"])
+                        if "jump_amount" in msg:
+                            rp["jump_amount"] = float(msg["jump_amount"])
+                        if "tag_amount" in msg:
+                            rp["tag_amount"] = float(msg["tag_amount"])
 
             elif msg_type == "leave":
                 pid = int(msg["id"])
@@ -728,8 +756,8 @@ def main() -> None:
 
     fullscreen = not args.windowed
     screen = create_window(fullscreen)
-    if hasattr(pygame.key, "start_text_input"):
-        pygame.key.start_text_input()
+    if hasattr(pygame.key, "stop_text_input"):
+        pygame.key.stop_text_input()
     clock = pygame.time.Clock()
     pygame.mouse.set_visible(True)
 
@@ -839,9 +867,39 @@ def main() -> None:
     # Chat system state
     is_typing_chat = False
     chat_input_text = ""
+    ime_comp_text = ""          # Live OS IME composition string (e.g. macOS Pinyin preedit)
+    builtin_pinyin_mode = False # Toggleable built-in Pinyin IME (Tab or click badge)
+    pinyin_buffer = ""
+    pinyin_page = 0
+    consumed_pinyin_texts: set[str] = set()
+    pinyin_toggle_rect = pygame.Rect(-100, -100, 0, 0)
+    candidate_click_rects: list[tuple[pygame.Rect, str]] = []
+    chat_log_rect = pygame.Rect(-100, -100, 0, 0)
+    # Persistent chatbox history: [{"sender": str, "text": str, "is_self": bool, "sender_id": int}]
+    chat_history: list[dict[str, Any]] = []
     # Active chat bubbles per player: {player_id: [{"text": str, "timer": float, "duration": float}]}
     # Player id -1 represents local player
     chat_bubbles: dict[int, list[dict[str, Any]]] = {}
+
+    def open_chat_input() -> None:
+        nonlocal is_typing_chat, chat_input_text, ime_comp_text, pinyin_buffer, pinyin_page
+        is_typing_chat = True
+        chat_input_text = ""
+        ime_comp_text = ""
+        pinyin_buffer = ""
+        pinyin_page = 0
+        if hasattr(pygame.key, "start_text_input"):
+            pygame.key.start_text_input()
+
+    def close_chat_input() -> None:
+        nonlocal is_typing_chat, chat_input_text, ime_comp_text, pinyin_buffer, pinyin_page
+        is_typing_chat = False
+        chat_input_text = ""
+        ime_comp_text = ""
+        pinyin_buffer = ""
+        pinyin_page = 0
+        if hasattr(pygame.key, "stop_text_input"):
+            pygame.key.stop_text_input()
 
         # Storybook fluffy white clouds drifting across the sky dome:
     # Each cloud has azimuth (heading), elevation angle above horizon, radius scale, and puffs
@@ -872,35 +930,97 @@ def main() -> None:
         dt = min(clock.tick(TARGET_FPS) / 1000.0, 0.05)
         anim_time += dt
 
+        consumed_pinyin_texts.clear()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif is_online and is_typing_chat and event.type == getattr(pygame, "TEXTEDITING", -1):
+                # Native OS IME composition preview (e.g. macOS Pinyin before committing)
+                ime_comp_text = str(getattr(event, "text", "") or "")
             elif is_online and is_typing_chat and event.type == pygame.TEXTINPUT:
-                # Standard modern Pygame text input (handles IME, full unicode, etc.)
-                if len(chat_input_text) < 60:
-                    chat_input_text += event.text
+                ime_comp_text = ""
+                txt_in = str(getattr(event, "text", "") or "")
+                if not txt_in or txt_in in consumed_pinyin_texts:
+                    continue
+                if builtin_pinyin_mode and txt_in.isascii() and txt_in.isalpha():
+                    if len(pinyin_buffer) < 24:
+                        pinyin_buffer += txt_in.lower()
+                        pinyin_page = 0
+                else:
+                    # If built-in pinyin buffer has text and OS IME delivered Chinese directly, flush/append cleanly
+                    if len(chat_input_text) < 60:
+                        chat_input_text += txt_in
             elif event.type == pygame.KEYDOWN:
                 # Accept both standard Return/Enter and Numpad Enter:
                 is_enter_key = event.key in (pygame.K_RETURN, getattr(pygame, "K_KP_ENTER", pygame.K_RETURN))
                 if is_online and is_typing_chat:
-                    if event.key == pygame.K_ESCAPE:
-                        # Cancel typing
-                        is_typing_chat = False
-                        chat_input_text = ""
-                    elif is_enter_key:
-                        # Pressing ENTER/RETURN sends chat if text is typed, or closes without saying anything
-                        clean = chat_input_text.strip()
-                        if clean:
-                            net.send_chat(clean)
-                            # Create local chat bubble (duration 5.5s)
-                            if -1 not in chat_bubbles:
-                                chat_bubbles[-1] = []
-                            chat_bubbles[-1].append({"text": clean, "timer": 5.5, "duration": 5.5})
-                            chat_bubbles[-1] = chat_bubbles[-1][-4:]  # Limit to 4 stacked bubbles
-                        is_typing_chat = False
-                        chat_input_text = ""
-                    elif event.key == pygame.K_BACKSPACE:
-                        chat_input_text = chat_input_text[:-1]
+                    if event.key == pygame.K_TAB:
+                        # Toggle built-in Chinese Pinyin mode
+                        if builtin_pinyin_mode and pinyin_buffer:
+                            chat_input_text = (chat_input_text + pinyin_buffer)[:60]
+                            pinyin_buffer = ""
+                            pinyin_page = 0
+                        builtin_pinyin_mode = not builtin_pinyin_mode
+                    elif builtin_pinyin_mode and pinyin_buffer:
+                        cands = lookup_pinyin(pinyin_buffer)
+                        page_cands = cands[pinyin_page * 5 : (pinyin_page + 1) * 5]
+                        digit_keys = (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_5)
+                        if event.key in digit_keys:
+                            c_idx = digit_keys.index(event.key)
+                            if c_idx < len(page_cands):
+                                chat_input_text = (chat_input_text + page_cands[c_idx])[:60]
+                                pinyin_buffer = ""
+                                pinyin_page = 0
+                                consumed_pinyin_texts.add(str(c_idx + 1))
+                        elif event.key == pygame.K_SPACE:
+                            chosen = page_cands[0] if page_cands else pinyin_buffer
+                            chat_input_text = (chat_input_text + chosen)[:60]
+                            pinyin_buffer = ""
+                            pinyin_page = 0
+                            consumed_pinyin_texts.add(" ")
+                        elif event.key in (pygame.K_EQUALS, pygame.K_RIGHTBRACKET, pygame.K_DOWN):
+                            if (pinyin_page + 1) * 5 < len(cands):
+                                pinyin_page += 1
+                            consumed_pinyin_texts.update({"=", "]"})
+                        elif event.key in (pygame.K_MINUS, pygame.K_LEFTBRACKET, pygame.K_UP):
+                            if pinyin_page > 0:
+                                pinyin_page -= 1
+                            consumed_pinyin_texts.update({"-", "["})
+                        elif event.key == pygame.K_BACKSPACE:
+                            pinyin_buffer = pinyin_buffer[:-1]
+                            pinyin_page = 0
+                        elif is_enter_key:
+                            chat_input_text = (chat_input_text + pinyin_buffer)[:60]
+                            pinyin_buffer = ""
+                            pinyin_page = 0
+                        elif event.key == pygame.K_ESCAPE:
+                            pinyin_buffer = ""
+                            pinyin_page = 0
+                    elif not ime_comp_text:
+                        if event.key == pygame.K_ESCAPE:
+                            close_chat_input()
+                        elif is_enter_key:
+                            # Pressing ENTER/RETURN sends chat if text is typed, or closes without saying anything
+                            clean = chat_input_text.strip()
+                            if clean:
+                                net.send_chat(clean)
+                                # Create local chat bubble (duration 5.5s)
+                                if -1 not in chat_bubbles:
+                                    chat_bubbles[-1] = []
+                                chat_bubbles[-1].append({"text": clean, "timer": 5.5, "duration": 5.5})
+                                chat_bubbles[-1] = chat_bubbles[-1][-4:]  # Limit to 4 stacked bubbles
+                                # Append to persistent chatbox history
+                                chat_history.append({
+                                    "sender": selected_chick_name,
+                                    "text": clean,
+                                    "is_self": True,
+                                    "sender_id": -1,
+                                })
+                                if len(chat_history) > 40:
+                                    del chat_history[:-40]
+                            close_chat_input()
+                        elif event.key == pygame.K_BACKSPACE:
+                            chat_input_text = chat_input_text[:-1]
                 else:
                     if event.key == pygame.K_ESCAPE:
                         running = False
@@ -909,8 +1029,7 @@ def main() -> None:
                         screen = create_window(fullscreen)
                     elif is_online and is_enter_key:
                         # Pressing RETURN/ENTER while in game opens the typing box
-                        is_typing_chat = True
-                        chat_input_text = ""
+                        open_chat_input()
                     elif is_online and event.key == pygame.K_u:
                         # Toggle mouth open / close
                         mouth_open = not mouth_open
@@ -984,8 +1103,32 @@ def main() -> None:
                             is_dragging_island = True
                             drag_start_pos = event.pos
                 else:
+                    # Chat UI clicks (Pinyin toggle, candidate pills, or opening chatbox)
+                    handled_chat_click = False
+                    if is_typing_chat:
+                        if pinyin_toggle_rect.collidepoint(event.pos):
+                            if builtin_pinyin_mode and pinyin_buffer:
+                                chat_input_text = (chat_input_text + pinyin_buffer)[:60]
+                                pinyin_buffer = ""
+                                pinyin_page = 0
+                            builtin_pinyin_mode = not builtin_pinyin_mode
+                            handled_chat_click = True
+                        else:
+                            for cand_r, cand_str in candidate_click_rects:
+                                if cand_r.collidepoint(event.pos):
+                                    chat_input_text = (chat_input_text + cand_str)[:60]
+                                    pinyin_buffer = ""
+                                    pinyin_page = 0
+                                    handled_chat_click = True
+                                    break
+                    elif chat_log_rect.collidepoint(event.pos):
+                        open_chat_input()
+                        handled_chat_click = True
+
                     # In-game interactive button clicks
-                    if is_fighting:
+                    if handled_chat_click:
+                        pass
+                    elif is_fighting:
                         if fight_leave_button_rect.collidepoint(event.pos):
                             # Leave the fight, reset buttons, and return to 1st-person POV!
                             is_fighting = False
@@ -1101,12 +1244,12 @@ def main() -> None:
                         fight_belino_z = active_belino_wz
                         fight_opponent_pid = active_belino_pid
 
-            # --- VIEW TURNING CONTROLS ---
+            # --- VIEW TURNING CONTROLS (Left/Right Arrows + Q/E) ---
             turn_input = 0.0
             if not is_typing_chat and not is_fighting:
-                if keys[pygame.K_LEFT]:
+                if keys[pygame.K_LEFT] or keys[pygame.K_q]:
                     turn_input -= 1.0
-                if keys[pygame.K_RIGHT]:
+                if keys[pygame.K_RIGHT] or keys[pygame.K_e]:
                     turn_input += 1.0
             cam_yaw += turn_input * TURN_SPEED * dt
 
@@ -1410,6 +1553,17 @@ def main() -> None:
                 chat_bubbles[sender_id] = []
             chat_bubbles[sender_id].append({"text": c_text, "timer": 5.5, "duration": 5.5})
             chat_bubbles[sender_id] = chat_bubbles[sender_id][-4:]  # Limit to 4 stacked bubbles
+            # Record in persistent chatbox
+            rp_info = remote_players.get(sender_id, {})
+            s_name = str(chat_msg.get("name") or rp_info.get("chick_name") or f"Player {sender_id}")
+            chat_history.append({
+                "sender": s_name,
+                "text": c_text,
+                "is_self": False,
+                "sender_id": sender_id,
+            })
+            if len(chat_history) > 40:
+                del chat_history[:-40]
 
         # Update timers and fade out chat bubbles
         for pid in list(chat_bubbles.keys()):
@@ -2484,30 +2638,184 @@ def main() -> None:
                     belino_fight_button_rect = pygame.Rect(-100, -100, 0, 0)
                     fight_leave_button_rect = pygame.Rect(-100, -100, 0, 0)
 
+            # --- 2d. TOP-RIGHT PERSISTENT CHATBOX (shows everyone's messages) ---
+            if is_online:
+                cb_w = min(350, max(240, round(win_w * 0.30)))
+                cb_h = min(200, max(140, round(win_h * 0.26)))
+                cb_x = win_w - cb_w - 16
+                cb_y = 16
+                chat_log_rect = pygame.Rect(cb_x, cb_y, cb_w, cb_h)
+
+                cb_surf = pygame.Surface((cb_w, cb_h), pygame.SRCALPHA)
+                pygame.draw.rect(cb_surf, (255, 255, 255, 212), cb_surf.get_rect(), border_radius=14)
+                pygame.draw.rect(cb_surf, (195, 210, 224, 235), cb_surf.get_rect(), width=2, border_radius=14)
+
+                # Header strip
+                header_h = 28
+                pygame.draw.rect(cb_surf, (238, 245, 252, 230), pygame.Rect(2, 2, cb_w - 4, header_h), border_top_left_radius=12, border_top_right_radius=12)
+                pygame.draw.line(cb_surf, (215, 224, 234), (4, header_h + 1), (cb_w - 4, header_h + 1), 1)
+                hdr_font = get_chinese_font(14)
+                hdr_surf = hdr_font.render("聊天 Chat (Enter发言)", True, (65, 85, 110))
+                cb_surf.blit(hdr_surf, (12, (header_h - hdr_surf.get_height()) // 2 + 2))
+
+                msg_font = get_chinese_font(15)
+                body_top = header_h + 6
+                body_bottom = cb_h - 8
+                inner_w = cb_w - 22
+
+                if not chat_history:
+                    empty_surf = msg_font.render("暂无消息，按 Enter 打字聊天~", True, (140, 152, 165))
+                    cb_surf.blit(empty_surf, (11, body_top + 6))
+                else:
+                    # Build wrapped lines for recent messages
+                    rendered_rows: list[tuple[str, str, tuple[int, int, int]]] = []
+                    for entry in chat_history[-16:]:
+                        s_lbl = entry["sender"]
+                        prefix = f"{s_lbl}: "
+                        prefix_w = msg_font.size(prefix)[0]
+                        name_col = (210, 75, 115) if entry.get("is_self") else (38, 112, 195)
+                        first_max_w = max(60, inner_w - prefix_w)
+                        first_lines = wrap_text_lines(entry["text"], msg_font, first_max_w)
+                        if first_lines:
+                            rendered_rows.append((prefix, first_lines[0], name_col))
+                            rem_text = "".join(first_lines[1:])
+                            if rem_text:
+                                for cont_line in wrap_text_lines(rem_text, msg_font, inner_w):
+                                    rendered_rows.append(("", cont_line, name_col))
+
+                    line_h = msg_font.get_linesize() + 2
+                    max_lines = max(1, (body_bottom - body_top) // line_h)
+                    visible_rows = rendered_rows[-max_lines:]
+                    cur_y = body_top
+                    for pfx, body_txt, n_col in visible_rows:
+                        x_off = 11
+                        if pfx:
+                            p_surf = msg_font.render(pfx, True, n_col)
+                            cb_surf.blit(p_surf, (x_off, cur_y))
+                            x_off += p_surf.get_width()
+                        if body_txt:
+                            b_surf = msg_font.render(body_txt, True, (30, 38, 48))
+                            cb_surf.blit(b_surf, (x_off, cur_y))
+                        cur_y += line_h
+
+                screen.blit(cb_surf, (cb_x, cb_y))
+            else:
+                chat_log_rect = pygame.Rect(-100, -100, 0, 0)
+
             # Typing input box at bottom center of screen (opened with Return/Enter)
+            candidate_click_rects.clear()
             if is_typing_chat:
-                box_w = min(600, win_w - 40)
-                box_h = 44
+                box_w = min(640, win_w - 40)
+                box_h = 46
                 box_x = (win_w - box_w) // 2
                 box_y = win_h - box_h - 24
 
                 # Box background & outline
                 box_rect = pygame.Rect(box_x, box_y, box_w, box_h)
+                if hasattr(pygame.key, "set_text_input_rect"):
+                    pygame.key.set_text_input_rect(box_rect)
+
                 s_rect = pygame.Rect(box_x + 2, box_y + 2, box_w, box_h)
                 pygame.draw.rect(screen, (0, 0, 0, 50), s_rect, border_radius=12)
                 pygame.draw.rect(screen, (255, 255, 255, 245), box_rect, border_radius=12)
                 pygame.draw.rect(screen, (70, 130, 210), box_rect, width=2, border_radius=12)
 
-                # Cursor blinking
+                # Right-side [拼音] / [En] toggle button (Tab key or click)
+                tog_w = 88
+                tog_h = 30
+                tog_x = box_x + box_w - tog_w - 8
+                tog_y = box_y + (box_h - tog_h) // 2
+                pinyin_toggle_rect = pygame.Rect(tog_x, tog_y, tog_w, tog_h)
+                tog_bg = (54, 145, 235) if builtin_pinyin_mode else (232, 238, 245)
+                tog_fg = (255, 255, 255) if builtin_pinyin_mode else (70, 85, 105)
+                pygame.draw.rect(screen, tog_bg, pinyin_toggle_rect, border_radius=8)
+                tog_font = get_chinese_font(14)
+                tog_label = "拼音 Tab" if builtin_pinyin_mode else "En/Tab"
+                tog_surf = tog_font.render(tog_label, True, tog_fg)
+                screen.blit(tog_surf, (tog_x + (tog_w - tog_surf.get_width()) // 2, tog_y + (tog_h - tog_surf.get_height()) // 2))
+
+                # Text content + live IME composition or built-in Pinyin preedit
                 cursor_visible = (int(anim_time * 2.5) % 2) == 0
-                display_txt = chat_input_text + ("|" if cursor_visible else "")
                 font_chat = get_chinese_font(20)
-                if not chat_input_text:
-                    prompt_surf = font_chat.render("说点什么... (按Enter发送，Esc取消)", True, (155, 165, 175))
+                active_preedit = pinyin_buffer if (builtin_pinyin_mode and pinyin_buffer) else ime_comp_text
+                text_area_max_w = tog_x - (box_x + 14) - 10
+
+                if not chat_input_text and not active_preedit:
+                    hint = "输入拼音或中文... (Enter发送, Tab切换拼音)" if builtin_pinyin_mode else "说点什么... (Enter发送, Tab可切内置拼音)"
+                    prompt_surf = font_chat.render(hint, True, (155, 165, 175))
                     screen.blit(prompt_surf, (box_x + 14, box_y + (box_h - prompt_surf.get_height()) // 2))
                 else:
-                    txt_surf = font_chat.render(display_txt, True, (25, 30, 40))
-                    screen.blit(txt_surf, (box_x + 14, box_y + (box_h - txt_surf.get_height()) // 2))
+                    # Render committed text + highlighted preedit + cursor
+                    draw_x = box_x + 14
+                    text_y = box_y + (box_h - font_chat.get_height()) // 2
+                    committed_surf = font_chat.render(chat_input_text, True, (25, 30, 40))
+                    # Scroll left if committed text exceeds visible width
+                    total_w = committed_surf.get_width() + (font_chat.size(active_preedit)[0] if active_preedit else 0) + 8
+                    if total_w > text_area_max_w:
+                        draw_x -= (total_w - text_area_max_w)
+
+                    clip_prev = screen.get_clip()
+                    screen.set_clip(pygame.Rect(box_x + 10, box_y + 2, text_area_max_w + 4, box_h - 4))
+                    screen.blit(committed_surf, (draw_x, text_y))
+                    cur_x = draw_x + committed_surf.get_width()
+                    if active_preedit:
+                        comp_surf = font_chat.render(active_preedit, True, (35, 115, 220))
+                        screen.blit(comp_surf, (cur_x, text_y))
+                        pygame.draw.line(screen, (35, 115, 220), (cur_x, text_y + comp_surf.get_height() - 1), (cur_x + comp_surf.get_width(), text_y + comp_surf.get_height() - 1), 2)
+                        cur_x += comp_surf.get_width()
+                    if cursor_visible:
+                        pygame.draw.line(screen, (25, 30, 40), (cur_x + 1, text_y + 2), (cur_x + 1, text_y + font_chat.get_height() - 2), 2)
+                    screen.set_clip(clip_prev)
+
+                # Built-in Pinyin candidate bar directly above typing box
+                if builtin_pinyin_mode and pinyin_buffer:
+                    cands = lookup_pinyin(pinyin_buffer)
+                    page_cands = cands[pinyin_page * 5 : (pinyin_page + 1) * 5]
+                    cand_font = get_chinese_font(18)
+                    bar_h = 38
+                    bar_y = box_y - bar_h - 8
+
+                    # Build candidate items
+                    items_surfs: list[tuple[str, pygame.Surface]] = []
+                    for idx, ch_str in enumerate(page_cands):
+                        lbl = f"{idx + 1}.{ch_str}"
+                        items_surfs.append((ch_str, cand_font.render(lbl, True, (30, 40, 55))))
+
+                    py_badge = cand_font.render(f"拼音: {pinyin_buffer}", True, (45, 115, 210))
+                    page_hint_txt = f"  (-/= {pinyin_page + 1}/{(len(cands) + 4) // 5})" if len(cands) > 5 else ""
+                    page_surf = get_chinese_font(14).render(page_hint_txt, True, (120, 132, 145)) if page_hint_txt else None
+                    no_match_surf = cand_font.render("(空格/Enter上屏)", True, (140, 150, 165)) if not items_surfs else None
+
+                    content_w = py_badge.get_width() + 18 + sum(sf.get_width() + 16 for _, sf in items_surfs)
+                    if no_match_surf:
+                        content_w += no_match_surf.get_width() + 12
+                    if page_surf:
+                        content_w += page_surf.get_width() + 6
+                    bar_w = max(220, min(box_w, content_w + 20))
+                    bar_x = box_x
+
+                    bar_rect = pygame.Rect(bar_x, bar_y, bar_w, bar_h)
+                    pygame.draw.rect(screen, (255, 255, 255, 248), bar_rect, border_radius=10)
+                    pygame.draw.rect(screen, (95, 150, 225), bar_rect, width=2, border_radius=10)
+
+                    cx_bar = bar_x + 12
+                    screen.blit(py_badge, (cx_bar, bar_y + (bar_h - py_badge.get_height()) // 2))
+                    cx_bar += py_badge.get_width() + 14
+                    if no_match_surf:
+                        screen.blit(no_match_surf, (cx_bar, bar_y + (bar_h - no_match_surf.get_height()) // 2))
+                    else:
+                        for idx, (ch_str, sf) in enumerate(items_surfs):
+                            pill_w = sf.get_width() + 10
+                            pill_rect = pygame.Rect(cx_bar - 4, bar_y + 5, pill_w, bar_h - 10)
+                            if idx == 0:
+                                pygame.draw.rect(screen, (226, 240, 255), pill_rect, border_radius=6)
+                            screen.blit(sf, (cx_bar + 1, bar_y + (bar_h - sf.get_height()) // 2))
+                            candidate_click_rects.append((pill_rect, ch_str))
+                            cx_bar += pill_w + 6
+                        if page_surf:
+                            screen.blit(page_surf, (cx_bar, bar_y + (bar_h - page_surf.get_height()) // 2))
+            else:
+                pinyin_toggle_rect = pygame.Rect(-100, -100, 0, 0)
 
         # --- 3. TITLE SCREEN UI OVERLAYS (ONLY VISIBLE WHEN OFFLINE, DISAPPEARS ON JOIN) ---
         if not is_online and not has_entered_game:
