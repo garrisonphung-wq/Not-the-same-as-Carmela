@@ -41,12 +41,22 @@ class AICodeCompanion:
         auto_host: bool = True,
         character: str = "pangdun",
         chick_name: str = "小胖墩",
+        ai_role: str = "climber",
+        climb_target_name: str | None = "小胖墩 (AI)",
+        allow_chat_reply: bool = True,
     ) -> None:
         self.server_url = server_url
         self.name = name
         self.auto_host = auto_host
         self.character = character
         self.chick_name = chick_name
+        self.ai_role = ai_role
+        self.climb_target_name = climb_target_name
+        self.allow_chat_reply = allow_chat_reply
+        self.riding_pid: int | None = None
+        self.riding_prev_pos: tuple[float, float] | None = None
+        self.climb_jump_cooldown = random.uniform(0.3, 1.1)
+        self.climb_impulse = self.JUMP_IMPULSE
 
         self.my_id: int | None = None
         self.my_color: list[int] = [120, 195, 255]
@@ -300,6 +310,7 @@ class AICodeCompanion:
         self.head_timer -= dt
         self.mouth_timer -= dt
         self.blink_timer -= dt
+        self.climb_jump_cooldown = max(0.0, self.climb_jump_cooldown - dt)
 
         ai_ragdoll_locked = (self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05 or self.headshot_phase != "none")
         if ai_ragdoll_locked:
@@ -328,8 +339,6 @@ class AICodeCompanion:
                 self.is_blinking = True
                 self.blink_timer = 0.16
 
-        # Spontaneous mouth movement is subtle; real replies come from GeminiChickBrain on incoming chat!
-
         if self.mouth_timer <= 0.0:
             if self.mouth_open:
                 self.mouth_open = False
@@ -340,15 +349,93 @@ class AICodeCompanion:
             else:
                 self.mouth_timer = random.uniform(1.8, 4.0)
 
-        # AI cannot walk, run, turn on its own, or look around—it can only jump!
-        self.is_walking = False
-        self.is_running = False
-        if self.headshot_phase == "none":
-            self.target_head_yaw = 0.0
-            self.target_head_pitch = 0.0
+        # Find target still chick if this AI is a climber
+        climb_tx, climb_tz, climb_ty = 0.0, 7.2, 0.0
+        target_found = False
+        if self.climb_target_name:
+            for _pid, _info in self.other_players.items():
+                if _info.get("name") == self.climb_target_name:
+                    climb_tx = _info["wx"]
+                    climb_tz = _info["wz"]
+                    climb_ty = _info["jump_y"]
+                    target_found = True
+                    break
+
+        if ai_ragdoll_locked or self.ai_role == "still":
+            self.is_walking = False
+            self.is_running = False
+            if self.headshot_phase == "none":
+                self.target_head_yaw = 0.0
+                self.target_head_pitch = 0.0
+        else:
+            # Climber AI: if already standing on top of a chick, perch smoothly; otherwise move toward the still chick & leap on!
+            is_perched = (self.riding_pid is not None and self.jump_offset_y >= 0.85)
+            if is_perched:
+                self.is_walking = False
+                self.is_running = False
+                if self.headshot_phase == "none":
+                    self.target_head_yaw = 0.0
+                    self.target_head_pitch = 0.0
+            else:
+                dx_t = climb_tx - self.wx
+                dz_t = climb_tz - self.wz
+                dist_t = math.hypot(dx_t, dz_t)
+                if dist_t > 0.05:
+                    desired_yaw = math.atan2(dx_t, dz_t)
+                    diff = wrap_angle(desired_yaw - self.rot_y)
+                    max_turn = self.TURN_SPEED * 1.8 * dt
+                    if abs(diff) <= max_turn:
+                        self.rot_y = desired_yaw
+                    else:
+                        self.rot_y = wrap_angle(self.rot_y + math.copysign(max_turn, diff))
+
+                if self.jump_state == "airborne":
+                    # Steer smoothly inward over the target chick while jumping up onto it!
+                    self.is_walking = False
+                    self.is_running = False
+                    if dist_t > 0.15:
+                        air_speed = min(self.RUN_SPEED, max(2.2, dist_t * 3.8))
+                        self.wx += (dx_t / dist_t) * air_speed * dt
+                        self.wz += (dz_t / dist_t) * air_speed * dt
+                elif self.jump_state == "crouching":
+                    self.is_walking = False
+                    self.is_running = False
+                elif dist_t > 1.38:
+                    # Run/walk up to the still chick
+                    self.is_running = dist_t > 2.4
+                    self.is_walking = not self.is_running
+                    move_spd = self.RUN_SPEED if self.is_running else self.WALK_SPEED
+                    step = min(dist_t - 1.15, move_spd * dt)
+                    if step > 0.0:
+                        self.wx += (dx_t / dist_t) * step
+                        self.wz += (dz_t / dist_t) * step
+                else:
+                    # Close enough to jump onto the still chick (or stack on top of other chicks!)
+                    self.is_walking = False
+                    self.is_running = False
+                    if self.climb_jump_cooldown <= 0.0:
+                        # Jump slightly higher if other chicks are already stacked near the still chick
+                        stack_height = climb_ty
+                        for _pid, _info in self.other_players.items():
+                            if math.hypot(_info["wx"] - climb_tx, _info["wz"] - climb_tz) < 1.55:
+                                stack_height = max(stack_height, _info["jump_y"])
+                        needed_h = max(1.6, stack_height + 1.55)
+                        self.climb_impulse = math.sqrt(2.0 * self.GRAVITY * needed_h)
+                        self.jump_state = "crouching"
+                        self.crouch_timer = 0.0
+                        self.jump_amount = 0.0
+                        self.climb_jump_cooldown = random.uniform(0.35, 0.80)
 
         # --- CHICK-TO-CHICK COLLISION & DYNAMIC PUSHING FOR AI ---
+        if self.riding_pid is not None and self.riding_pid in self.other_players and self.jump_state != "airborne":
+            c_info = self.other_players[self.riding_pid]
+            if self.riding_prev_pos is not None:
+                self.wx += c_info["wx"] - self.riding_prev_pos[0]
+                self.wz += c_info["wz"] - self.riding_prev_pos[1]
+            self.riding_prev_pos = (c_info["wx"], c_info["wz"])
+
         ai_landing_support_y = 0.0
+        found_ai_carrier: int | None = None
         MIN_CHICK_DIST = 1.16
         my_moving = self.is_running or self.is_walking
         my_weight = 1.0 + (1.2 if self.is_running else (0.6 if my_moving else 0.0))
@@ -366,11 +453,18 @@ class AICodeCompanion:
             horiz_d = math.hypot(dx, dz)
 
             other_top_y = o_jump_y + 1.15
-            if horiz_d < MIN_CHICK_DIST * 0.92:
-                if self.jump_offset_y >= other_top_y - 0.28:
+            is_riding_this = (self.riding_pid == op_id)
+            ride_range = MIN_CHICK_DIST * 1.25 if is_riding_this else MIN_CHICK_DIST * 0.95
+            if horiz_d < ride_range:
+                if (is_riding_this and self.jump_state != "airborne") or (self.jump_offset_y >= other_top_y - 0.30):
                     if other_top_y > ai_landing_support_y:
                         ai_landing_support_y = other_top_y
+                        found_ai_carrier = op_id
                     continue
+
+            # Skip horizontal push while leaping over another chick to climb on top!
+            if self.jump_state == "airborne" and self.jump_offset_y > o_jump_y + 0.32:
+                continue
 
             if horiz_d < MIN_CHICK_DIST and abs(self.jump_offset_y - o_jump_y) < 1.10:
                 overlap = MIN_CHICK_DIST - horiz_d
@@ -393,8 +487,17 @@ class AICodeCompanion:
                     ratio_me = 0.50
                     ratio_other = 0.50
 
-                self.wx += nx * (overlap * ratio_me)
-                self.wz += nz * (overlap * ratio_me)
+                if self.ai_role != "still":
+                    self.wx += nx * (overlap * ratio_me)
+                    self.wz += nz * (overlap * ratio_me)
+
+        if found_ai_carrier is not None and found_ai_carrier in self.other_players:
+            c_info = self.other_players[found_ai_carrier]
+            self.riding_pid = found_ai_carrier
+            self.riding_prev_pos = (c_info["wx"], c_info["wz"])
+        else:
+            self.riding_pid = None
+            self.riding_prev_pos = None
 
         # Smooth natural neck interpolation (skip overwrite during headshot sequence)
         if self.headshot_phase == "none":
@@ -438,14 +541,18 @@ class AICodeCompanion:
 
         # Jump physics
         if self.jump_state == "crouching":
+            if ai_landing_support_y > 0.0:
+                self.jump_offset_y = ai_landing_support_y
             self.crouch_timer += dt
             cp = min(1.0, self.crouch_timer / self.crouch_duration)
             self.jump_amount = math.sin(cp * (math.pi / 2))
             if self.crouch_timer >= self.crouch_duration:
                 self.jump_state = "airborne"
-                self.jump_velocity_y = self.JUMP_IMPULSE
-                self.jump_offset_y = 0.08
+                self.jump_velocity_y = self.climb_impulse if self.ai_role == "climber" else self.JUMP_IMPULSE
+                self.jump_offset_y = max(self.jump_offset_y, ai_landing_support_y) + 0.08
                 self.jump_amount = 0.0
+                self.riding_pid = None
+                self.riding_prev_pos = None
         elif self.jump_state == "airborne":
             if self.launch_accel_timer > 0.0:
                 self.jump_velocity_y += 74.0 * dt
@@ -484,19 +591,13 @@ class AICodeCompanion:
         else:
             cur_floor = max(0.0, ai_landing_support_y)
             if self.jump_offset_y > 0.0:
-                if self.jump_offset_y > cur_floor + 0.08:
+                if cur_floor > 0.0:
+                    self.jump_offset_y = cur_floor
+                elif self.jump_offset_y > 0.12:
                     self.jump_state = "airborne"
                     self.jump_velocity_y = 0.0
                 else:
-                    self.jump_offset_y = cur_floor
-            self.jump_amount = 0.0
-
-        # AI cannot move, kick, punch, or tag—it can only jump!
-        self.action_cooldown -= dt
-        if not ai_ragdoll_locked and self.action_cooldown <= 0.0 and self.jump_state == "idle":
-            self.action_cooldown = random.uniform(2.2, 4.8)
-            self.jump_state = "crouching"
-            self.crouch_timer = 0.0
+                    self.jump_offset_y = 0.0
             self.jump_amount = 0.0
 
 
@@ -608,7 +709,7 @@ class AICodeCompanion:
                         jump_y = float(pdata.get("jump_offset_y", 0.0))
                         is_r = bool(pdata.get("running", False))
                         is_w = bool(pdata.get("walking", False))
-                        self.other_players[pid] = {"wx": wx, "wz": wz, "jump_y": jump_y, "running": is_r, "walking": is_w}
+                        self.other_players[pid] = {"wx": wx, "wz": wz, "jump_y": jump_y, "running": is_r, "walking": is_w, "name": pdata.get("name")}
                         self._update_observed_label(pid, pdata)
 
             elif mtype == "join":
@@ -619,7 +720,7 @@ class AICodeCompanion:
                     jump_y = float(msg.get("jump_offset_y", 0.0))
                     is_r = bool(msg.get("running", False))
                     is_w = bool(msg.get("walking", False))
-                    self.other_players[pid] = {"wx": wx, "wz": wz, "jump_y": jump_y, "running": is_r, "walking": is_w}
+                    self.other_players[pid] = {"wx": wx, "wz": wz, "jump_y": jump_y, "running": is_r, "walking": is_w, "name": msg.get("name")}
                     self._update_observed_label(pid, msg)
 
             elif mtype == "pos":
@@ -630,7 +731,8 @@ class AICodeCompanion:
                     jump_y = float(msg.get("jump_offset_y", 0.0))
                     is_r = bool(msg.get("running", False))
                     is_w = bool(msg.get("walking", False))
-                    self.other_players[pid] = {"wx": wx, "wz": wz, "jump_y": jump_y, "running": is_r, "walking": is_w}
+                    prev_name = self.other_players.get(pid, {}).get("name")
+                    self.other_players[pid] = {"wx": wx, "wz": wz, "jump_y": jump_y, "running": is_r, "walking": is_w, "name": msg.get("name") or prev_name}
                     self._update_observed_label(pid, msg)
 
             elif mtype == "leave":
@@ -643,7 +745,9 @@ class AICodeCompanion:
                 chat_text = str(msg.get("text", "")).strip()
                 if sender_id != self.my_id and chat_text:
                     sender_name = str(msg.get("name") or self.other_player_labels.get(sender_id) or f"Player {sender_id}")
-                    asyncio.create_task(self._handle_chat_with_gemini(sender_id, sender_name, chat_text))
+                    # Never reply to other AI chicks; reply if designated responder or explicitly named!
+                    if "(AI)" not in sender_name and (self.allow_chat_reply or (self.chick_name in chat_text)):
+                        asyncio.create_task(self._handle_chat_with_gemini(sender_id, sender_name, chat_text))
 
             elif mtype == "punch_hit":
                 target_id = msg.get("target_id")
@@ -665,18 +769,7 @@ class AICodeCompanion:
                         float(msg.get("roll_dir", 1.0)),
                     )
 
-            elif mtype == "chat":
-                sender_id = int(msg.get("id", -1))
-                chat_text = str(msg.get("text", "")).strip()
-                if sender_id != self.my_id and chat_text:
-                    # Look up player name or label if available
-                    player_name = str(msg.get("name") or self.other_player_labels.get(sender_id, "Friend"))
-                    # Generate bilingual in-character response using CarmelitoBrain
-                    reply = self.brain.generate_reply(chat_text, player_name=player_name)
-                    # Natural typing delay between 0.6 and 1.4 seconds
-                    delay_send = time.time() + random.uniform(0.6, 1.4)
-                    self._pending_chats.append((delay_send, reply))
-                    print(f"🤖 Carmelito replying to player {sender_id} ({player_name}) with: '{reply}'", flush=True)
+
 
     async def _motion_loop(self, ws) -> None:
         tick_rate = 30.0

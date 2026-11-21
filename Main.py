@@ -569,33 +569,33 @@ class NetworkClient:
         thread = threading.Thread(target=server_runner, daemon=True)
         thread.start()
 
-        # Launch exactly 1 intelligent, companion AI chick player into the game!
+        # Launch 5 AI chicks clustered close together: 1 still base chick + 4 climber chicks trying to get on it!
         ai_chick_configs = [
-            # Carmen: witty, clever companion chick who runs, jumps, kicks, punches, and chats
-            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "delay": 0.5},
+            {"name": "小胖墩 (AI)", "character": "pangdun", "chick_name": "小胖墩", "wx": 0.0, "wz": 7.2, "role": "still", "target": None, "chat": True, "delay": 0.35},
+            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "wx": -2.0, "wz": 5.8, "role": "climber", "target": "小胖墩 (AI)", "chat": False, "delay": 0.55},
+            {"name": "卡梅利多 (AI)", "character": "carmelito", "chick_name": "卡梅利多", "wx": 2.0, "wz": 5.8, "role": "climber", "target": "小胖墩 (AI)", "chat": False, "delay": 0.70},
+            {"name": "小六子 (AI)", "character": "xiaoliuzi", "chick_name": "小六子", "wx": -1.7, "wz": 8.9, "role": "climber", "target": "小胖墩 (AI)", "chat": False, "delay": 0.85},
+            {"name": "波罗 (AI)", "character": "carmelito", "chick_name": "波罗", "wx": 1.7, "wz": 8.9, "role": "climber", "target": "小胖墩 (AI)", "chat": False, "delay": 1.00},
         ]
 
         def launch_single_ai(cfg: dict[str, Any]) -> None:
             time.sleep(cfg["delay"])
             try:
                 import ai_player
-                # Spawn in a pleasant nearby view in front of the player (around 6-9 meters away)
-                spawn_theta = random.uniform(-0.45, 0.45)
-                spawn_r = random.uniform(5.5, 9.0)
-                rand_x = math.sin(spawn_theta) * spawn_r
-                rand_z = math.cos(spawn_theta) * spawn_r
-
                 bot = ai_player.AICodeCompanion(
                     server_url=f"ws://127.0.0.1:{port}",
                     name=cfg["name"],
                     character=cfg["character"],
                     chick_name=cfg["chick_name"],
                     auto_host=False,
+                    ai_role=cfg["role"],
+                    climb_target_name=cfg["target"],
+                    allow_chat_reply=cfg["chat"],
                 )
-                bot.wx = rand_x
-                bot.wz = rand_z
-                bot.dest_x = rand_x
-                bot.dest_z = rand_z
+                bot.wx = cfg["wx"]
+                bot.wz = cfg["wz"]
+                bot.dest_x = cfg["wx"]
+                bot.dest_z = cfg["wz"]
                 asyncio.run(bot.run())
             except Exception:
                 pass
@@ -1760,8 +1760,8 @@ def main() -> None:
                                 found_carrier_id = pid
                             continue  # Stand on top, avoid pushing feet horizontally
 
-                    # Ground-level body collision and dynamic pushing:
-                    if horiz_d < MIN_CHICK_DIST and abs(my_height - other_jump_y) < 1.10:
+                    # Ground-level body collision and dynamic pushing (don't block mid-air jumps onto another chick):
+                    if (not (jump_state == "airborne" and my_height > other_jump_y + 0.35)) and horiz_d < MIN_CHICK_DIST and abs(my_height - other_jump_y) < 1.10:
                         overlap = MIN_CHICK_DIST - horiz_d
                         nx = dx / max(1e-4, horiz_d)
                         nz = dz / max(1e-4, horiz_d)
