@@ -2419,15 +2419,17 @@ def main() -> None:
                 
                 # Ground shadow screen position
                 dy_g = current_ground_y - eye_y
-                g_ry_cam = dy_g * cos_pitch - rz_forward * sin_pitch
-                g_rx_r, g_ry_r = roll_cam_xy(rx_unpitched, g_ry_cam)
-                g_sx = hw + (g_rx_r / horiz_dist) * focal
-                g_sy = hh - (g_ry_r / horiz_dist) * focal
-                
-                sh_w = max(8, round((1.18 * char_scale / horiz_dist) * focal))
-                sh_h = max(3, round((0.38 * char_scale / horiz_dist) * focal))
-                shadow_rect = pygame.Rect(round(g_sx - sh_w * 0.5), round(g_sy - sh_h * 0.4), sh_w, sh_h)
-                pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, shadow_rect)
+                g_rz_cam = dy_g * sin_pitch + rz_forward * cos_pitch
+                if g_rz_cam > 0.25:
+                    g_ry_cam = dy_g * cos_pitch - rz_forward * sin_pitch
+                    g_rx_r, g_ry_r = roll_cam_xy(rx_unpitched, g_ry_cam)
+                    g_sx = hw + (g_rx_r / horiz_dist) * focal
+                    g_sy = hh - (g_ry_r / horiz_dist) * focal
+                    alt_fade = max(0.35, 1.0 - max(0.0, rs.get("jump_offset_y", 0.0)) * 0.03)
+                    sh_w = max(6, round((1.18 * char_scale * alt_fade / horiz_dist) * focal))
+                    sh_h = max(2, round((0.38 * char_scale * alt_fade / horiz_dist) * focal))
+                    shadow_rect = pygame.Rect(round(g_sx - sh_w * 0.5), round(g_sy - sh_h * 0.4), sh_w, sh_h)
+                    pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, shadow_rect)
 
         # PASS 2: Render 3D chick models and nameplates sorted from furthest to nearest
         visible_remotes.sort(key=lambda item: item[0], reverse=True)
@@ -2508,7 +2510,7 @@ def main() -> None:
                 # Floating nameplates above chicken's comb:
                 # 1) Chicken's Chinese name (e.g. "小胖墩", "卡梅利多", "卡门")
                 # 2) AI / player's name stacked right above it
-                label_cam = to_cam(rs["wx"], current_ground_y + 2.38 * rem_scale, rs["wz"])
+                label_cam = to_cam(rs["wx"], current_ground_y + rs.get("jump_offset_y", 0.0) + 2.38 * rem_scale, rs["wz"])
                 if label_cam[2] > near_z:
                     lsx = round(hw + (label_cam[0] / label_cam[2]) * focal)
                     lsy = round(hh - (label_cam[1] / label_cam[2]) * focal)
