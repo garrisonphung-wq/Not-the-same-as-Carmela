@@ -18,7 +18,7 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
 import server as game_server
-from carmelito_3d import COLOR_INK_LINE, COLOR_XIAOLIUZI_INK, Carmelito3D
+from carmelito_3d import COLOR_INK_LINE, COLOR_XIAOLIUZI_INK, Carmelito3D, ChickRagdollSim
 from pinyin_ime import lookup_pinyin
 
 WINDOW_TITLE = "不一样的卡梅拉"
