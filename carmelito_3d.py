@@ -1911,6 +1911,7 @@ class Carmelito3D:
         punch_side: float = 1.0,
         jump_amount: float = 0.0,
         tag_amount: float = 0.0,
+        ragdoll_pose: dict | None = None,
     ) -> None:
         """
         Projects and renders Carmelito in authentic storybook 3D.
