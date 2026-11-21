@@ -1718,7 +1718,7 @@ def main() -> None:
         elif is_playing_pangdun:
             current_ground_y = GROUND_Y * 1.10
         elif is_playing_xiaoliuzi:
-            current_ground_y = GROUND_Y * 1.04
+            current_ground_y = GROUND_Y * 1.08
         else:
             current_ground_y = GROUND_Y
 
@@ -1923,7 +1923,7 @@ def main() -> None:
             if pdata.get("is_carmelito", True):
                 rwx, rwz = rs["wx"], rs["wz"]
                 remote_char = resolve_character_id(pdata)
-                char_scale = 0.82 if remote_char == "carmen" else (1.15 if remote_char in ("pangdun", "小胖墩", "belino", "coquenpate") else (1.04 if remote_char in ("xiaoliuzi", "小六子", "coqsix", "克西斯") else 1.0))
+                char_scale = 0.82 if remote_char == "carmen" else (1.15 if remote_char in ("pangdun", "小胖墩", "belino", "coquenpate") else (1.08 if remote_char in ("xiaoliuzi", "小六子", "coqsix", "克西斯") else 1.0))
                 
                 # Ground shadow screen position
                 dy_g = current_ground_y - eye_y
@@ -1953,7 +1953,7 @@ def main() -> None:
                 elif remote_char in ("pangdun", "小胖墩", "belino", "coquenpate"):
                     rem_scale = CARMELITO_WORLD_SCALE * 1.15
                 elif remote_char in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
-                    rem_scale = CARMELITO_WORLD_SCALE * 1.04
+                    rem_scale = CARMELITO_WORLD_SCALE * 1.08
                 else:
                     rem_scale = CARMELITO_WORLD_SCALE
 

@@ -44,14 +44,15 @@ COLOR_PANGDUN_BEAK = (242, 168, 40)     # Sturdy orange-yellow beak
 COLOR_PANGDUN_LEG = (235, 152, 36)      # Chunky yellow-orange legs
 COLOR_PANGDUN_INK = (42, 40, 52)        # Sharp comic ink outline
 
-# Xiaoliuzi / Coqsix (小六子) Palette - Mischievous, agile caramel-tan cockerel with chestnut tail plume:
-COLOR_XIAOLIUZI_TAN = (218, 152, 86)    # Warm toasted caramel-tan cockerel feathers
-COLOR_XIAOLIUZI_BELLY = (242, 206, 154) # Soft creamy-buff chest & belly down
-COLOR_XIAOLIUZI_ACCENT = (162, 92, 46)  # Rich chestnut-brown tail plume & wing tips
-COLOR_XIAOLIUZI_COMB = (224, 58, 34)    # Fiery orange-red spiky comb
-COLOR_XIAOLIUZI_BEAK = (244, 178, 48)   # Bold golden-amber beak
-COLOR_XIAOLIUZI_LEG = (232, 158, 42)    # Sturdy amber legs
-COLOR_XIAOLIUZI_INK = (56, 32, 18)      # Warm chestnut ink outline
+# Xiaoliuzi / Coqsix (小六子) Palette - Tall, lean adolescent off-white/cream cockerel:
+COLOR_XIAOLIUZI_TAN = (246, 240, 224)    # Off-white / warm cream cockerel plumage
+COLOR_XIAOLIUZI_BELLY = (224, 216, 200)  # Subtle pale gray-beige watercolor shading under belly & wings
+COLOR_XIAOLIUZI_ACCENT = (228, 220, 206) # Soft pale gray-beige shading on tail tuft
+COLOR_XIAOLIUZI_COMB = (218, 36, 42)     # Bright crimson-red jagged flopping comb & dangling wattles
+COLOR_XIAOLIUZI_BEAK = (246, 166, 36)    # Bright yellow-orange pointed beak
+COLOR_XIAOLIUZI_LEG = (244, 162, 34)     # Skinny stick-like yellow-orange bird legs
+COLOR_XIAOLIUZI_CLAW = (132, 92, 48)     # Dark clawed tips on three-toed feet
+COLOR_XIAOLIUZI_INK = (34, 30, 32)       # Loose expressive storybook black ink outline
 
 
 def create_cube_grid(
@@ -358,11 +359,11 @@ class Carmelito3D:
 
         # Proportions for characters:
         # 小胖墩: plump round body with head completely connected to torso
-        # 小六子 (Coqsix): trim, slightly taller, agile cockerel silhouette
-        head_s = 0.94 if is_pangdun else (0.98 if is_xiaoliuzi else 1.0)
-        body_w = 1.58 if is_pangdun else (0.94 if is_xiaoliuzi else 1.0)
-        body_h = 1.25 if is_pangdun else (1.04 if is_xiaoliuzi else 1.0)
-        body_d = 1.50 if is_pangdun else (0.94 if is_xiaoliuzi else 1.0)
+        # 小六子 (Coqsix): leaner, taller adolescent young rooster with pear-shaped torso & thin neck
+        head_s = 0.94 if is_pangdun else (0.94 if is_xiaoliuzi else 1.0)
+        body_w = 1.58 if is_pangdun else (0.88 if is_xiaoliuzi else 1.0)
+        body_h = 1.25 if is_pangdun else (1.10 if is_xiaoliuzi else 1.0)
+        body_d = 1.50 if is_pangdun else (0.90 if is_xiaoliuzi else 1.0)
 
         if run_weight is None:
             rw = 1.0 if is_running else 0.0
@@ -388,7 +389,7 @@ class Carmelito3D:
         bob_y = run_bob * rw + walk_bob * (ww * (1.0 - rw))
 
         # --- 1. HEAD & NECK (Trim for Carmelito/Carmen; seamlessly merged for 小胖墩) ---
-        head_center_y = (1.46 if is_pangdun else 1.56) + bob_y
+        head_center_y = (1.46 if is_pangdun else (1.64 if is_xiaoliuzi else 1.56)) + bob_y
         # Head cube: for Belino, lower taper flares outward directly into the shoulders/torso
         head = create_cube_grid(
             center=(0.0, head_center_y, 0.0),
@@ -437,6 +438,17 @@ class Carmelito3D:
                 draw_contour=False,
             )
             head_faces.extend(chin_bridge)
+        elif is_xiaoliuzi:
+            # Noticeably thin adolescent cockerel neck connecting head to pear-shaped torso
+            neck = create_cube_grid(
+                center=(0.0, head_center_y - 0.30, -0.02),
+                size=(0.30, 0.36, 0.30),
+                subdivisions=(4, 4, 4),
+                base_color=body_col,
+                roundness=0.62,
+                draw_contour=True,
+            )
+            head_faces.extend(neck)
         else:
             # Slender neck for Carmelito & Carmen
             neck = create_cube_grid(
@@ -456,13 +468,13 @@ class Carmelito3D:
         comb_y = head_center_y + 0.29 + comb_y_shift
 
         if is_xiaoliuzi:
-            # Spiky, slightly tilted cheeky cockerel crest with 5 tapered spikes
+            # Bright crimson-red jagged rooster comb flopping slightly to the side!
             spike_specs = [
-                ((0.02, -0.02, 0.16), (0.04, 0.20, 0.26), (0.09, 0.055), comb_col),
-                ((-0.02, 0.00, 0.06), (-0.01, 0.28, 0.12), (0.095, 0.06), comb_col),
-                ((0.01, -0.01, -0.04), (0.02, 0.25, -0.07), (0.095, 0.06), comb_col),
-                ((-0.01, -0.03, -0.13), (-0.02, 0.19, -0.22), (0.09, 0.055), comb_col),
-                ((0.00, -0.07, -0.21), (0.00, 0.11, -0.32), (0.08, 0.05), comb_col),
+                ((0.00, -0.03, 0.16), (0.11, 0.18, 0.23), (0.075, 0.048), comb_col),
+                ((0.01, -0.01, 0.06), (0.15, 0.26, 0.10), (0.082, 0.052), comb_col),
+                ((0.01, -0.01, -0.04), (0.14, 0.24, -0.06), (0.082, 0.052), comb_col),
+                ((0.00, -0.03, -0.13), (0.11, 0.18, -0.20), (0.075, 0.048), comb_col),
+                ((0.00, -0.07, -0.21), (0.07, 0.10, -0.29), (0.065, 0.044), comb_col),
             ]
             for (bx, by, bz), (tx, ty, tz), thick, c_col in spike_specs:
                 head_faces.extend(
@@ -475,17 +487,29 @@ class Carmelito3D:
                         draw_contour=True,
                     )
                 )
-            # Small comb base ridge anchoring the spikes into the skull
+            # Small comb base ridge anchoring the flopping comb into the skull
             head_faces.extend(
                 create_cube_grid(
-                    center=(0.0, comb_y - 0.01, -0.03),
-                    size=(0.11, 0.10, 0.36),
+                    center=(0.015, comb_y - 0.02, -0.03),
+                    size=(0.095, 0.085, 0.36),
                     subdivisions=(2, 2, 4),
                     base_color=comb_col,
                     roundness=0.45,
                     draw_contour=True,
                 )
             )
+            # Two small dangling crimson-red wattles under his chin!
+            for w_side in (-1, 1):
+                wattle = create_cube_grid(
+                    center=(w_side * 0.065, head_center_y - 0.275, 0.22),
+                    size=(0.065, 0.125, 0.065),
+                    subdivisions=(2, 3, 2),
+                    base_color=comb_col,
+                    taper_y=-0.25,
+                    roundness=0.72,
+                    draw_contour=True,
+                )
+                head_faces.extend(wattle)
         else:
             lobe_data = [
                 ((0.0, 0.12 * comb_h_mult, 0.10), (0.13, 0.30 * comb_h_mult, 0.16), (2, 4, 3)),   # Lobe 1
@@ -506,15 +530,17 @@ class Carmelito3D:
                 head_faces.extend(lobe)
 
         # --- 3. EYES & PUPILS (Big white eyes with cute dark pupils + smooth blink) ---
-        eye_y = head_center_y + 0.11
+        eye_y = head_center_y + (0.13 if is_xiaoliuzi else 0.11)
+        eye_spacing = 0.098 if is_xiaoliuzi else 0.13
+        eye_w = 0.185 if is_xiaoliuzi else 0.20
         for eye_side in (-1, 1):
-            ex = eye_side * 0.13
+            ex = eye_side * eye_spacing
             if blink_amt < 0.82:
-                eye_h = max(0.045, 0.26 * (1.0 - 0.80 * blink_amt))
-                eye_r = max(0.20, 0.80 * (1.0 - 0.65 * blink_amt))
+                eye_h = max(0.045, (0.27 if is_xiaoliuzi else 0.26) * (1.0 - 0.80 * blink_amt))
+                eye_r = max(0.20, (0.85 if is_xiaoliuzi else 0.80) * (1.0 - 0.65 * blink_amt))
                 eye_white = create_cube_grid(
                     center=(ex, eye_y, 0.29),
-                    size=(0.20, eye_h, 0.12),
+                    size=(eye_w, eye_h, 0.12),
                     subdivisions=(4, 5, 2),
                     base_color=COLOR_EYE_WHITE,
                     roundness=eye_r,
@@ -522,11 +548,16 @@ class Carmelito3D:
                 )
                 head_faces.extend(eye_white)
 
-                pupil_h = max(0.022, 0.085 * (1.0 - 0.76 * blink_amt))
-                pupil_r = max(0.18, 0.60 * (1.0 - 0.55 * blink_amt))
+                # Small mischievous/goofy pupils for 小六子, slightly cross-centered
+                p_w = 0.044 if is_xiaoliuzi else 0.065
+                p_h_base = 0.056 if is_xiaoliuzi else 0.085
+                pupil_h = max(0.020, p_h_base * (1.0 - 0.76 * blink_amt))
+                pupil_r = max(0.18, 0.65 * (1.0 - 0.55 * blink_amt))
+                p_x_off = (-eye_side * 0.008) if is_xiaoliuzi else (eye_side * 0.012)
+                p_y_off = (0.012 if eye_side < 0 else -0.014) if is_xiaoliuzi else -0.01
                 pupil = create_cube_grid(
-                    center=(ex + eye_side * 0.012, eye_y - 0.01, 0.36),
-                    size=(0.065, pupil_h, 0.03),
+                    center=(ex + p_x_off, eye_y + p_y_off, 0.36),
+                    size=(p_w, pupil_h, 0.03),
                     subdivisions=(2, 2, 1),
                     base_color=COLOR_PUPIL_DARK,
                     roundness=pupil_r,
@@ -537,7 +568,7 @@ class Carmelito3D:
                 # Closed eyelid pad + cute curved dark blink crease
                 eyelid_pad = create_cube_grid(
                     center=(ex, eye_y, 0.275),
-                    size=(0.19, 0.20, 0.10),
+                    size=(0.18, 0.20, 0.10),
                     subdivisions=(3, 3, 2),
                     base_color=body_col,
                     roundness=0.55,
@@ -546,82 +577,117 @@ class Carmelito3D:
                 head_faces.extend(eyelid_pad)
 
                 lid_pts = [
-                    (ex - 0.075, eye_y + 0.008, 0.325),
-                    (ex - 0.028, eye_y - 0.014, 0.342),
-                    (ex + 0.028, eye_y - 0.014, 0.342),
-                    (ex + 0.075, eye_y + 0.008, 0.325),
+                    (ex - 0.070, eye_y + 0.008, 0.325),
+                    (ex - 0.025, eye_y - 0.014, 0.342),
+                    (ex + 0.025, eye_y - 0.014, 0.342),
+                    (ex + 0.070, eye_y + 0.008, 0.325),
                 ]
                 for i in range(len(lid_pts) - 1):
                     head_faces.extend(
                         create_oriented_box(
                             lid_pts[i],
                             lid_pts[i + 1],
-                            thickness=(0.022, 0.022),
+                            thickness=(0.020, 0.020),
                             base_color=COLOR_PUPIL_DARK,
                             subdiv_length=1,
                             draw_contour=False,
                         )
                     )
 
-        # Cheeky mischievous eyebrows for 小六子 (Coqsix) above his cartoon eyes
+        # Thin expressive eyebrows for 小六子 (one cocked higher for mischievous/goofy look!)
         if is_xiaoliuzi:
             for eye_side in (-1, 1):
-                ex = eye_side * 0.13
-                brow_outer = (ex + eye_side * 0.085, eye_y + 0.16, 0.28)
-                brow_inner = (ex - eye_side * 0.065, eye_y + 0.125, 0.32)
+                ex = eye_side * eye_spacing
+                lift = 0.028 if eye_side < 0 else 0.0
+                brow_outer = (ex + eye_side * 0.078, eye_y + 0.165 + lift, 0.29)
+                brow_mid = (ex, eye_y + 0.185 + lift, 0.32)
+                brow_inner = (ex - eye_side * 0.060, eye_y + 0.150 + lift * 0.4, 0.32)
                 head_faces.extend(
                     create_oriented_box(
-                        brow_outer,
-                        brow_inner,
-                        thickness=(0.034, 0.030),
+                        brow_outer, brow_mid,
+                        thickness=(0.017, 0.017),
                         base_color=ink_col,
-                        subdiv_length=2,
+                        subdiv_length=1,
+                        draw_contour=False,
+                    )
+                )
+                head_faces.extend(
+                    create_oriented_box(
+                        brow_mid, brow_inner,
+                        thickness=(0.017, 0.017),
+                        base_color=ink_col,
+                        subdiv_length=1,
                         draw_contour=False,
                     )
                 )
 
-        # --- 4. BEAK (HINGED V-JAW BANANA BEAK + INNER THROAT & TONGUE) ---
-        beak_base_y = head_center_y - 0.16
+        # --- 4. BEAK (Pointed cockerel beak for 小六子; wide banana beak for Carmelito/Carmen/Pangdun) ---
+        beak_base_y = head_center_y - (0.12 if is_xiaoliuzi else 0.16)
         jaw_pivot_y = beak_base_y - 0.02
         jaw_pivot_z = 0.22
 
         upper_beak_faces = []
-        upper_beak_faces.extend(create_cube_grid(
-            center=(0.0, beak_base_y + 0.025, 0.28),
-            size=(0.38, 0.12, 0.14),
-            subdivisions=(5, 3, 3),
-            base_color=beak_col,
-            taper_y=0.10,
-            roundness=0.35,
-            draw_contour=True,
-        ))
-        upper_beak_faces.extend(create_cube_grid(
-            center=(0.0, beak_base_y + 0.015, 0.37),
-            size=(0.34, 0.11, 0.14),
-            subdivisions=(5, 3, 3),
-            base_color=beak_col,
-            taper_y=0.12,
-            roundness=0.38,
-            draw_contour=True,
-        ))
-        upper_beak_faces.extend(create_cube_grid(
-            center=(0.0, beak_base_y + 0.005, 0.45),
-            size=(0.28, 0.10, 0.12),
-            subdivisions=(4, 3, 2),
-            base_color=beak_col,
-            taper_y=0.15,
-            roundness=0.42,
-            draw_contour=True,
-        ))
+        if is_xiaoliuzi:
+            # Medium-sized pointed yellow-orange beak tapering sharply to a tip
+            upper_beak_faces.extend(create_cube_grid(
+                center=(0.0, beak_base_y + 0.025, 0.31),
+                size=(0.22, 0.11, 0.18),
+                subdivisions=(4, 3, 3),
+                base_color=beak_col,
+                taper_y=0.22,
+                taper_z=0.45,
+                roundness=0.28,
+                draw_contour=True,
+            ))
+            upper_beak_faces.extend(create_cube_grid(
+                center=(0.0, beak_base_y + 0.012, 0.44),
+                size=(0.13, 0.08, 0.16),
+                subdivisions=(3, 2, 2),
+                base_color=beak_col,
+                taper_y=0.30,
+                taper_z=0.72,
+                roundness=0.20,
+                draw_contour=True,
+            ))
+        else:
+            upper_beak_faces.extend(create_cube_grid(
+                center=(0.0, beak_base_y + 0.025, 0.28),
+                size=(0.38, 0.12, 0.14),
+                subdivisions=(5, 3, 3),
+                base_color=beak_col,
+                taper_y=0.10,
+                roundness=0.35,
+                draw_contour=True,
+            ))
+            upper_beak_faces.extend(create_cube_grid(
+                center=(0.0, beak_base_y + 0.015, 0.37),
+                size=(0.34, 0.11, 0.14),
+                subdivisions=(5, 3, 3),
+                base_color=beak_col,
+                taper_y=0.12,
+                roundness=0.38,
+                draw_contour=True,
+            ))
+            upper_beak_faces.extend(create_cube_grid(
+                center=(0.0, beak_base_y + 0.005, 0.45),
+                size=(0.28, 0.10, 0.12),
+                subdivisions=(4, 3, 2),
+                base_color=beak_col,
+                taper_y=0.15,
+                roundness=0.42,
+                draw_contour=True,
+            ))
 
-        if mouth_open:
-            # Upper jaw tilts up while lower jaw hinges down to form a clean open beak
-            head_faces.extend(rotate_faces_x(upper_beak_faces, jaw_pivot_y, jaw_pivot_z, math.radians(-22)))
+        if mouth_open or is_xiaoliuzi:
+            # 小六子's beak is often slightly open mid-chatter even at rest (or wide open when talking!)
+            chatter_open = mouth_open
+            up_deg = -22 if chatter_open else -7
+            lo_deg = 32 if chatter_open else 12
+            head_faces.extend(rotate_faces_x(upper_beak_faces, jaw_pivot_y, jaw_pivot_z, math.radians(up_deg)))
 
-            # Dark mouth interior tucked cleanly inside the jaw opening
             throat = create_cube_grid(
                 center=(0.0, beak_base_y - 0.03, 0.28),
-                size=(0.24, 0.15, 0.12),
+                size=(0.14 if is_xiaoliuzi else 0.24, 0.11 if not chatter_open else 0.15, 0.12),
                 subdivisions=(3, 3, 2),
                 base_color=COLOR_MOUTH_DARK,
                 roundness=0.15,
@@ -629,46 +695,68 @@ class Carmelito3D:
             )
             head_faces.extend(throat)
 
-            # Cute pink tongue resting on the lower jaw
-            tongue = create_cube_grid(
-                center=(0.0, beak_base_y - 0.045, 0.35),
-                size=(0.14, 0.04, 0.10),
-                subdivisions=(3, 2, 2),
-                base_color=COLOR_TONGUE_PINK,
-                roundness=0.25,
-                draw_contour=False,
-            )
-            head_faces.extend(rotate_faces_x(tongue, jaw_pivot_y, jaw_pivot_z, math.radians(24)))
+            if chatter_open:
+                tongue = create_cube_grid(
+                    center=(0.0, beak_base_y - 0.045, 0.35),
+                    size=(0.10 if is_xiaoliuzi else 0.14, 0.04, 0.09),
+                    subdivisions=(3, 2, 2),
+                    base_color=COLOR_TONGUE_PINK,
+                    roundness=0.25,
+                    draw_contour=False,
+                )
+                head_faces.extend(rotate_faces_x(tongue, jaw_pivot_y, jaw_pivot_z, math.radians(24)))
 
             lower_beak_faces = []
-            lower_beak_faces.extend(create_cube_grid(
-                center=(0.0, beak_base_y - 0.055, 0.29),
-                size=(0.32, 0.075, 0.14),
-                subdivisions=(4, 2, 3),
-                base_color=beak_col,
-                taper_y=0.10,
-                roundness=0.22,
-                draw_contour=True,
-            ))
-            lower_beak_faces.extend(create_cube_grid(
-                center=(0.0, beak_base_y - 0.06, 0.38),
-                size=(0.28, 0.07, 0.13),
-                subdivisions=(4, 2, 2),
-                base_color=beak_col,
-                taper_y=0.15,
-                roundness=0.28,
-                draw_contour=True,
-            ))
-            lower_beak_faces.extend(create_cube_grid(
-                center=(0.0, beak_base_y - 0.06, 0.44),
-                size=(0.22, 0.065, 0.10),
-                subdivisions=(3, 2, 2),
-                base_color=beak_col,
-                taper_y=0.20,
-                roundness=0.32,
-                draw_contour=True,
-            ))
-            head_faces.extend(rotate_faces_x(lower_beak_faces, jaw_pivot_y, jaw_pivot_z, math.radians(32)))
+            if is_xiaoliuzi:
+                lower_beak_faces.extend(create_cube_grid(
+                    center=(0.0, beak_base_y - 0.042, 0.31),
+                    size=(0.17, 0.06, 0.16),
+                    subdivisions=(3, 2, 3),
+                    base_color=beak_col,
+                    taper_y=0.20,
+                    taper_z=0.52,
+                    roundness=0.22,
+                    draw_contour=True,
+                ))
+                lower_beak_faces.extend(create_cube_grid(
+                    center=(0.0, beak_base_y - 0.042, 0.42),
+                    size=(0.10, 0.048, 0.13),
+                    subdivisions=(3, 2, 2),
+                    base_color=beak_col,
+                    taper_y=0.25,
+                    taper_z=0.72,
+                    roundness=0.18,
+                    draw_contour=True,
+                ))
+            else:
+                lower_beak_faces.extend(create_cube_grid(
+                    center=(0.0, beak_base_y - 0.055, 0.29),
+                    size=(0.32, 0.075, 0.14),
+                    subdivisions=(4, 2, 3),
+                    base_color=beak_col,
+                    taper_y=0.10,
+                    roundness=0.22,
+                    draw_contour=True,
+                ))
+                lower_beak_faces.extend(create_cube_grid(
+                    center=(0.0, beak_base_y - 0.06, 0.38),
+                    size=(0.28, 0.07, 0.13),
+                    subdivisions=(4, 2, 2),
+                    base_color=beak_col,
+                    taper_y=0.15,
+                    roundness=0.28,
+                    draw_contour=True,
+                ))
+                lower_beak_faces.extend(create_cube_grid(
+                    center=(0.0, beak_base_y - 0.06, 0.44),
+                    size=(0.22, 0.065, 0.10),
+                    subdivisions=(3, 2, 2),
+                    base_color=beak_col,
+                    taper_y=0.20,
+                    roundness=0.32,
+                    draw_contour=True,
+                ))
+            head_faces.extend(rotate_faces_x(lower_beak_faces, jaw_pivot_y, jaw_pivot_z, math.radians(lo_deg)))
         else:
             head_faces.extend(upper_beak_faces)
             lower_beak = create_cube_grid(
@@ -711,22 +799,22 @@ class Carmelito3D:
                     r_verts.append((sx, sy, sz))
             all_faces.append((r_verts, base_col, has_contour))
 
-        # --- 5. BODY & FAT BELLY (Big, round, hefty body for 小胖墩) ---
-        body_center_y = 0.88 + bob_y
+        # --- 5. BODY & BELLY (Pear-shaped scrawny-yet-plump cockerel torso for 小六子) ---
+        body_center_y = (0.91 if is_xiaoliuzi else 0.88) + bob_y
         body = create_cube_grid(
             center=(0.0, body_center_y, -0.02),
             size=(0.54 * body_w, 0.74 * body_h, 0.52 * body_d),
             subdivisions=(7, 6, 6),
             base_color=body_col,
-            taper_y=-0.18 if is_pangdun else -0.22,
-            roundness=0.82 if is_pangdun else 0.75,
+            taper_y=-0.34 if is_xiaoliuzi else (-0.18 if is_pangdun else -0.22),
+            roundness=0.72 if is_xiaoliuzi else (0.82 if is_pangdun else 0.75),
             draw_contour=True,
         )
         all_faces.extend(body)
 
         belly = create_cube_grid(
-            center=(0.0, body_center_y - 0.06, 0.14 * body_d),
-            size=(0.48 * body_w, 0.48 * body_h, 0.24 * body_d),
+            center=(0.0, body_center_y - (0.11 if is_xiaoliuzi else 0.06), 0.14 * body_d),
+            size=(0.48 * body_w, (0.42 if is_xiaoliuzi else 0.48) * body_h, 0.24 * body_d),
             subdivisions=(5, 5, 4) if is_pangdun else (4, 4, 3),
             base_color=belly_col,
             roundness=0.85 if is_pangdun else 0.75,
@@ -735,14 +823,27 @@ class Carmelito3D:
         all_faces.extend(belly)
 
         if is_xiaoliuzi:
-            # Signature "Coqsix" (coccyx) perky chestnut-tipped rooster tail plume!
-            tail_plumes = [
-                ((0.0, 0.04, -0.24), (0.0, 0.36, -0.46), (0.11, 0.13), accent_col),
-                ((-0.07, 0.02, -0.24), (-0.12, 0.26, -0.44), (0.09, 0.11), body_col),
-                ((0.07, 0.02, -0.24), (0.12, 0.26, -0.44), (0.09, 0.11), body_col),
-                ((0.0, -0.04, -0.24), (0.0, 0.14, -0.44), (0.10, 0.12), accent_col),
+            # Subtle pale gray-beige watercolor shading tucked under his wings/sides
+            for sh_side in (-1, 1):
+                all_faces.extend(
+                    create_cube_grid(
+                        center=(sh_side * 0.21, body_center_y - 0.04, -0.01),
+                        size=(0.12, 0.34, 0.26),
+                        subdivisions=(2, 3, 2),
+                        base_color=belly_col,
+                        roundness=0.70,
+                        draw_contour=False,
+                    )
+                )
+            # Short, messy tuft of off-white/pale-beige tail feathers sticking up at the back!
+            tail_tufts = [
+                ((0.00, 0.02, -0.22), (-0.02, 0.26, -0.35), (0.075, 0.085), body_col),
+                ((-0.05, 0.01, -0.22), (-0.11, 0.22, -0.33), (0.065, 0.075), accent_col),
+                ((0.05, 0.02, -0.22), (0.10, 0.24, -0.32), (0.065, 0.075), body_col),
+                ((0.02, -0.02, -0.22), (0.05, 0.16, -0.36), (0.065, 0.075), accent_col),
+                ((-0.02, -0.03, -0.21), (-0.06, 0.13, -0.34), (0.060, 0.070), body_col),
             ]
-            for (p0x, p0y, p0z), (p1x, p1y, p1z), t_thick, t_col in tail_plumes:
+            for (p0x, p0y, p0z), (p1x, p1y, p1z), t_thick, t_col in tail_tufts:
                 all_faces.extend(
                     create_oriented_box(
                         (p0x, body_center_y + p0y, p0z),
@@ -1034,10 +1135,14 @@ class Carmelito3D:
                 ankle_pt = lerp_vec3(ankle_pt, k_ankle, k_ext)
                 foot_angle = foot_angle * (1.0 - k_ext) + k_foot_ang * k_ext
 
+            leg_t_thigh = 0.048 if is_xiaoliuzi else 0.075
+            leg_t_shank = 0.038 if is_xiaoliuzi else 0.060
+            joint_s = 0.052 if is_xiaoliuzi else 0.08
+
             # Thigh / Femur
             thigh = create_oriented_box(
                 hip_pt, knee_pt,
-                thickness=(0.075, 0.075),
+                thickness=(leg_t_thigh, leg_t_thigh),
                 base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
@@ -1047,7 +1152,7 @@ class Carmelito3D:
             # Knee Joint
             knee_joint = create_cube_grid(
                 center=knee_pt,
-                size=(0.08, 0.08, 0.08),
+                size=(joint_s, joint_s, joint_s),
                 subdivisions=(2, 2, 2),
                 base_color=leg_col,
                 roundness=0.5,
@@ -1058,7 +1163,7 @@ class Carmelito3D:
             # Lower Shank
             shank = create_oriented_box(
                 knee_pt, ankle_pt,
-                thickness=(0.06, 0.06),
+                thickness=(leg_t_shank, leg_t_shank),
                 base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
@@ -1068,7 +1173,7 @@ class Carmelito3D:
             # Ankle Joint
             ankle_joint = create_cube_grid(
                 center=ankle_pt,
-                size=(0.07, 0.07, 0.07),
+                size=(joint_s * 0.88, joint_s * 0.88, joint_s * 0.88),
                 subdivisions=(2, 2, 2),
                 base_color=leg_col,
                 roundness=0.4,
@@ -1127,12 +1232,26 @@ class Carmelito3D:
             t_rear_end = get_toe_point(0.0, 0.02, -0.10)
             toe_rear = create_oriented_box(
                 t_rear_start, t_rear_end,
-                thickness=(0.04, 0.04),
+                thickness=(0.032 if is_xiaoliuzi else 0.04, 0.032 if is_xiaoliuzi else 0.04),
                 base_color=leg_col,
                 subdiv_length=2,
                 draw_contour=True,
             )
             all_faces.extend(toe_rear)
+
+            # Pointed claws on three-toed clawed feet for 小六子
+            if is_xiaoliuzi:
+                for cx_off, cz_base, cz_tip in ((0.0, 0.22, 0.265), (-0.08, 0.18, 0.22), (0.08, 0.18, 0.22)):
+                    all_faces.extend(
+                        create_oriented_box(
+                            get_toe_point(cx_off, -0.02, cz_base),
+                            get_toe_point(cx_off * 1.1, -0.028, cz_tip),
+                            thickness=(0.022, 0.022),
+                            base_color=COLOR_XIAOLIUZI_CLAW,
+                            subdiv_length=1,
+                            draw_contour=True,
+                        )
+                    )
 
         return all_faces
 
@@ -1159,7 +1278,7 @@ class Carmelito3D:
         elif char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
             body_col = COLOR_XIAOLIUZI_TAN
             leg_col = COLOR_XIAOLIUZI_LEG
-            char_scale_mult = 1.04
+            char_scale_mult = 1.08
         else:
             body_col = COLOR_BODY_PINK
             leg_col = COLOR_LEG_YELLOW
@@ -1392,7 +1511,7 @@ class Carmelito3D:
             char_scale = 1.15
         elif char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
             body_col = COLOR_XIAOLIUZI_TAN
-            char_scale = 1.04
+            char_scale = 1.08
         else:
             body_col = COLOR_BODY_PINK
             char_scale = 1.0
@@ -1488,7 +1607,7 @@ class Carmelito3D:
             char_scale = 1.15
         elif char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
             body_col = COLOR_XIAOLIUZI_TAN
-            char_scale = 1.04
+            char_scale = 1.08
         else:
             body_col = COLOR_BODY_PINK
             char_scale = 1.0
@@ -1647,7 +1766,7 @@ class Carmelito3D:
             char_scale = 1.15
         elif char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
             body_col = COLOR_XIAOLIUZI_TAN
-            char_scale = 1.04
+            char_scale = 1.08
         else:
             body_col = COLOR_BODY_PINK
             char_scale = 1.0
@@ -1756,7 +1875,7 @@ class Carmelito3D:
         elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
             char_scale_mult = 1.15  # Plump fat chicken is larger!
         elif char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
-            char_scale_mult = 1.04  # Agile slightly taller young cockerel!
+            char_scale_mult = 1.08  # Taller, leaner adolescent young rooster!
         else:
             char_scale_mult = 1.0
         scale = scale * char_scale_mult
@@ -1916,58 +2035,97 @@ class Carmelito3D:
         # POV Beak geometry positioned right under eyes:
         beak_faces = []
 
-        # Upper Beak Base
-        beak_root = create_cube_grid(
-            center=(0.0, -0.22, 0.42),
-            size=(0.42, 0.18, 0.22),
-            subdivisions=(4, 3, 3),
-            base_color=beak_color,
-            roundness=0.65,
-            draw_contour=True,
-        )
-        beak_faces.extend(beak_root)
-
-        # Upper Beak Tip (Blunt rounded banana beak)
-        beak_tip = create_cube_grid(
-            center=(0.0, -0.26, 0.62),
-            size=(0.38, 0.17, 0.22),
-            subdivisions=(4, 3, 3),
-            base_color=beak_color,
-            roundness=0.82,
-            draw_contour=True,
-        )
-        beak_faces.extend(beak_tip)
-
-        if mouth_open:
-            # Lower beak drops down
-            lower_beak = create_cube_grid(
-                center=(0.0, -0.42, 0.48),
-                size=(0.34, 0.14, 0.24),
-                subdivisions=(4, 2, 3),
+        if is_xiaoliuzi:
+            # Pointed yellow-orange cockerel beak (slightly open mid-chatter by default)
+            beak_faces.extend(create_cube_grid(
+                center=(0.0, -0.22, 0.44),
+                size=(0.26, 0.14, 0.24),
+                subdivisions=(4, 3, 3),
                 base_color=beak_color,
-                roundness=0.65,
+                taper_z=0.50,
+                roundness=0.30,
                 draw_contour=True,
-            )
-            beak_faces.extend(lower_beak)
-            mouth_inside = create_cube_grid(
-                center=(0.0, -0.32, 0.42),
-                size=(0.26, 0.10, 0.14),
+            ))
+            beak_faces.extend(create_cube_grid(
+                center=(0.0, -0.25, 0.63),
+                size=(0.14, 0.10, 0.18),
+                subdivisions=(3, 2, 2),
+                base_color=beak_color,
+                taper_z=0.72,
+                roundness=0.22,
+                draw_contour=True,
+            ))
+            lo_y = -0.43 if mouth_open else -0.35
+            beak_faces.extend(create_cube_grid(
+                center=(0.0, lo_y, 0.49),
+                size=(0.20, 0.10, 0.24),
+                subdivisions=(3, 2, 3),
+                base_color=beak_color,
+                taper_z=0.62,
+                roundness=0.28,
+                draw_contour=True,
+            ))
+            beak_faces.extend(create_cube_grid(
+                center=(0.0, -0.32 if mouth_open else -0.295, 0.42),
+                size=(0.16, 0.10 if mouth_open else 0.055, 0.14),
                 subdivisions=(2, 2, 2),
                 base_color=COLOR_MOUTH_DARK,
-                roundness=0.3,
+                roundness=0.2,
                 draw_contour=False,
-            )
-            beak_faces.extend(mouth_inside)
+            ))
         else:
-            lower_beak = create_cube_grid(
-                center=(0.0, -0.32, 0.48),
-                size=(0.36, 0.12, 0.24),
-                subdivisions=(4, 2, 3),
+            # Upper Beak Base
+            beak_root = create_cube_grid(
+                center=(0.0, -0.22, 0.42),
+                size=(0.42, 0.18, 0.22),
+                subdivisions=(4, 3, 3),
                 base_color=beak_color,
                 roundness=0.65,
                 draw_contour=True,
             )
-            beak_faces.extend(lower_beak)
+            beak_faces.extend(beak_root)
+
+            # Upper Beak Tip (Blunt rounded banana beak)
+            beak_tip = create_cube_grid(
+                center=(0.0, -0.26, 0.62),
+                size=(0.38, 0.17, 0.22),
+                subdivisions=(4, 3, 3),
+                base_color=beak_color,
+                roundness=0.82,
+                draw_contour=True,
+            )
+            beak_faces.extend(beak_tip)
+
+            if mouth_open:
+                # Lower beak drops down
+                lower_beak = create_cube_grid(
+                    center=(0.0, -0.42, 0.48),
+                    size=(0.34, 0.14, 0.24),
+                    subdivisions=(4, 2, 3),
+                    base_color=beak_color,
+                    roundness=0.65,
+                    draw_contour=True,
+                )
+                beak_faces.extend(lower_beak)
+                mouth_inside = create_cube_grid(
+                    center=(0.0, -0.32, 0.42),
+                    size=(0.26, 0.10, 0.14),
+                    subdivisions=(2, 2, 2),
+                    base_color=COLOR_MOUTH_DARK,
+                    roundness=0.3,
+                    draw_contour=False,
+                )
+                beak_faces.extend(mouth_inside)
+            else:
+                lower_beak = create_cube_grid(
+                    center=(0.0, -0.32, 0.48),
+                    size=(0.36, 0.12, 0.24),
+                    subdivisions=(4, 2, 3),
+                    base_color=beak_color,
+                    roundness=0.65,
+                    draw_contour=True,
+                )
+                beak_faces.extend(lower_beak)
 
         # No arms or head in sight: purely what Carmelito sees in front
 
