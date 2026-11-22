@@ -115,6 +115,7 @@ class GameRelayServer:
                     str(pid): data for pid, data in self._players.items()
                     if data.get("in_game", False)
                 },
+                "craters": self._craters[-60:],
             }
             await conn.send(json.dumps(welcome_msg, separators=(",", ":")))
 
