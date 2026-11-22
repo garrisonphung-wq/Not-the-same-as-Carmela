@@ -3494,7 +3494,7 @@ def main() -> None:
             if prog > 0.0:
                 pygame.draw.rect(screen, (86, 188, 92), pygame.Rect(bar_x + 4, bar_y + 4, round((bar_w - 8) * prog), bar_h - 8), border_radius=7)
             lbl_txt = f"Buried in crater! Hold P to stand up: {buried_p_hold_timer:.1f}s / 10.0s"
-            lbl_surf = chat_font.render(lbl_txt, True, (40, 30, 22))
+            lbl_surf = get_chinese_font(16).render(lbl_txt, True, (40, 30, 22))
             screen.blit(lbl_surf, (bar_x + (bar_w - lbl_surf.get_width()) // 2, bar_y + (bar_h - lbl_surf.get_height()) // 2))
 
         # --- 2. TOP-LEFT CORNER PICTURE: ONLY VISIBLE WHEN ONLINE (EQUIPPED CARMELITO) ---
