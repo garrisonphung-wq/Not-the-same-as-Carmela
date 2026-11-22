@@ -17,6 +17,7 @@ import pygame
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
+import farm_world
 import server as game_server
 from carmelito_3d import COLOR_INK_LINE, COLOR_XIAOLIUZI_INK, Carmelito3D, ChickRagdollSim
 from pinyin_ime import lookup_pinyin
@@ -2065,6 +2066,14 @@ def main() -> None:
                         rs["wx"] = ox - nx * (overlap * ratio_other)
                         rs["wz"] = oz - nz * (overlap * ratio_other)
 
+                # Farm Buildings & Props collision + support (coop walls/roof, hay bales, wooden fence, trees)
+                if not is_buried_in_crater:
+                    cam_x, cam_z, prop_support_y = farm_world.resolve_world_props_collision(
+                        cam_x, cam_z, jump_offset_y, chick_radius=0.48
+                    )
+                    if prop_support_y > landing_support_y:
+                        landing_support_y = prop_support_y
+
                 # Cloud platform support (if spawned on or jumped onto the sky cloud)
                 if (
                     jump_offset_y >= CLOUD_SPAWN_Y - 0.85
@@ -2903,21 +2912,43 @@ def main() -> None:
                     shadow_rect = pygame.Rect(round(g_sx - sh_w * 0.5), round(g_sy - sh_h * 0.4), sh_w, sh_h)
                     pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, shadow_rect)
 
-        # PASS 2: Render 3D chick models and nameplates sorted from furthest to nearest
-        # If viewer is up on the cloud, draw ground chicks first -> cloud platform -> cloud chicks!
-        visible_remotes.sort(key=lambda item: item[0], reverse=True)
+        # PASS 2: Depth-sort 3D farm buildings/nature props interleaved with remote chicks!
+        # Ground-layer items (props + ground chicks) sort furthest-to-nearest first;
+        # if viewer is up on the cloud, draw sky cloud platform and cloud chicks above ground world.
+        world_prop_items = farm_world.collect_world_prop_draw_items(to_cam, current_ground_y, near_z) if is_online else []
+        ground_draw_queue: list[tuple[float, str, object]] = [
+            (depth, "prop", (kind, payload)) for depth, kind, payload in world_prop_items
+        ]
+        cloud_remotes = []
+        for it in visible_remotes:
+            if it[3].get("jump_offset_y", 0.0) >= CLOUD_SPAWN_Y - 1.5:
+                cloud_remotes.append(it)
+            else:
+                ground_draw_queue.append((it[0], "chick", it))
+        ground_draw_queue.sort(key=lambda entry: entry[0], reverse=True)
+        cloud_remotes.sort(key=lambda item: item[0], reverse=True)
+
         if viewer_on_cloud_side:
-            ordered_remotes = (
-                [it for it in visible_remotes if it[3].get("jump_offset_y", 0.0) < CLOUD_SPAWN_Y - 1.5]
-                + [None]
-                + [it for it in visible_remotes if it[3].get("jump_offset_y", 0.0) >= CLOUD_SPAWN_Y - 1.5]
+            render_sequence: list[tuple[str, object]] = (
+                [(tag, obj) for _, tag, obj in ground_draw_queue]
+                + [("cloud", None)]
+                + [("chick", it) for it in cloud_remotes]
             )
         else:
-            ordered_remotes = visible_remotes
-        for remote_item in ordered_remotes:
-            if remote_item is None:
+            render_sequence = [(tag, obj) for _, tag, obj in ground_draw_queue] + [("chick", it) for it in cloud_remotes]
+
+        for _item_tag, _item_obj in render_sequence:
+            if _item_tag == "cloud":
                 draw_walkable_sky_cloud()
                 continue
+            if _item_tag == "prop":
+                _p_kind, _p_payload = _item_obj  # type: ignore[misc]
+                farm_world.draw_world_prop_item(
+                    _p_kind, _p_payload, screen, to_cam, current_ground_y,
+                    near_z, hw, hh, focal, win_w, win_h, anim_time,
+                )
+                continue
+            remote_item = _item_obj
             horiz_dist, pid, pdata, rs, rx_unpitched, ry_cam_feet, rz_forward = remote_item
             if is_fighting and pid == fight_opponent_pid:
                 continue  # Rendered in dedicated battle clash scene below!

@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
+import farm_world
 
 import server as game_server
 from carmelito_ai_brain import CarmelitoBrain, PangdunBrain, CarmenBrain, XiaoliuziBrain
@@ -774,6 +775,14 @@ class AICodeCompanion:
                 if self.ai_role != "still" and not self.is_buried_in_crater:
                     self.wx += nx * (overlap * ratio_me)
                     self.wz += nz * (overlap * ratio_me)
+
+        # Farm buildings & props collision + hay/roof support for AI chick
+        if not self.is_buried_in_crater:
+            self.wx, self.wz, prop_support_y = farm_world.resolve_world_props_collision(
+                self.wx, self.wz, self.jump_offset_y, chick_radius=0.48
+            )
+            if prop_support_y > ai_landing_support_y:
+                ai_landing_support_y = prop_support_y
 
         # Cloud platform support (keeps AI chick standing/walking cleanly on the 2475m cloud)
         if (
