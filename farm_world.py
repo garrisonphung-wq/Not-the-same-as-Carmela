@@ -25,39 +25,39 @@ import pygame
 # shuttered windows (fenêtre & volets), front veranda porch, exterior rung ladder (échelle),
 # straw nests, and Pédro the Cormorant's wooden barrel (tonneau) at its foot!
 CHICKEN_COOP = {
-    "cx": -24.0,
-    "cz": 26.0,
-    "egg_rx": 12.6,  # Gigantic wooden egg radius X (~25.2m wide!)
-    "egg_rz": 12.0,  # Gigantic wooden egg radius Z (~24.0m deep!)
-    "belly_y0": 8.4, # Egg bottom starts 8.4m above grass on 4 towering wooden stilt legs!
-    "belly_y1": 36.0,# Egg top meets terracotta pitched roof cap
-    "roof_h": 46.0,  # Towering 46m terracotta-tiled gable roof peak (~19x chick height!)
-    "door_y": 10.6,  # Front arched chicken doorway & walkable interior coop floor height
-    "barrel_cx": -8.2,
-    "barrel_cz": 14.5,
-    "barrel_r": 1.65,
+    "cx": -38.0,
+    "cz": 42.0,
+    "egg_rx": 22.0,  # Giant wooden egg radius X (~44.0m wide!)
+    "egg_rz": 21.0,  # Giant wooden egg radius Z (~42.0m deep!)
+    "belly_y0": 12.0,# Egg bottom starts 12m above grass on 4 towering wooden stilt legs!
+    "belly_y1": 54.0,# Egg top meets terracotta pitched roof cap (39.5m ceiling height inside!)
+    "roof_h": 68.0,  # Monumental 68m terracotta-tiled gable roof peak (~28.5x chick height!)
+    "door_y": 14.5,  # Front arched chicken doorway & giant walkable interior floor height
+    "barrel_cx": -10.5,
+    "barrel_cz": 21.0,
+    "barrel_r": 1.75,
     "barrel_h": 1.32,# Easy to hop right onto with any tap of J (MIN_JUMP_HEIGHT=1.40)!
 }
 
 # (cx, cz, w, d, base_y, h)
 HAY_BALES: list[dict[str, float]] = [
-    # Cozy stacked hay bales right beside Pédro's barrel & the gigantic Carmela coop (with walkable 0.55m step!)
-    {"cx": -4.2, "cz": 16.5, "w": 2.2, "d": 1.8, "base_y": 0.0, "h": 0.55},
-    {"cx": -2.2, "cz": 17.6, "w": 2.7, "d": 2.0, "base_y": 0.0, "h": 1.05},
-    {"cx": -2.3, "cz": 20.4, "w": 2.7, "d": 2.0, "base_y": 0.0, "h": 1.05},
-    {"cx": -2.2, "cz": 19.0, "w": 2.5, "d": 1.9, "base_y": 1.05, "h": 0.95},
+    # Cozy stacked hay bales right beside Pédro's barrel & the giant Carmela coop (with walkable 0.55m step!)
+    {"cx": -5.6, "cz": 22.8, "w": 2.3, "d": 1.9, "base_y": 0.0, "h": 0.55},
+    {"cx": -3.4, "cz": 24.0, "w": 2.8, "d": 2.1, "base_y": 0.0, "h": 1.05},
+    {"cx": -3.5, "cz": 26.8, "w": 2.8, "d": 2.1, "base_y": 0.0, "h": 1.05},
+    {"cx": -3.4, "cz": 25.4, "w": 2.6, "d": 2.0, "base_y": 1.05, "h": 0.95},
     # Sunny meadow hay stack on the right side (with walkable 0.55m step!)
-    {"cx": 18.4, "cz": 13.2, "w": 2.2, "d": 1.8, "base_y": 0.0, "h": 0.55},
-    {"cx": 19.8, "cz": 14.6, "w": 2.7, "d": 2.0, "base_y": 0.0, "h": 1.05},
-    {"cx": 22.3, "cz": 15.6, "w": 2.5, "d": 1.9, "base_y": 0.0, "h": 1.05},
-    {"cx": 21.0, "cz": 15.1, "w": 2.4, "d": 1.8, "base_y": 1.05, "h": 0.95},
+    {"cx": 26.4, "cz": 16.2, "w": 2.3, "d": 1.9, "base_y": 0.0, "h": 0.55},
+    {"cx": 28.0, "cz": 17.6, "w": 2.8, "d": 2.1, "base_y": 0.0, "h": 1.05},
+    {"cx": 30.6, "cz": 18.6, "w": 2.6, "d": 2.0, "base_y": 0.0, "h": 1.05},
+    {"cx": 29.2, "cz": 18.1, "w": 2.5, "d": 1.9, "base_y": 1.05, "h": 0.95},
     # Single sunny bale near front-left meadow
-    {"cx": -8.8, "cz": -5.2, "w": 2.5, "d": 1.8, "base_y": 0.0, "h": 1.02},
+    {"cx": -11.5, "cz": -6.0, "w": 2.6, "d": 1.9, "base_y": 0.0, "h": 1.02},
 ]
 
 
 def _build_fence_segments() -> list[tuple[float, float, float, float]]:
-    """Build super-wide wooden paddock fence perimeter (144m x 136m) with wide south entrance."""
+    """Build ultra-far wooden paddock fence perimeter (330m x 320m) with wide south gate."""
     segs: list[tuple[float, float, float, float]] = []
 
     def add_chain(pts: list[tuple[float, float]]) -> None:
@@ -65,12 +65,12 @@ def _build_fence_segments() -> list[tuple[float, float, float, float]]:
             segs.append((pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]))
 
     add_chain([
-        (-8.0, -52.0),
-        (-72.0, -52.0),
-        (-72.0, 84.0),
-        (72.0, 84.0),
-        (72.0, -52.0),
-        (8.0, -52.0),
+        (-12.0, -130.0),
+        (-165.0, -130.0),
+        (-165.0, 190.0),
+        (165.0, 190.0),
+        (165.0, -130.0),
+        (12.0, -130.0),
     ])
     return segs
 
@@ -79,11 +79,11 @@ FENCE_SEGMENTS = _build_fence_segments()
 
 
 def _build_fence_posts() -> list[tuple[float, float]]:
-    """Sample fence posts every ~4.8m along every fence segment without duplicates."""
+    """Sample fence posts every ~7.5m along every fence segment without duplicates."""
     posts: list[tuple[float, float]] = []
     for x1, z1, x2, z2 in FENCE_SEGMENTS:
         length = math.hypot(x2 - x1, z2 - z1)
-        steps = max(1, round(length / 4.8))
+        steps = max(1, round(length / 7.5))
         for si in range(steps + 1):
             t = si / steps
             px = x1 + (x2 - x1) * t
@@ -95,25 +95,31 @@ def _build_fence_posts() -> list[tuple[float, float]]:
 
 FENCE_POSTS = _build_fence_posts()
 
-# 12 lush storybook trees framing the super-far pasture and gigantic egg coop
+# 18 lush tall trees framing the ultra-far 330m x 320m pasture and gigantic egg coop
 FARM_TREES: list[dict[str, float]] = [
-    {"wx": -78.0, "wz": -18.0, "scale": 2.20, "seed": 1.0},
-    {"wx": -78.0, "wz": 42.0, "scale": 2.35, "seed": 2.3},
-    {"wx": -36.0, "wz": 89.5, "scale": 2.30, "seed": 3.7},
-    {"wx": 16.0, "wz": 89.5, "scale": 2.25, "seed": 4.9},
-    {"wx": 78.0, "wz": 36.0, "scale": 2.20, "seed": 5.4},
-    {"wx": 77.5, "wz": -20.0, "scale": 2.05, "seed": 6.8},
-    {"wx": -75.0, "wz": -56.5, "scale": 2.15, "seed": 7.5},
-    {"wx": 74.0, "wz": -56.5, "scale": 2.10, "seed": 8.2},
-    {"wx": -10.0, "wz": 90.5, "scale": 2.30, "seed": 9.1},
-    {"wx": -54.0, "wz": -24.0, "scale": 2.10, "seed": 10.4},
-    {"wx": 48.0, "wz": 48.0, "scale": 2.20, "seed": 11.7},
-    {"wx": 46.0, "wz": -22.0, "scale": 1.95, "seed": 12.9},
+    {"wx": -172.0, "wz": -50.0, "scale": 2.60, "seed": 1.0},
+    {"wx": -172.0, "wz": 65.0, "scale": 2.85, "seed": 2.3},
+    {"wx": -172.0, "wz": 150.0, "scale": 2.75, "seed": 3.1},
+    {"wx": -95.0, "wz": 197.0, "scale": 2.80, "seed": 3.7},
+    {"wx": 0.0, "wz": 198.0, "scale": 2.90, "seed": 4.2},
+    {"wx": 95.0, "wz": 197.0, "scale": 2.75, "seed": 4.9},
+    {"wx": 172.0, "wz": 115.0, "scale": 2.70, "seed": 5.4},
+    {"wx": 172.0, "wz": -15.0, "scale": 2.55, "seed": 6.8},
+    {"wx": -169.0, "wz": -136.0, "scale": 2.60, "seed": 7.5},
+    {"wx": 168.0, "wz": -136.0, "scale": 2.55, "seed": 8.2},
+    {"wx": -85.0, "wz": -65.0, "scale": 2.40, "seed": 9.1},
+    {"wx": -110.0, "wz": 18.0, "scale": 2.50, "seed": 10.4},
+    {"wx": 72.0, "wz": 78.0, "scale": 2.55, "seed": 11.7},
+    {"wx": 68.0, "wz": -45.0, "scale": 2.35, "seed": 12.9},
+    {"wx": 115.0, "wz": 140.0, "scale": 2.65, "seed": 13.5},
+    {"wx": -118.0, "wz": 132.0, "scale": 2.75, "seed": 14.8},
+    {"wx": 22.0, "wz": 122.0, "scale": 2.45, "seed": 15.6},
+    {"wx": 95.0, "wz": -95.0, "scale": 2.40, "seed": 16.3},
 ]
 
 
 def _build_meadow_flowers() -> list[dict[str, object]]:
-    """Generate deterministic colorful flowers scattered evenly across the huge meadow."""
+    """Generate deterministic colorful flowers scattered across the ultra-far meadow."""
     import random as _rand
     rng = _rand.Random(42069)
     palette = [
@@ -125,26 +131,26 @@ def _build_meadow_flowers() -> list[dict[str, object]]:
         (215, 155, 255),  # Lavender blossom
     ]
     flowers: list[dict[str, object]] = []
-    coop_x0 = CHICKEN_COOP["cx"] - CHICKEN_COOP["egg_rx"] - 3.0
-    coop_x1 = CHICKEN_COOP["cx"] + CHICKEN_COOP["egg_rx"] + 4.0
-    coop_z0 = CHICKEN_COOP["cz"] - CHICKEN_COOP["egg_rz"] - 14.0
-    coop_z1 = CHICKEN_COOP["cz"] + CHICKEN_COOP["egg_rz"] + 3.0
+    coop_x0 = CHICKEN_COOP["cx"] - CHICKEN_COOP["egg_rx"] - 4.0
+    coop_x1 = CHICKEN_COOP["cx"] + CHICKEN_COOP["egg_rx"] + 5.0
+    coop_z0 = CHICKEN_COOP["cz"] - CHICKEN_COOP["egg_rz"] - 20.0
+    coop_z1 = CHICKEN_COOP["cz"] + CHICKEN_COOP["egg_rz"] + 4.0
 
-    for idx in range(180):
-        wx = rng.uniform(-64.0, 64.0)
-        wz = rng.uniform(-44.0, 76.0)
+    for idx in range(300):
+        wx = rng.uniform(-150.0, 150.0)
+        wz = rng.uniform(-115.0, 175.0)
         if coop_x0 <= wx <= coop_x1 and coop_z0 <= wz <= coop_z1:
             continue
-        if math.hypot(wx, wz + 6.0) < 2.6:
+        if math.hypot(wx, wz + 6.0) < 3.0:
             continue
-        if any(math.hypot(wx - b["cx"], wz - b["cz"]) < 2.4 for b in HAY_BALES):
+        if any(math.hypot(wx - b["cx"], wz - b["cz"]) < 2.6 for b in HAY_BALES):
             continue
         flowers.append({
             "wx": wx,
             "wz": wz,
             "color": palette[idx % len(palette)],
-            "h": rng.uniform(0.36, 0.60),
-            "size": 0.16 + (idx % 3) * 0.04,
+            "h": rng.uniform(0.38, 0.64),
+            "size": 0.18 + (idx % 3) * 0.045,
             "phase": idx * 0.7,
         })
     return flowers
@@ -191,16 +197,16 @@ def resolve_world_props_collision(
                         wz = lz + ((wz - lz) / dl) * lr
 
     # 1b. Grand Wide Walkable Wooden Coop Stairs (grass -> doorway landing -> straight inside!)
-    stair_z_bot = cz - erz - 12.4
-    stair_z_top = cz - erz - 0.75  # Reaches full doorway height (10.6m) right BEFORE the egg doorway!
-    if cx - 2.45 <= wx <= cx + 2.45 and stair_z_bot <= wz <= cz - erz * 0.65:
+    stair_z_bot = cz - erz - 18.0
+    stair_z_top = cz - erz - 0.85  # Reaches full doorway height (14.5m) right BEFORE the egg doorway!
+    if cx - 3.30 <= wx <= cx + 3.30 and stair_z_bot <= wz <= cz - erz * 0.65:
         t_st = max(0.0, min(1.0, (wz - stair_z_bot) / max(0.1, stair_z_top - stair_z_bot)))
         stair_y = t_st * door_y
         if jump_y >= stair_y - 0.95:
             support_y = max(support_y, stair_y)
 
-    # 1c. Gigantic Egg Shell + Open Front Doorway + Walkable Cozy Interior Room Floor (y = door_y)!
-    in_door_corridor = (abs(wx - cx) <= 2.30) and (wz < cz) and (door_y - 1.45 <= jump_y <= door_y + 6.5)
+    # 1c. Giant Egg Shell + Open Front Doorway + Huge Walkable Interior Egg Hall (y = door_y)!
+    in_door_corridor = (abs(wx - cx) <= 3.30) and (wz < cz) and (door_y - 1.55 <= jump_y <= door_y + 9.5)
     dx_e = (wx - cx) / max(0.1, erx + chick_radius)
     dz_e = (wz - cz) / max(0.1, erz + chick_radius)
     ell_d = math.hypot(dx_e, dz_e)
@@ -221,7 +227,7 @@ def resolve_world_props_collision(
             # Inside the giant egg coop -> stand on the cozy wooden interior floor!
             support_y = max(support_y, door_y)
             # Keep chick gently inside curved inner egg walls unless leaving through open doorway!
-            wall_r = 0.84
+            wall_r = 0.88
             if ell_in > wall_r and not in_door_corridor:
                 wx = cx + (dx_in / ell_in) * wall_r * (erx - 0.55)
                 wz = cz + (dz_in / ell_in) * wall_r * (erz - 0.55)
@@ -428,14 +434,14 @@ def collect_world_prop_draw_items(
     # 1. Giant Carmela Egg-on-Legs Coop Sub-Parts (egg tower, front ladder + perch, Pédro's barrel)
     _cx, _cz = CHICKEN_COOP["cx"], CHICKEN_COOP["cz"]
     _erz = CHICKEN_COOP["egg_rz"]
-    c_coop = to_cam(_cx, current_ground_y + 14.0, _cz)
-    c_coop_back = to_cam(_cx, current_ground_y + 14.0, _cz + _erz * 0.85)
+    c_coop = to_cam(_cx, current_ground_y + 20.0, _cz)
+    c_coop_back = to_cam(_cx, current_ground_y + 20.0, _cz + _erz * 0.85)
     # When inside or right at the coop, push sort depth toward the back so chicks inside render clearly in front!
-    coop_depth = max(c_coop[2], c_coop_back[2]) if c_coop[2] < 14.5 else c_coop[2]
-    if c_coop[2] > -36.0:
+    coop_depth = max(c_coop[2], c_coop_back[2]) if c_coop[2] < 24.5 else c_coop[2]
+    if c_coop[2] > -58.0:
         items.append((coop_depth, "carmela_coop", CHICKEN_COOP))
-    c_ladder = to_cam(_cx, current_ground_y + CHICKEN_COOP["door_y"] * 0.5, _cz - _erz - 6.0)
-    if c_ladder[2] > -16.0:
+    c_ladder = to_cam(_cx, current_ground_y + CHICKEN_COOP["door_y"] * 0.5, _cz - _erz - 9.0)
+    if c_ladder[2] > -24.0:
         items.append((c_ladder[2], "coop_ladder", CHICKEN_COOP))
     c_barrel = to_cam(CHICKEN_COOP["barrel_cx"], current_ground_y + 1.25, CHICKEN_COOP["barrel_cz"])
     if c_barrel[2] > -3.5:
@@ -450,7 +456,7 @@ def collect_world_prop_draw_items(
     # 3. Fence spans (each segment split into ~3.2m bays for accurate per-bay depth sorting!)
     for x1, z1, x2, z2 in FENCE_SEGMENTS:
         length = math.hypot(x2 - x1, z2 - z1)
-        bays = max(1, round(length / 4.8))
+        bays = max(1, round(length / 7.5))
         for bi in range(bays):
             t0 = bi / bays
             t1 = (bi + 1) / bays
@@ -557,44 +563,75 @@ def draw_world_prop_item(
                 add_poly([p11, p01, q01, q11], (104, 62, 28))
                 add_poly([p01, p00, q00, q01], (116, 70, 32))
 
-        # --- B. Cozy Interior Egg Coop Floor + Straw Nests + Eggs + Roosting Perches (y = door_y!) ---
-        # Draw walkable wooden interior floor (visible both through open door and when standing inside!)
+        # --- B. Giant Interior Egg Hall: Planked Wooden Floor, Straw Nests, Central Straw Rug, Galleries & Lantern! ---
         y_fl = yg + door_y - 0.04
         n_seg = 12
         fl_pts = []
         for i in range(n_seg):
             ang = (i / n_seg) * math.tau
-            fl_pts.append(to_cam(cx + math.cos(ang) * erx * 0.90, y_fl, cz + math.sin(ang) * erz * 0.90))
-        add_poly(fl_pts, (172, 122, 68), (94, 58, 28), bias=+0.05)
+            fl_pts.append(to_cam(cx + math.cos(ang) * erx * 0.92, y_fl, cz + math.sin(ang) * erz * 0.92))
+        add_poly(fl_pts, (172, 122, 68), (94, 58, 28), bias=+0.08)
 
-        # Straw-lined hen nesting boxes along left & right interior walls + white eggs!
+        # Alternating warm oak plank strips across the 40m-wide giant floor for crisp scale perception
+        for pi in range(-5, 6, 2):
+            px_s = cx + pi * (erx * 0.145)
+            pw_s = erx * 0.135
+            pz_span = erz * 0.78 * math.sqrt(max(0.15, 1.0 - (pi * 0.145) ** 2))
+            add_poly([
+                to_cam(px_s - pw_s * 0.48, y_fl + 0.02, cz - pz_span),
+                to_cam(px_s + pw_s * 0.48, y_fl + 0.02, cz - pz_span),
+                to_cam(px_s + pw_s * 0.48, y_fl + 0.02, cz + pz_span),
+                to_cam(px_s - pw_s * 0.48, y_fl + 0.02, cz + pz_span),
+            ], (158, 108, 56), (112, 70, 34), bias=+0.06)
+
+        # Cozy central golden straw carpet circle in the middle of the giant egg hall
+        rug_pts = []
+        for i in range(10):
+            ang = (i / 10) * math.tau
+            rug_pts.append(to_cam(cx + math.cos(ang) * 5.2, y_fl + 0.04, cz + math.sin(ang) * 5.0))
+        add_poly(rug_pts, (232, 190, 68), (168, 126, 36), bias=+0.04)
+
+        # Big cozy straw-lined hen nesting boxes along left & right walls + cream eggs!
         for side_x in (-1.0, 1.0):
-            nx_box = cx + side_x * (erx * 0.56)
-            for nz_off in (-3.2, 0.0, 3.2):
+            nx_box = cx + side_x * (erx * 0.62)
+            for nz_off in (-7.2, -2.4, 2.4, 7.2):
                 nz_box = cz + nz_off
-                # Wooden nest box rim + golden straw bed
                 add_poly([
-                    to_cam(nx_box - 1.25, y_fl + 0.04, nz_box - 1.05),
-                    to_cam(nx_box + 1.25, y_fl + 0.04, nz_box - 1.05),
-                    to_cam(nx_box + 1.25, y_fl + 0.72, nz_box + 1.05),
-                    to_cam(nx_box - 1.25, y_fl + 0.72, nz_box + 1.05),
+                    to_cam(nx_box - 2.1, y_fl + 0.05, nz_box - 1.6),
+                    to_cam(nx_box + 2.1, y_fl + 0.05, nz_box - 1.6),
+                    to_cam(nx_box + 2.1, y_fl + 1.05, nz_box + 1.6),
+                    to_cam(nx_box - 2.1, y_fl + 1.05, nz_box + 1.6),
                 ], (238, 198, 72), (168, 124, 34), bias=-0.04)
-                # Little white/cream egg nestled in the straw!
                 add_poly([
-                    to_cam(nx_box - 0.30, y_fl + 0.48, nz_box - 0.24),
-                    to_cam(nx_box + 0.30, y_fl + 0.48, nz_box - 0.24),
-                    to_cam(nx_box + 0.22, y_fl + 0.96, nz_box + 0.22),
-                    to_cam(nx_box - 0.22, y_fl + 0.96, nz_box + 0.22),
+                    to_cam(nx_box - 0.50, y_fl + 0.72, nz_box - 0.38),
+                    to_cam(nx_box + 0.50, y_fl + 0.72, nz_box - 0.38),
+                    to_cam(nx_box + 0.36, y_fl + 1.48, nz_box + 0.34),
+                    to_cam(nx_box - 0.36, y_fl + 1.48, nz_box + 0.34),
                 ], (252, 248, 236), (190, 178, 152), bias=-0.08)
 
-        # Back-wall wooden roosting perch bars inside the coop
-        for py_off in (1.6, 3.4, 5.2):
+        # Tall multi-tier wooden roosting galleries along the back curved wall
+        for py_off in (2.4, 5.2, 8.0, 11.0):
             add_poly([
-                to_cam(cx - 4.4, y_fl + py_off, cz + erz * 0.58),
-                to_cam(cx + 4.4, y_fl + py_off, cz + erz * 0.58),
-                to_cam(cx + 4.4, y_fl + py_off + 0.28, cz + erz * 0.58),
-                to_cam(cx - 4.4, y_fl + py_off + 0.28, cz + erz * 0.58),
+                to_cam(cx - 8.5, y_fl + py_off, cz + erz * 0.64),
+                to_cam(cx + 8.5, y_fl + py_off, cz + erz * 0.64),
+                to_cam(cx + 8.5, y_fl + py_off + 0.45, cz + erz * 0.64),
+                to_cam(cx - 8.5, y_fl + py_off + 0.45, cz + erz * 0.64),
             ], (144, 92, 44), (82, 48, 20), bias=-0.05)
+
+        # Warm glowing golden coop lantern hanging high inside the vaulted egg ceiling!
+        lan_y = y_fl + 20.0
+        add_poly([
+            to_cam(cx - 0.14, lan_y + 1.4, cz),
+            to_cam(cx + 0.14, lan_y + 1.4, cz),
+            to_cam(cx + 0.14, yg + by1 - 0.5, cz),
+            to_cam(cx - 0.14, yg + by1 - 0.5, cz),
+        ], (72, 64, 56), None, bias=-0.03)
+        add_poly([
+            to_cam(cx - 1.15, lan_y - 1.2, cz - 1.15),
+            to_cam(cx + 1.15, lan_y - 1.2, cz - 1.15),
+            to_cam(cx + 0.95, lan_y + 1.4, cz + 0.95),
+            to_cam(cx - 0.95, lan_y + 1.4, cz + 0.95),
+        ], (255, 224, 110), (188, 128, 36), bias=-0.06)
 
         # --- C. Giant 12-Sided Egg Shell (EXTERIOR outward panels + INTERIOR inward panels!) ---
         # Front doorway is centered at angle 3*pi/2 (-Z, between segment 8 and segment 9 in 12 segments -> i==8,9)!
@@ -629,7 +666,7 @@ def draw_world_prop_item(
                 a1 = ((i + 1) / n_seg) * math.tau
                 if ri in (0, 1) and i in (8, 9):
                     # Keep tall open doorway across upper belly ring 0 (from y_door up) and ring 1!
-                    for frac_a, frac_b in ([(0.0, 0.42)] if i == 8 else [(0.58, 1.0)]):
+                    for frac_a, frac_b in ([(0.0, 0.36)] if i == 8 else [(0.64, 1.0)]):
                         sa0 = a0 + frac_a * (a1 - a0)
                         sa1 = a0 + frac_b * (a1 - a0)
                         p_b0 = to_cam(cx + math.cos(sa0) * erx * s0, y0_r, cz + math.sin(sa0) * erz * s0)
@@ -698,37 +735,37 @@ def draw_world_prop_item(
 
         # Solid wooden doorstep landing bridging stair top cleanly into the open doorway
         _draw_box(
-            screen, to_cam, cx, yg + door_y - 0.22, z_front - 0.55, 4.60, 0.34, 2.20,
+            screen, to_cam, cx, yg + door_y - 0.26, z_front - 0.75, 6.60, 0.42, 3.20,
             colors={"top": (184, 134, 74), "front": (148, 100, 50), "right": (140, 92, 46), "left": (132, 86, 42), "back": (122, 80, 38)},
             near_z=near_z, hw=hw, hh=hh, focal=focal, win_w=win_w, win_h=win_h,
             edge_col=(88, 54, 24),
         )
 
     elif kind == "coop_ladder":
-        # Grand 28-step wooden chicken coop STAIRS + handrails climbing smoothly from grass into the 10.6m doorway!
+        # Monumental 36-step 6.0m-wide wooden chicken coop STAIRS + handrails climbing smoothly up to 14.5m doorway!
         coop = payload  # type: ignore[assignment]
         cx, cz = coop["cx"], coop["cz"]
         erz = coop["egg_rz"]
         door_y = coop["door_y"]
         yg = current_ground_y
         z_top = cz - erz * 0.94
-        z_bot = cz - erz - 12.4
+        z_bot = cz - erz - 18.0
         y_top = yg + door_y - 0.05
         y_bot = yg + 0.02
-        n_steps = 28
+        n_steps = 36
         step_d = (z_top - z_bot) / n_steps
         step_h = (y_top - y_bot) / n_steps
         for si in range(n_steps):
             sz_c = z_bot + (si + 0.5) * step_d
             sy_c = y_bot + si * step_h
             _draw_box(
-                screen, to_cam, cx, sy_c, sz_c, 4.20, step_h + 0.12, step_d * 1.18,
+                screen, to_cam, cx, sy_c, sz_c, 6.00, step_h + 0.14, step_d * 1.18,
                 colors={"top": (188, 138, 78), "front": (152, 104, 52), "right": (138, 92, 46), "left": (132, 86, 42), "back": (120, 78, 38)},
                 near_z=near_z, hw=hw, hh=hh, focal=focal, win_w=win_w, win_h=win_h,
                 edge_col=(92, 56, 26),
             )
         # Side wooden stair stringer rails
-        for rx_off in (-2.12, 2.12):
+        for rx_off in (-3.02, 3.02):
             p_b = to_cam(cx + rx_off, y_bot + 0.65, z_bot)
             p_t = to_cam(cx + rx_off, y_top + 0.65, z_top)
             if p_b[2] > near_z and p_t[2] > near_z:
