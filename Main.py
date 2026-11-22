@@ -2340,15 +2340,12 @@ def main() -> None:
                 current_floor = max(0.0, landing_support_y)
                 if is_buried_in_crater:
                     jump_offset_y = -0.58 * get_local_world_scale(selected_character)
-                elif jump_offset_y > 0.0:
-                    if landing_support_y > 0.0:
-                        # Smoothly stick to their head/back
-                        jump_offset_y = landing_support_y
-                    elif jump_offset_y > 0.12:
-                        jump_state = "airborne"
-                        jump_velocity_y = 0.0
-                    else:
-                        jump_offset_y = 0.0
+                elif landing_support_y > 0.0 and landing_support_y <= max(0.0, jump_offset_y) + 1.15:
+                    # Smoothly step onto / climb coop stairs, low hay steps, barrel, or chick tops!
+                    jump_offset_y = landing_support_y
+                elif jump_offset_y > 0.12:
+                    jump_state = "airborne"
+                    jump_velocity_y = 0.0
                 else:
                     jump_offset_y = 0.0
                 jump_amount = 0.0
