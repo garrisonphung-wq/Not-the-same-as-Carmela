@@ -25,39 +25,39 @@ import pygame
 # shuttered windows (fenêtre & volets), front veranda porch, exterior rung ladder (échelle),
 # straw nests, and Pédro the Cormorant's wooden barrel (tonneau) at its foot!
 CHICKEN_COOP = {
-    "cx": -17.5,
-    "cz": 18.0,
-    "egg_rx": 8.4,   # Colossal wooden egg radius X (~16.8m wide!)
-    "egg_rz": 8.0,   # Colossal wooden egg radius Z (~16.0m deep!)
-    "belly_y0": 5.6, # Egg bottom starts 5.6m above grass on 4 tall wooden stilt legs!
-    "belly_y1": 23.8,# Egg top meets terracotta pitched roof cap
-    "roof_h": 30.5,  # Colossal terracotta-tiled gable roof peak (~13x chick height!)
-    "door_y": 7.2,   # Front arched chicken doorway & walkable interior coop floor height
-    "barrel_cx": -6.8,
-    "barrel_cz": 9.8,
-    "barrel_r": 1.55,
+    "cx": -24.0,
+    "cz": 26.0,
+    "egg_rx": 12.6,  # Gigantic wooden egg radius X (~25.2m wide!)
+    "egg_rz": 12.0,  # Gigantic wooden egg radius Z (~24.0m deep!)
+    "belly_y0": 8.4, # Egg bottom starts 8.4m above grass on 4 towering wooden stilt legs!
+    "belly_y1": 36.0,# Egg top meets terracotta pitched roof cap
+    "roof_h": 46.0,  # Towering 46m terracotta-tiled gable roof peak (~19x chick height!)
+    "door_y": 10.6,  # Front arched chicken doorway & walkable interior coop floor height
+    "barrel_cx": -8.2,
+    "barrel_cz": 14.5,
+    "barrel_r": 1.65,
     "barrel_h": 1.32,# Easy to hop right onto with any tap of J (MIN_JUMP_HEIGHT=1.40)!
 }
 
 # (cx, cz, w, d, base_y, h)
 HAY_BALES: list[dict[str, float]] = [
-    # Cozy stacked hay bales right beside Pédro's barrel & the colossal Carmela coop (with walkable 0.55m step!)
-    {"cx": -3.4, "cz": 12.4, "w": 2.1, "d": 1.7, "base_y": 0.0, "h": 0.55},
-    {"cx": -1.5, "cz": 13.5, "w": 2.6, "d": 1.9, "base_y": 0.0, "h": 1.05},
-    {"cx": -1.6, "cz": 16.2, "w": 2.6, "d": 1.9, "base_y": 0.0, "h": 1.05},
-    {"cx": -1.5, "cz": 14.8, "w": 2.4, "d": 1.8, "base_y": 1.05, "h": 0.95},
+    # Cozy stacked hay bales right beside Pédro's barrel & the gigantic Carmela coop (with walkable 0.55m step!)
+    {"cx": -4.2, "cz": 16.5, "w": 2.2, "d": 1.8, "base_y": 0.0, "h": 0.55},
+    {"cx": -2.2, "cz": 17.6, "w": 2.7, "d": 2.0, "base_y": 0.0, "h": 1.05},
+    {"cx": -2.3, "cz": 20.4, "w": 2.7, "d": 2.0, "base_y": 0.0, "h": 1.05},
+    {"cx": -2.2, "cz": 19.0, "w": 2.5, "d": 1.9, "base_y": 1.05, "h": 0.95},
     # Sunny meadow hay stack on the right side (with walkable 0.55m step!)
-    {"cx": 11.4, "cz": 9.2, "w": 2.1, "d": 1.7, "base_y": 0.0, "h": 0.55},
-    {"cx": 12.6, "cz": 10.5, "w": 2.6, "d": 1.9, "base_y": 0.0, "h": 1.05},
-    {"cx": 15.0, "cz": 11.4, "w": 2.4, "d": 1.8, "base_y": 0.0, "h": 1.05},
-    {"cx": 13.7, "cz": 10.9, "w": 2.3, "d": 1.7, "base_y": 1.05, "h": 0.95},
-    # Single sunny bale near front-left fence
+    {"cx": 18.4, "cz": 13.2, "w": 2.2, "d": 1.8, "base_y": 0.0, "h": 0.55},
+    {"cx": 19.8, "cz": 14.6, "w": 2.7, "d": 2.0, "base_y": 0.0, "h": 1.05},
+    {"cx": 22.3, "cz": 15.6, "w": 2.5, "d": 1.9, "base_y": 0.0, "h": 1.05},
+    {"cx": 21.0, "cz": 15.1, "w": 2.4, "d": 1.8, "base_y": 1.05, "h": 0.95},
+    # Single sunny bale near front-left meadow
     {"cx": -8.8, "cz": -5.2, "w": 2.5, "d": 1.8, "base_y": 0.0, "h": 1.02},
 ]
 
 
 def _build_fence_segments() -> list[tuple[float, float, float, float]]:
-    """Build wooden paddock fence lines leaving wide open front entrance."""
+    """Build super-wide wooden paddock fence perimeter (144m x 136m) with wide south entrance."""
     segs: list[tuple[float, float, float, float]] = []
 
     def add_chain(pts: list[tuple[float, float]]) -> None:
@@ -65,12 +65,12 @@ def _build_fence_segments() -> list[tuple[float, float, float, float]]:
             segs.append((pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]))
 
     add_chain([
-        (-5.5, -12.0),
-        (-31.5, -12.0),
-        (-31.5, 31.5),
-        (23.5, 31.5),
-        (23.5, -12.0),
-        (6.0, -12.0),
+        (-8.0, -52.0),
+        (-72.0, -52.0),
+        (-72.0, 84.0),
+        (72.0, 84.0),
+        (72.0, -52.0),
+        (8.0, -52.0),
     ])
     return segs
 
@@ -79,11 +79,11 @@ FENCE_SEGMENTS = _build_fence_segments()
 
 
 def _build_fence_posts() -> list[tuple[float, float]]:
-    """Sample fence posts every ~3.4m along every fence segment without duplicates."""
+    """Sample fence posts every ~4.8m along every fence segment without duplicates."""
     posts: list[tuple[float, float]] = []
     for x1, z1, x2, z2 in FENCE_SEGMENTS:
         length = math.hypot(x2 - x1, z2 - z1)
-        steps = max(1, round(length / 3.4))
+        steps = max(1, round(length / 4.8))
         for si in range(steps + 1):
             t = si / steps
             px = x1 + (x2 - x1) * t
@@ -95,22 +95,25 @@ def _build_fence_posts() -> list[tuple[float, float]]:
 
 FENCE_POSTS = _build_fence_posts()
 
-# 9 lush storybook trees framing the giant coop and sunny meadow
+# 12 lush storybook trees framing the super-far pasture and gigantic egg coop
 FARM_TREES: list[dict[str, float]] = [
-    {"wx": -34.5, "wz": 4.0, "scale": 1.90, "seed": 1.0},
-    {"wx": -34.5, "wz": 29.5, "scale": 2.10, "seed": 2.3},
-    {"wx": -6.5, "wz": 34.5, "scale": 1.95, "seed": 3.7},
-    {"wx": 12.5, "wz": 34.5, "scale": 2.00, "seed": 4.9},
-    {"wx": 26.5, "wz": 16.0, "scale": 1.85, "seed": 5.4},
-    {"wx": 26.0, "wz": -3.5, "scale": 1.70, "seed": 6.8},
-    {"wx": -33.0, "wz": -14.5, "scale": 1.80, "seed": 7.5},
-    {"wx": 18.5, "wz": -15.5, "scale": 1.70, "seed": 8.2},
-    {"wx": 3.0, "wz": 35.5, "scale": 2.05, "seed": 9.1},
+    {"wx": -78.0, "wz": -18.0, "scale": 2.20, "seed": 1.0},
+    {"wx": -78.0, "wz": 42.0, "scale": 2.35, "seed": 2.3},
+    {"wx": -36.0, "wz": 89.5, "scale": 2.30, "seed": 3.7},
+    {"wx": 16.0, "wz": 89.5, "scale": 2.25, "seed": 4.9},
+    {"wx": 78.0, "wz": 36.0, "scale": 2.20, "seed": 5.4},
+    {"wx": 77.5, "wz": -20.0, "scale": 2.05, "seed": 6.8},
+    {"wx": -75.0, "wz": -56.5, "scale": 2.15, "seed": 7.5},
+    {"wx": 74.0, "wz": -56.5, "scale": 2.10, "seed": 8.2},
+    {"wx": -10.0, "wz": 90.5, "scale": 2.30, "seed": 9.1},
+    {"wx": -54.0, "wz": -24.0, "scale": 2.10, "seed": 10.4},
+    {"wx": 48.0, "wz": 48.0, "scale": 2.20, "seed": 11.7},
+    {"wx": 46.0, "wz": -22.0, "scale": 1.95, "seed": 12.9},
 ]
 
 
 def _build_meadow_flowers() -> list[dict[str, object]]:
-    """Generate deterministic colorful flowers scattered evenly across the meadow."""
+    """Generate deterministic colorful flowers scattered evenly across the huge meadow."""
     import random as _rand
     rng = _rand.Random(42069)
     palette = [
@@ -122,26 +125,26 @@ def _build_meadow_flowers() -> list[dict[str, object]]:
         (215, 155, 255),  # Lavender blossom
     ]
     flowers: list[dict[str, object]] = []
-    coop_x0 = CHICKEN_COOP["cx"] - CHICKEN_COOP["egg_rx"] - 2.0
-    coop_x1 = CHICKEN_COOP["cx"] + CHICKEN_COOP["egg_rx"] + 3.5
-    coop_z0 = CHICKEN_COOP["cz"] - CHICKEN_COOP["egg_rz"] - 9.0
-    coop_z1 = CHICKEN_COOP["cz"] + CHICKEN_COOP["egg_rz"] + 2.0
+    coop_x0 = CHICKEN_COOP["cx"] - CHICKEN_COOP["egg_rx"] - 3.0
+    coop_x1 = CHICKEN_COOP["cx"] + CHICKEN_COOP["egg_rx"] + 4.0
+    coop_z0 = CHICKEN_COOP["cz"] - CHICKEN_COOP["egg_rz"] - 14.0
+    coop_z1 = CHICKEN_COOP["cz"] + CHICKEN_COOP["egg_rz"] + 3.0
 
-    for idx in range(95):
-        wx = rng.uniform(-23.5, 23.5)
-        wz = rng.uniform(-14.5, 25.5)
+    for idx in range(180):
+        wx = rng.uniform(-64.0, 64.0)
+        wz = rng.uniform(-44.0, 76.0)
         if coop_x0 <= wx <= coop_x1 and coop_z0 <= wz <= coop_z1:
             continue
-        if math.hypot(wx, wz + 6.0) < 2.2:
+        if math.hypot(wx, wz + 6.0) < 2.6:
             continue
-        if any(math.hypot(wx - b["cx"], wz - b["cz"]) < 2.0 for b in HAY_BALES):
+        if any(math.hypot(wx - b["cx"], wz - b["cz"]) < 2.4 for b in HAY_BALES):
             continue
         flowers.append({
             "wx": wx,
             "wz": wz,
             "color": palette[idx % len(palette)],
-            "h": rng.uniform(0.34, 0.56),
-            "size": 0.15 + (idx % 3) * 0.035,
+            "h": rng.uniform(0.36, 0.60),
+            "size": 0.16 + (idx % 3) * 0.04,
             "phase": idx * 0.7,
         })
     return flowers
@@ -188,16 +191,16 @@ def resolve_world_props_collision(
                         wz = lz + ((wz - lz) / dl) * lr
 
     # 1b. Grand Wide Walkable Wooden Coop Stairs (grass -> doorway landing -> straight inside!)
-    stair_z_bot = cz - erz - 8.4
-    stair_z_top = cz - erz - 0.65  # Reaches full doorway height (7.2m) right BEFORE the egg doorway!
-    if cx - 1.95 <= wx <= cx + 1.95 and stair_z_bot <= wz <= cz - erz * 0.65:
+    stair_z_bot = cz - erz - 12.4
+    stair_z_top = cz - erz - 0.75  # Reaches full doorway height (10.6m) right BEFORE the egg doorway!
+    if cx - 2.45 <= wx <= cx + 2.45 and stair_z_bot <= wz <= cz - erz * 0.65:
         t_st = max(0.0, min(1.0, (wz - stair_z_bot) / max(0.1, stair_z_top - stair_z_bot)))
         stair_y = t_st * door_y
         if jump_y >= stair_y - 0.95:
             support_y = max(support_y, stair_y)
 
-    # 1c. Colossal Egg Shell + Open Front Doorway + Walkable Cozy Interior Room Floor (y = door_y)!
-    in_door_corridor = (abs(wx - cx) <= 1.75) and (wz < cz) and (door_y - 1.35 <= jump_y <= door_y + 4.8)
+    # 1c. Gigantic Egg Shell + Open Front Doorway + Walkable Cozy Interior Room Floor (y = door_y)!
+    in_door_corridor = (abs(wx - cx) <= 2.30) and (wz < cz) and (door_y - 1.45 <= jump_y <= door_y + 6.5)
     dx_e = (wx - cx) / max(0.1, erx + chick_radius)
     dz_e = (wz - cz) / max(0.1, erz + chick_radius)
     ell_d = math.hypot(dx_e, dz_e)
@@ -425,14 +428,14 @@ def collect_world_prop_draw_items(
     # 1. Giant Carmela Egg-on-Legs Coop Sub-Parts (egg tower, front ladder + perch, Pédro's barrel)
     _cx, _cz = CHICKEN_COOP["cx"], CHICKEN_COOP["cz"]
     _erz = CHICKEN_COOP["egg_rz"]
-    c_coop = to_cam(_cx, current_ground_y + 10.0, _cz)
-    c_coop_back = to_cam(_cx, current_ground_y + 10.0, _cz + _erz * 0.85)
+    c_coop = to_cam(_cx, current_ground_y + 14.0, _cz)
+    c_coop_back = to_cam(_cx, current_ground_y + 14.0, _cz + _erz * 0.85)
     # When inside or right at the coop, push sort depth toward the back so chicks inside render clearly in front!
-    coop_depth = max(c_coop[2], c_coop_back[2]) if c_coop[2] < 9.5 else c_coop[2]
-    if c_coop[2] > -22.0:
+    coop_depth = max(c_coop[2], c_coop_back[2]) if c_coop[2] < 14.5 else c_coop[2]
+    if c_coop[2] > -36.0:
         items.append((coop_depth, "carmela_coop", CHICKEN_COOP))
-    c_ladder = to_cam(_cx, current_ground_y + CHICKEN_COOP["door_y"] * 0.5, _cz - _erz - 4.0)
-    if c_ladder[2] > -12.0:
+    c_ladder = to_cam(_cx, current_ground_y + CHICKEN_COOP["door_y"] * 0.5, _cz - _erz - 6.0)
+    if c_ladder[2] > -16.0:
         items.append((c_ladder[2], "coop_ladder", CHICKEN_COOP))
     c_barrel = to_cam(CHICKEN_COOP["barrel_cx"], current_ground_y + 1.25, CHICKEN_COOP["barrel_cz"])
     if c_barrel[2] > -3.5:
@@ -447,7 +450,7 @@ def collect_world_prop_draw_items(
     # 3. Fence spans (each segment split into ~3.2m bays for accurate per-bay depth sorting!)
     for x1, z1, x2, z2 in FENCE_SEGMENTS:
         length = math.hypot(x2 - x1, z2 - z1)
-        bays = max(1, round(length / 3.2))
+        bays = max(1, round(length / 4.8))
         for bi in range(bays):
             t0 = bi / bays
             t1 = (bi + 1) / bays
@@ -567,30 +570,30 @@ def draw_world_prop_item(
         # Straw-lined hen nesting boxes along left & right interior walls + white eggs!
         for side_x in (-1.0, 1.0):
             nx_box = cx + side_x * (erx * 0.56)
-            for nz_off in (-1.3, 1.1):
+            for nz_off in (-3.2, 0.0, 3.2):
                 nz_box = cz + nz_off
                 # Wooden nest box rim + golden straw bed
                 add_poly([
-                    to_cam(nx_box - 0.85, y_fl + 0.04, nz_box - 0.75),
-                    to_cam(nx_box + 0.85, y_fl + 0.04, nz_box - 0.75),
-                    to_cam(nx_box + 0.85, y_fl + 0.55, nz_box + 0.75),
-                    to_cam(nx_box - 0.85, y_fl + 0.55, nz_box + 0.75),
+                    to_cam(nx_box - 1.25, y_fl + 0.04, nz_box - 1.05),
+                    to_cam(nx_box + 1.25, y_fl + 0.04, nz_box - 1.05),
+                    to_cam(nx_box + 1.25, y_fl + 0.72, nz_box + 1.05),
+                    to_cam(nx_box - 1.25, y_fl + 0.72, nz_box + 1.05),
                 ], (238, 198, 72), (168, 124, 34), bias=-0.04)
                 # Little white/cream egg nestled in the straw!
                 add_poly([
-                    to_cam(nx_box - 0.22, y_fl + 0.36, nz_box - 0.18),
-                    to_cam(nx_box + 0.22, y_fl + 0.36, nz_box - 0.18),
-                    to_cam(nx_box + 0.16, y_fl + 0.72, nz_box + 0.16),
-                    to_cam(nx_box - 0.16, y_fl + 0.72, nz_box + 0.16),
+                    to_cam(nx_box - 0.30, y_fl + 0.48, nz_box - 0.24),
+                    to_cam(nx_box + 0.30, y_fl + 0.48, nz_box - 0.24),
+                    to_cam(nx_box + 0.22, y_fl + 0.96, nz_box + 0.22),
+                    to_cam(nx_box - 0.22, y_fl + 0.96, nz_box + 0.22),
                 ], (252, 248, 236), (190, 178, 152), bias=-0.08)
 
         # Back-wall wooden roosting perch bars inside the coop
-        for py_off in (1.2, 2.5):
+        for py_off in (1.6, 3.4, 5.2):
             add_poly([
-                to_cam(cx - 2.6, y_fl + py_off, cz + erz * 0.56),
-                to_cam(cx + 2.6, y_fl + py_off, cz + erz * 0.56),
-                to_cam(cx + 2.6, y_fl + py_off + 0.22, cz + erz * 0.56),
-                to_cam(cx - 2.6, y_fl + py_off + 0.22, cz + erz * 0.56),
+                to_cam(cx - 4.4, y_fl + py_off, cz + erz * 0.58),
+                to_cam(cx + 4.4, y_fl + py_off, cz + erz * 0.58),
+                to_cam(cx + 4.4, y_fl + py_off + 0.28, cz + erz * 0.58),
+                to_cam(cx - 4.4, y_fl + py_off + 0.28, cz + erz * 0.58),
             ], (144, 92, 44), (82, 48, 20), bias=-0.05)
 
         # --- C. Giant 12-Sided Egg Shell (EXTERIOR outward panels + INTERIOR inward panels!) ---
@@ -695,37 +698,37 @@ def draw_world_prop_item(
 
         # Solid wooden doorstep landing bridging stair top cleanly into the open doorway
         _draw_box(
-            screen, to_cam, cx, yg + door_y - 0.18, z_front - 0.45, 3.60, 0.28, 1.65,
+            screen, to_cam, cx, yg + door_y - 0.22, z_front - 0.55, 4.60, 0.34, 2.20,
             colors={"top": (184, 134, 74), "front": (148, 100, 50), "right": (140, 92, 46), "left": (132, 86, 42), "back": (122, 80, 38)},
             near_z=near_z, hw=hw, hh=hh, focal=focal, win_w=win_w, win_h=win_h,
             edge_col=(88, 54, 24),
         )
 
     elif kind == "coop_ladder":
-        # Wide solid wooden chicken coop STAIRS (14 flat wooden steps + handrails!) climbing from grass into coop!
+        # Grand 28-step wooden chicken coop STAIRS + handrails climbing smoothly from grass into the 10.6m doorway!
         coop = payload  # type: ignore[assignment]
         cx, cz = coop["cx"], coop["cz"]
         erz = coop["egg_rz"]
         door_y = coop["door_y"]
         yg = current_ground_y
         z_top = cz - erz * 0.94
-        z_bot = cz - erz - 8.4
+        z_bot = cz - erz - 12.4
         y_top = yg + door_y - 0.05
         y_bot = yg + 0.02
-        n_steps = 20
+        n_steps = 28
         step_d = (z_top - z_bot) / n_steps
         step_h = (y_top - y_bot) / n_steps
         for si in range(n_steps):
             sz_c = z_bot + (si + 0.5) * step_d
             sy_c = y_bot + si * step_h
             _draw_box(
-                screen, to_cam, cx, sy_c, sz_c, 3.30, step_h + 0.10, step_d * 1.16,
+                screen, to_cam, cx, sy_c, sz_c, 4.20, step_h + 0.12, step_d * 1.18,
                 colors={"top": (188, 138, 78), "front": (152, 104, 52), "right": (138, 92, 46), "left": (132, 86, 42), "back": (120, 78, 38)},
                 near_z=near_z, hw=hw, hh=hh, focal=focal, win_w=win_w, win_h=win_h,
                 edge_col=(92, 56, 26),
             )
         # Side wooden stair stringer rails
-        for rx_off in (-1.68, 1.68):
+        for rx_off in (-2.12, 2.12):
             p_b = to_cam(cx + rx_off, y_bot + 0.65, z_bot)
             p_t = to_cam(cx + rx_off, y_top + 0.65, z_top)
             if p_b[2] > near_z and p_t[2] > near_z:
