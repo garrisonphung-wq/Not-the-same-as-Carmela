@@ -560,21 +560,18 @@ def collect_world_prop_draw_items(
     """Return distance-tagged prop items to interleave cleanly in PASS 2 with chicks."""
     items: list[tuple[float, str, object]] = []
 
-    # 1. Chicken Coop Sub-Parts (depth-sorted independently so ramp/nest/wire-run/cabin never z-fight from any angle!)
+    # 1. Carmela Storybook Coop (Poulailler) + Exterior Ladder + Pédro's Barrel
     _cx, _cz = CHICKEN_COOP["cx"], CHICKEN_COOP["cz"]
-    _hx, _hz = CHICKEN_COOP["w"] * 0.5, CHICKEN_COOP["d"] * 0.5
-    c_cabin = to_cam(_cx, current_ground_y + 1.8, _cz)
-    if c_cabin[2] > -4.0:
-        items.append((c_cabin[2], "coop_cabin", CHICKEN_COOP))
-    c_run = to_cam(_cx + _hx + CHICKEN_COOP["run_w"] * 0.5, current_ground_y + 0.9, _cz)
-    if c_run[2] > -4.0:
-        items.append((c_run[2], "coop_run", CHICKEN_COOP))
-    c_nest = to_cam(_cx - _hx - 0.48, current_ground_y + 1.45, _cz)
-    if c_nest[2] > -3.0:
-        items.append((c_nest[2], "coop_nest", CHICKEN_COOP))
-    c_ramp = to_cam(_cx, current_ground_y + 0.5, _cz - _hz - 1.15)
-    if c_ramp[2] > -3.0:
-        items.append((c_ramp[2], "coop_ramp", CHICKEN_COOP))
+    _rz = CHICKEN_COOP["rz"]
+    c_coop = to_cam(_cx, current_ground_y + 2.2, _cz)
+    if c_coop[2] > -4.5:
+        items.append((c_coop[2], "carmela_coop", CHICKEN_COOP))
+    c_ladder = to_cam(_cx, current_ground_y + 0.7, _cz - _rz - 1.15)
+    if c_ladder[2] > -3.0:
+        items.append((c_ladder[2], "coop_ladder", CHICKEN_COOP))
+    c_barrel = to_cam(CHICKEN_COOP["barrel_cx"], current_ground_y + 0.6, CHICKEN_COOP["barrel_cz"])
+    if c_barrel[2] > -2.5:
+        items.append((c_barrel[2], "pedro_barrel", CHICKEN_COOP))
 
     # 2. Hay Bales
     for bale in HAY_BALES:
