@@ -1923,6 +1923,7 @@ class Carmelito3D:
         arms_down_amount: float = 0.0,
         tag_amount: float = 0.0,
         ragdoll_pose: dict | None = None,
+        clip_min_y: float | None = None,
     ) -> None:
         """
         Projects and renders Carmelito in authentic storybook 3D.
