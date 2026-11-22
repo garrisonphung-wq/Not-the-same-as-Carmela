@@ -1051,6 +1051,16 @@ def main() -> None:
     airborne_timer = 0.0
     arms_down_amount = 0.0
     was_j_facing_up = False
+    def get_local_world_scale(char_id: str) -> float:
+        cl = char_id.lower()
+        if cl in ("carmen", "卡门"):
+            return CARMELITO_WORLD_SCALE * 0.82
+        if cl in ("pangdun", "小胖墩", "belino", "coquenpate"):
+            return CARMELITO_WORLD_SCALE * 1.15
+        if cl in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
+            return CARMELITO_WORLD_SCALE * 1.08
+        return CARMELITO_WORLD_SCALE
+
     is_buried_in_crater = False
     buried_p_hold_timer = 0.0
     world_craters: list[dict[str, float]] = []
@@ -1982,7 +1992,10 @@ def main() -> None:
                         other_weight = 1.0 + (1.2 if other_running else (0.6 if other_moving else 0.0))
 
                         # Determine dynamic push ratios based on movement status:
-                        if is_moving and not other_moving:
+                        if is_buried_in_crater:
+                            ratio_me = 0.0
+                            ratio_other = 1.0
+                        elif is_moving and not other_moving:
                             ratio_me = 0.20
                             ratio_other = 0.80
                         elif other_moving and not is_moving:
@@ -2238,7 +2251,7 @@ def main() -> None:
                         airborne_timer = 0.0
                         if landed_upside_down:
                             # Hit ground upside down -> 50% under the grass + crater!
-                            jump_offset_y = -0.58
+                            jump_offset_y = -0.58 * get_local_world_scale(selected_character)
                             local_lay_pitch = -math.pi
                             local_rot_z = 0.0
                             local_ragdoll = 0.0
@@ -2261,7 +2274,7 @@ def main() -> None:
                 # Idle state: if standing on another chick, stay locked atop them as they move!
                 current_floor = max(0.0, landing_support_y)
                 if is_buried_in_crater:
-                    jump_offset_y = -0.58
+                    jump_offset_y = -0.58 * get_local_world_scale(selected_character)
                 elif jump_offset_y > 0.0:
                     if landing_support_y > 0.0:
                         # Smoothly stick to their head/back
@@ -2581,6 +2594,59 @@ def main() -> None:
                 pygame.draw.polygon(screen, ISLAND_RIM_SAND, top_rim_scr)
                 pygame.draw.polygon(screen, ISLAND_TOP_COLOR, top_rim_scr)
 
+        # 1a-4. RENDER IMPACT CRATERS ON THE GRASS (with near-plane clipping for close-up players)
+        if is_online and world_craters:
+            CRATER_SEGS = 16
+            def _clip_and_project_poly(cam_pts: list[tuple[float, float, float]]) -> list[tuple[int, int]]:
+                clipped: list[tuple[float, float, float]] = []
+                n_pts = len(cam_pts)
+                for idx in range(n_pts):
+                    a = cam_pts[idx]
+                    b = cam_pts[(idx + 1) % n_pts]
+                    a_in = a[2] >= near_z
+                    b_in = b[2] >= near_z
+                    if a_in and b_in:
+                        clipped.append(b)
+                    elif a_in and not b_in:
+                        t = (near_z - a[2]) / (b[2] - a[2])
+                        clipped.append((a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), near_z))
+                    elif (not a_in) and b_in:
+                        t = (near_z - a[2]) / (b[2] - a[2])
+                        clipped.append((a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), near_z))
+                        clipped.append(b)
+                return [
+                    (
+                        max(-4000, min(win_w + 4000, round(hw + (pt[0] / pt[2]) * focal))),
+                        max(-4000, min(win_h + 4000, round(hh - (pt[1] / pt[2]) * focal))),
+                    )
+                    for pt in clipped
+                ]
+
+            for cr in world_craters:
+                cr_wx = cr["wx"]
+                cr_wz = cr["wz"]
+                cr_r = cr.get("radius", 1.38)
+                if math.hypot(cr_wx - cam_x, cr_wz - cam_z) > 110.0:
+                    continue
+                outer_cam: list[tuple[float, float, float]] = []
+                mid_cam: list[tuple[float, float, float]] = []
+                inner_cam: list[tuple[float, float, float]] = []
+                for si in range(CRATER_SEGS):
+                    ang = (si / CRATER_SEGS) * 2.0 * math.pi
+                    jag = 1.0 + 0.14 * math.sin(ang * 5.0 + cr_wx) + 0.09 * math.cos(ang * 3.0 - cr_wz)
+                    outer_cam.append(to_cam(cr_wx + math.cos(ang) * (cr_r * 1.18 * jag), current_ground_y + 0.02, cr_wz + math.sin(ang) * (cr_r * 1.18 * jag)))
+                    mid_cam.append(to_cam(cr_wx + math.cos(ang) * (cr_r * 0.88 * jag), current_ground_y + 0.03, cr_wz + math.sin(ang) * (cr_r * 0.88 * jag)))
+                    inner_cam.append(to_cam(cr_wx + math.cos(ang) * (cr_r * 0.56), current_ground_y + 0.04, cr_wz + math.sin(ang) * (cr_r * 0.56)))
+                outer_pts = _clip_and_project_poly(outer_cam)
+                mid_pts = _clip_and_project_poly(mid_cam)
+                inner_pts = _clip_and_project_poly(inner_cam)
+                if len(outer_pts) >= 3:
+                    pygame.draw.polygon(screen, (152, 114, 70), outer_pts)
+                if len(mid_pts) >= 3:
+                    pygame.draw.polygon(screen, (118, 82, 48), mid_pts)
+                if len(inner_pts) >= 3:
+                    pygame.draw.polygon(screen, (78, 52, 30), inner_pts)
+
         # 1c. Render 3D grass blades across the island
         base_sway = math.sin(anim_time * 2.2) * 0.045
         blades: list[tuple[float, float, float, tuple[float, float, float], int, float, float]] = []
@@ -2682,7 +2748,7 @@ def main() -> None:
         for horiz_dist, pid, pdata, rs, rx_unpitched, ry_cam_feet, rz_forward in visible_remotes:
             if is_fighting and pid == fight_opponent_pid:
                 continue
-            if pdata.get("is_carmelito", True):
+            if pdata.get("is_carmelito", True) and rs.get("jump_offset_y", 0.0) >= -0.10:
                 rwx, rwz = rs["wx"], rs["wz"]
                 remote_char = resolve_character_id(pdata)
                 char_scale = 0.82 if remote_char == "carmen" else (1.15 if remote_char in ("pangdun", "小胖墩", "belino", "coquenpate") else (1.08 if remote_char in ("xiaoliuzi", "小六子", "coqsix", "克西斯") else 1.0))
@@ -2776,7 +2842,7 @@ def main() -> None:
                     jump_amount=rs.get("jump_amount", 0.0),
                     arms_down_amount=rs.get("arms_down_amount", 0.0),
                     tag_amount=rs.get("tag_amount", 0.0),
-                    clip_min_y=(-rs.get("jump_offset_y", 0.0) if rs.get("jump_offset_y", 0.0) < -0.10 else None),
+                    clip_min_y=(-rs.get("jump_offset_y", 0.0) / rem_scale if rs.get("jump_offset_y", 0.0) < -0.10 else None),
                 )
                 if pdata.get("on_fire", False):
                     draw_chick_fire(screen, sx, sy, model_scale * 0.65, anim_time, seed=float(pid) * 1.37)
@@ -3545,7 +3611,7 @@ def main() -> None:
                 character=selected_character,
                 jump_amount=jump_amount,
                 arms_down_amount=arms_down_amount,
-                clip_min_y=(-jump_offset_y if jump_offset_y < -0.10 else None),
+                clip_min_y=(-jump_offset_y / get_local_world_scale(selected_character) if jump_offset_y < -0.10 else None),
             )
             if is_on_fire:
                 old_clip = screen.get_clip()
