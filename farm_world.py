@@ -23,31 +23,31 @@ import pygame
 # Rounded egg-like stone & timber coop tower, upper battlements (créneaux),
 # terracotta tiled gable/loft roof, exterior wooden ladder (échelle), and Pédro's wooden barrel!
 CHICKEN_COOP = {
-    "cx": -14.0,
-    "cz": 14.0,
-    "rx": 2.35,      # Rounded octagonal radius X
-    "rz": 2.15,      # Rounded octagonal radius Z
-    "base_h": 2.75,  # Main stone & half-timber body height
-    "crenel_h": 3.45,# Battlement parapet height ("Les coqs aux créneaux !")
-    "roof_h": 5.35,  # Terracotta tiled loft roof peak
-    "barrel_cx": -10.85,
-    "barrel_cz": 12.15,
-    "barrel_r": 0.62,
-    "barrel_h": 1.18,
+    "cx": -16.5,
+    "cz": 17.5,
+    "rx": 5.6,       # Towering rounded octagonal radius X (~11.2m wide vs 2.38m chick!)
+    "rz": 5.0,       # Towering rounded octagonal radius Z (~10.0m deep)
+    "base_h": 8.2,   # Main stone & half-timber body height (~3.5x chick height!)
+    "crenel_h": 9.8, # Medieval battlement parapet height ("Les coqs aux créneaux !")
+    "roof_h": 14.8,  # Terracotta tiled loft roof peak (~6.2x chick height!)
+    "barrel_cx": -9.0,
+    "barrel_cz": 13.0,
+    "barrel_r": 1.35,
+    "barrel_h": 2.45,
 }
 
 # (cx, cz, w, d, base_y, h, yaw_rad)
 HAY_BALES: list[dict[str, float]] = [
-    # Cozy stacked trio right beside the Carmela coop & Pédro's barrel
-    {"cx": -8.2, "cz": 12.6, "w": 2.1, "d": 1.5, "base_y": 0.0, "h": 1.12},
-    {"cx": -8.3, "cz": 14.5, "w": 2.1, "d": 1.5, "base_y": 0.0, "h": 1.12},
-    {"cx": -8.2, "cz": 13.5, "w": 1.9, "d": 1.4, "base_y": 1.12, "h": 1.05},
+    # Cozy stacked trio right beside Pédro's barrel & the towering Carmela coop
+    {"cx": -4.8, "cz": 13.5, "w": 2.5, "d": 1.8, "base_y": 0.0, "h": 1.45},
+    {"cx": -4.9, "cz": 16.0, "w": 2.5, "d": 1.8, "base_y": 0.0, "h": 1.45},
+    {"cx": -4.8, "cz": 14.7, "w": 2.3, "d": 1.7, "base_y": 1.45, "h": 1.35},
     # Sunny meadow hay stack on the right side
-    {"cx": 11.5, "cz": 10.5, "w": 2.4, "d": 1.7, "base_y": 0.0, "h": 1.20},
-    {"cx": 13.7, "cz": 11.2, "w": 2.1, "d": 1.6, "base_y": 0.0, "h": 1.12},
-    {"cx": 12.4, "cz": 10.9, "w": 2.0, "d": 1.5, "base_y": 1.20, "h": 1.08},
-    # Small lone hay bale near front-left fence
-    {"cx": -11.5, "cz": 1.5, "w": 1.9, "d": 1.4, "base_y": 0.0, "h": 1.05},
+    {"cx": 12.2, "cz": 10.5, "w": 2.6, "d": 1.9, "base_y": 0.0, "h": 1.45},
+    {"cx": 14.6, "cz": 11.4, "w": 2.4, "d": 1.8, "base_y": 0.0, "h": 1.45},
+    {"cx": 13.3, "cz": 10.9, "w": 2.3, "d": 1.7, "base_y": 1.45, "h": 1.35},
+    # Single sunny bale near front-left fence
+    {"cx": -8.8, "cz": -4.8, "w": 2.4, "d": 1.8, "base_y": 0.0, "h": 1.42},
 ]
 
 
@@ -62,10 +62,10 @@ def _build_fence_segments() -> list[tuple[float, float, float, float]]:
     # Left-front -> Left-back -> Back behind coop -> Right-back -> Right-front (open center gate!)
     add_chain([
         (-5.5, -11.5),
-        (-18.5, -11.5),
-        (-18.5, 22.0),
-        (19.5, 22.0),
-        (19.5, -11.5),
+        (-24.5, -11.5),
+        (-24.5, 25.5),
+        (21.5, 25.5),
+        (21.5, -11.5),
         (6.0, -11.5),
     ])
     return segs
@@ -93,15 +93,15 @@ FENCE_POSTS = _build_fence_posts()
 
 # 9 lush storybook trees around the farm perimeter & sunny meadow
 FARM_TREES: list[dict[str, float]] = [
-    {"wx": -21.5, "wz": 6.5, "scale": 1.15, "seed": 1.0},
-    {"wx": -21.0, "wz": 20.5, "scale": 1.25, "seed": 2.3},
-    {"wx": -6.0, "wz": 25.0, "scale": 1.10, "seed": 3.7},
-    {"wx": 10.5, "wz": 24.5, "scale": 1.22, "seed": 4.9},
-    {"wx": 22.0, "wz": 15.0, "scale": 1.18, "seed": 5.4},
-    {"wx": 21.8, "wz": -3.5, "scale": 1.08, "seed": 6.8},
-    {"wx": -20.5, "wz": -12.5, "scale": 1.12, "seed": 7.5},
-    {"wx": 16.5, "wz": -14.0, "scale": 1.05, "seed": 8.2},
-    {"wx": 3.0, "wz": 26.8, "scale": 1.30, "seed": 9.1},
+    {"wx": -27.5, "wz": 4.0, "scale": 1.65, "seed": 1.0},
+    {"wx": -27.5, "wz": 24.5, "scale": 1.80, "seed": 2.3},
+    {"wx": -6.5, "wz": 28.0, "scale": 1.70, "seed": 3.7},
+    {"wx": 11.5, "wz": 28.0, "scale": 1.85, "seed": 4.9},
+    {"wx": 24.5, "wz": 15.0, "scale": 1.75, "seed": 5.4},
+    {"wx": 24.0, "wz": -3.5, "scale": 1.60, "seed": 6.8},
+    {"wx": -25.5, "wz": -13.5, "scale": 1.65, "seed": 7.5},
+    {"wx": 17.5, "wz": -15.0, "scale": 1.55, "seed": 8.2},
+    {"wx": 3.0, "wz": 29.0, "scale": 1.90, "seed": 9.1},
 ]
 
 
@@ -120,7 +120,7 @@ def _build_meadow_flowers() -> list[dict[str, object]]:
     flowers: list[dict[str, object]] = []
     coop_x0 = CHICKEN_COOP["cx"] - CHICKEN_COOP["rx"] - 1.2
     coop_x1 = CHICKEN_COOP["cx"] + CHICKEN_COOP["rx"] + 1.2
-    coop_z0 = CHICKEN_COOP["cz"] - CHICKEN_COOP["rz"] - 2.6
+    coop_z0 = CHICKEN_COOP["cz"] - CHICKEN_COOP["rz"] - 5.8
     coop_z1 = CHICKEN_COOP["cz"] + CHICKEN_COOP["rz"] + 1.2
 
     for idx in range(95):
@@ -164,13 +164,13 @@ def resolve_world_props_collision(
     crenel_h = CHICKEN_COOP["crenel_h"]
     roof_h = CHICKEN_COOP["roof_h"]
 
-    # 1a. Exterior Wooden Ladder (l'échelle du poulailler) leaning up to the front coop door/porch (-Z face)
-    lad_z_bot = cz - rz - 2.35
-    lad_z_top = cz - rz + 0.15
-    if cx - 0.62 <= wx <= cx + 0.62 and lad_z_bot <= wz <= lad_z_top:
+    # 1a. Exterior Wooden Ladder (l'échelle du poulailler) leaning up to the coop balcony (-Z face)
+    lad_z_bot = cz - rz - 5.4
+    lad_z_top = cz - rz + 0.35
+    if cx - 1.15 <= wx <= cx + 1.15 and lad_z_bot <= wz <= lad_z_top:
         t_lad = max(0.0, min(1.0, (wz - lad_z_bot) / max(0.1, lad_z_top - lad_z_bot)))
-        lad_y = t_lad * 1.45
-        if jump_y >= lad_y - 0.45:
+        lad_y = t_lad * 3.25
+        if jump_y >= lad_y - 0.65:
             support_y = max(support_y, lad_y)
 
     # 1b. Rounded coop tower body + walkable battlements (créneaux) & tiled roof
@@ -381,13 +381,13 @@ def collect_world_prop_draw_items(
     # 1. Carmela Storybook Coop (Poulailler) + Exterior Ladder + Pédro's Barrel
     _cx, _cz = CHICKEN_COOP["cx"], CHICKEN_COOP["cz"]
     _rz = CHICKEN_COOP["rz"]
-    c_coop = to_cam(_cx, current_ground_y + 2.2, _cz)
-    if c_coop[2] > -4.5:
+    c_coop = to_cam(_cx, current_ground_y + 5.0, _cz)
+    if c_coop[2] > -7.5:
         items.append((c_coop[2], "carmela_coop", CHICKEN_COOP))
-    c_ladder = to_cam(_cx, current_ground_y + 0.7, _cz - _rz - 1.15)
-    if c_ladder[2] > -3.0:
+    c_ladder = to_cam(_cx, current_ground_y + 1.6, _cz - _rz - 2.6)
+    if c_ladder[2] > -5.5:
         items.append((c_ladder[2], "coop_ladder", CHICKEN_COOP))
-    c_barrel = to_cam(CHICKEN_COOP["barrel_cx"], current_ground_y + 0.6, CHICKEN_COOP["barrel_cz"])
+    c_barrel = to_cam(CHICKEN_COOP["barrel_cx"], current_ground_y + 1.2, CHICKEN_COOP["barrel_cz"])
     if c_barrel[2] > -2.5:
         items.append((c_barrel[2], "pedro_barrel", CHICKEN_COOP))
 
@@ -698,62 +698,68 @@ def draw_world_prop_item(
             if max(p[2] for p in (rp_mid0, rp_mid1, rp_tip)) > near_z:
                 faces.append(((rp_mid0[2] + rp_mid1[2] + rp_tip[2]) * 0.25, [rp_mid0, rp_mid1, rp_tip], tile_hi_c, (118, 44, 28)))
 
-        # Front Chicken Doorway & Small Balcony Porch facing the farmyard (-Z)
-        z_front = cz - rz * 1.02
-        door0 = to_cam(cx - 0.46, yg + 1.35, z_front - 0.04)
-        door1 = to_cam(cx + 0.46, yg + 1.35, z_front - 0.04)
-        door2 = to_cam(cx + 0.42, yg + 2.38, z_front - 0.04)
-        door3 = to_cam(cx - 0.42, yg + 2.38, z_front - 0.04)
+        # Large Chick-Scale Doorway & Wooden Balcony Porch facing the farmyard (-Z)
+        z_front = cz - rz * 1.03
+        door0 = to_cam(cx - 1.15, yg + 3.20, z_front - 0.08)
+        door1 = to_cam(cx + 1.15, yg + 3.20, z_front - 0.08)
+        door2 = to_cam(cx + 1.05, yg + 6.10, z_front - 0.08)
+        door3 = to_cam(cx - 1.05, yg + 6.10, z_front - 0.08)
         if max(p[2] for p in (door0, door1, door2, door3)) > near_z:
-            faces.append((door0[2] - 0.14, [door0, door1, door2, door3], (68, 42, 24), (124, 82, 42)))
+            faces.append((door0[2] - 0.25, [door0, door1, door2, door3], (64, 40, 22), (124, 82, 42)))
 
         # Cozy Attic Loft Window (grenier) up under the terracotta tiled roof!
-        win0 = to_cam(cx - 0.34, y_cren + 0.16, cz - rz * 0.72)
-        win1 = to_cam(cx + 0.34, y_cren + 0.16, cz - rz * 0.72)
-        win2 = to_cam(cx + 0.30, y_cren + 0.74, cz - rz * 0.56)
-        win3 = to_cam(cx - 0.30, y_cren + 0.74, cz - rz * 0.56)
+        win0 = to_cam(cx - 0.95, y_cren + 0.45, cz - rz * 0.72)
+        win1 = to_cam(cx + 0.95, y_cren + 0.45, cz - rz * 0.72)
+        win2 = to_cam(cx + 0.85, y_cren + 2.15, cz - rz * 0.54)
+        win3 = to_cam(cx - 0.85, y_cren + 2.15, cz - rz * 0.54)
         if max(p[2] for p in (win0, win1, win2, win3)) > near_z:
-            faces.append((win0[2] - 0.18, [win0, win1, win2, win3], (110, 170, 215), (96, 62, 32)))
+            faces.append((win0[2] - 0.30, [win0, win1, win2, win3], (110, 170, 215), (96, 62, 32)))
+
+        # Lower ground-level timber shutter window on front-right stone base
+        sw0 = to_cam(cx + 2.15, yg + 1.45, z_front + 0.25)
+        sw1 = to_cam(cx + 3.25, yg + 1.45, z_front + 0.55)
+        sw2 = to_cam(cx + 3.25, yg + 2.85, z_front + 0.55)
+        sw3 = to_cam(cx + 2.15, yg + 2.85, z_front + 0.25)
+        if max(p[2] for p in (sw0, sw1, sw2, sw3)) > near_z:
+            faces.append((sw0[2] - 0.20, [sw0, sw1, sw2, sw3], (105, 162, 206), (112, 74, 38)))
 
         _draw_quad_list(screen, faces, near_z, hw, hh, focal, win_w, win_h)
 
-        # Tiny front balcony ledge just under the coop door for the ladder top
+        # Wide front balcony deck just under the coop door for the ladder top
         _draw_box(
-            screen, to_cam, cx, yg + 1.32, z_front - 0.18, 1.35, 0.14, 0.55,
+            screen, to_cam, cx, yg + 3.05, z_front - 0.42, 3.30, 0.26, 1.25,
             colors={"top": (182, 130, 74), "front": (154, 106, 56), "right": (146, 98, 52), "left": (138, 92, 48), "back": (128, 84, 44)},
             near_z=near_z, hw=hw, hh=hh, focal=focal, win_w=win_w, win_h=win_h,
             edge_col=(96, 60, 28),
         )
 
     elif kind == "coop_ladder":
-        # Classic "l'échelle du poulailler" — 2 wooden side rails + horizontal wooden rungs!
+        # Wide chick-scale "l'échelle du poulailler" — 2 heavy wooden rails + 9 rungs!
         coop = payload  # type: ignore[assignment]
         cx, cz = coop["cx"], coop["cz"]
         rz = coop["rz"]
         yg = current_ground_y
-        z_top = cz - rz - 0.25
-        z_bot = z_top - 2.20
-        y_top = yg + 1.38
-        y_bot = yg + 0.04
-        # Two wooden side rails
-        for rx_off in (-0.40, 0.40):
+        z_top = cz - rz - 0.45
+        z_bot = z_top - 4.90
+        y_top = yg + 3.18
+        y_bot = yg + 0.05
+        for rx_off in (-0.88, 0.88):
             p_b = to_cam(cx + rx_off, y_bot, z_bot)
             p_t = to_cam(cx + rx_off, y_top, z_top)
             if p_b[2] > near_z and p_t[2] > near_z:
                 sb = (round(hw + (p_b[0] / p_b[2]) * focal), round(hh - (p_b[1] / p_b[2]) * focal))
                 st = (round(hw + (p_t[0] / p_t[2]) * focal), round(hh - (p_t[1] / p_t[2]) * focal))
-                w_px = max(3, int(round(0.08 * focal / max(0.8, (p_b[2] + p_t[2]) * 0.5))))
+                w_px = max(4, int(round(0.16 * focal / max(0.8, (p_b[2] + p_t[2]) * 0.5))))
                 pygame.draw.line(screen, (148, 96, 48), sb, st, w_px)
-        # 7 wooden ladder rungs
-        for ri in range(1, 8):
-            rt = ri / 8.0
+        for ri in range(1, 10):
+            rt = ri / 10.0
             rz_r = z_bot + rt * (z_top - z_bot)
             ry_r = y_bot + rt * (y_top - y_bot)
-            pa, pb = to_cam(cx - 0.40, ry_r, rz_r), to_cam(cx + 0.40, ry_r, rz_r)
+            pa, pb = to_cam(cx - 0.88, ry_r, rz_r), to_cam(cx + 0.88, ry_r, rz_r)
             if pa[2] > near_z and pb[2] > near_z:
                 sa = (round(hw + (pa[0] / pa[2]) * focal), round(hh - (pa[1] / pa[2]) * focal))
                 sb = (round(hw + (pb[0] / pb[2]) * focal), round(hh - (pb[1] / pb[2]) * focal))
-                w_px = max(2, int(round(0.06 * focal / max(0.8, (pa[2] + pb[2]) * 0.5))))
+                w_px = max(3, int(round(0.12 * focal / max(0.8, (pa[2] + pb[2]) * 0.5))))
                 pygame.draw.line(screen, (184, 132, 74), sa, sb, w_px)
 
     elif kind == "pedro_barrel":
