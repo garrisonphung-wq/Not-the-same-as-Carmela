@@ -3479,12 +3479,9 @@ def main() -> None:
                 sy_e = round(win_h - s_prog * win_h * 0.72)
                 pygame.draw.circle(screen, (255, 220, 80) if si % 2 == 0 else (255, 110, 20), (sx_e, sy_e), max(3, round(8 * (1.0 - s_prog * 0.6))))
 
-        # Buried upside-down in crater HUD + crater wall vignette + 10s hold-P progress bar
+        # Pitch-black blackout when buried upside-down in the crater (cannot see anything) + 10s hold-P progress bar
         if is_online and not is_fighting and is_buried_in_crater:
-            pygame.draw.rect(screen, (82, 54, 32), pygame.Rect(0, 0, win_w, 34))
-            pygame.draw.rect(screen, (116, 80, 48), pygame.Rect(0, 34, win_w, 12))
-            pygame.draw.rect(screen, (82, 54, 32), pygame.Rect(0, win_h - 34, win_w, 34))
-            pygame.draw.rect(screen, (116, 80, 48), pygame.Rect(0, win_h - 46, win_w, 12))
+            screen.fill((0, 0, 0))
             bar_w, bar_h = 380, 44
             bar_x = (win_w - bar_w) // 2
             bar_y = win_h - 110
