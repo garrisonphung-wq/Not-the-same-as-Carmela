@@ -5,6 +5,7 @@ import math
 import os
 import random
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -381,21 +382,40 @@ def normalize_server_url(raw_text: str, fallback: str = DEFAULT_SERVER_URL) -> s
 
 
 def get_lan_ip() -> str:
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
-            s.settimeout(0.25)
-            s.connect(("8.8.8.8", 80))
-            ip = s.getsockname()[0]
+    # 1. Check macOS Wi-Fi / Ethernet interfaces directly (works without internet)
+    if sys.platform == "darwin":
+        for iface in ("en0", "en1", "en2"):
+            try:
+                res = subprocess.run(
+                    ["ipconfig", "getifaddr", iface],
+                    capture_output=True,
+                    text=True,
+                    timeout=0.4,
+                )
+                ip = res.stdout.strip()
+                if res.returncode == 0 and ip and not ip.startswith("127."):
+                    return ip
+            except Exception:
+                pass
+    # 2. UDP routing probe (10.255.255.255 works purely on LAN, 8.8.8.8 fallback)
+    for probe in (("10.255.255.255", 1), ("192.168.1.1", 80), ("8.8.8.8", 80)):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.settimeout(0.25)
+                sock.connect(probe)
+                ip = sock.getsockname()[0]
+                if ip and not ip.startswith("127."):
+                    return ip
+        except OSError:
+            pass
+    # 3. Hostname / Bonjour .local lookup
+    for hname in (socket.gethostname(), f"{socket.gethostname()}.local"):
+        try:
+            ip = socket.gethostbyname(hname)
             if ip and not ip.startswith("127."):
                 return ip
-    except OSError:
-        pass
-    try:
-        ip = socket.gethostbyname(socket.gethostname())
-        if ip and not ip.startswith("127."):
-            return ip
-    except OSError:
-        pass
+        except OSError:
+            pass
     return "127.0.0.1"
 
 
@@ -1242,6 +1262,7 @@ def main() -> None:
     menu_ime_comp_text = ""
     custom_server_input = "" if args.server == DEFAULT_SERVER_URL else args.server
     lan_ip_str = get_lan_ip()
+    lan_ip_check_timer = 0.0
 
     # Chat system state
     is_typing_chat = False
@@ -4269,9 +4290,18 @@ def main() -> None:
                 screen.set_clip(clip_s_prev)
 
                 # Subtle Host LAN IP / Connection status hint below server box for easy Dad multiplayer!
+                lan_ip_check_timer += dt
+                if lan_ip_str == "127.0.0.1" and lan_ip_check_timer >= 2.0:
+                    lan_ip_check_timer = 0.0
+                    lan_ip_str = get_lan_ip()
                 _srv_is_local, _srv_port = is_local_server_url(net.server_url)
-                if _srv_is_local and is_host:
-                    _status_txt = f"Host LAN IP: {lan_ip_str}:{_srv_port}  •  Players: {len(remote_players) + 1}"
+                if _srv_is_local:
+                    if is_host:
+                        _status_txt = f"Host LAN IP: {lan_ip_str}:{_srv_port}  •  Players: {len(remote_players) + 1}"
+                    elif connected:
+                        _status_txt = f"LAN IP: {lan_ip_str}:{_srv_port} (Local Connected)  •  Players: {len(remote_players) + 1}"
+                    else:
+                        _status_txt = f"LAN IP: {lan_ip_str}:{_srv_port} (Starting local server...)"
                 elif connected:
                     _status_txt = f"Connected to {urlparse(net.server_url).hostname or net.server_url}  •  Players: {len(remote_players) + 1}"
                 else:
