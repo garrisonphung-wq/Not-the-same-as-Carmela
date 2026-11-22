@@ -569,13 +569,9 @@ class NetworkClient:
         thread = threading.Thread(target=server_runner, daemon=True)
         thread.start()
 
-        # Launch 5 AI chicks clustered close together: 1 still base chick + 4 climber chicks trying to get on it!
+        # Launch 1 companion AI chick (cannot walk/move around, can only jump and chat)
         ai_chick_configs = [
-            {"name": "小胖墩 (AI)", "character": "pangdun", "chick_name": "小胖墩", "wx": 0.0, "wz": 7.2, "role": "still", "target": None, "chat": True, "delay": 0.35},
-            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "wx": -2.0, "wz": 5.8, "role": "climber", "target": "小胖墩 (AI)", "chat": False, "delay": 0.55},
-            {"name": "卡梅利多 (AI)", "character": "carmelito", "chick_name": "卡梅利多", "wx": 2.0, "wz": 5.8, "role": "climber", "target": "小胖墩 (AI)", "chat": False, "delay": 0.70},
-            {"name": "小六子 (AI)", "character": "xiaoliuzi", "chick_name": "小六子", "wx": -1.7, "wz": 8.9, "role": "climber", "target": "小胖墩 (AI)", "chat": False, "delay": 0.85},
-            {"name": "波罗 (AI)", "character": "carmelito", "chick_name": "波罗", "wx": 1.7, "wz": 8.9, "role": "climber", "target": "小胖墩 (AI)", "chat": False, "delay": 1.00},
+            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "wx": 0.0, "wz": 7.2, "role": "jump_only", "target": None, "chat": True, "delay": 0.45},
         ]
 
         def launch_single_ai(cfg: dict[str, Any]) -> None:
@@ -961,6 +957,7 @@ def main() -> None:
     kick_roll_dir = 1.0
     local_rot_z = 0.0
     local_lay_pitch = 0.0
+    is_lying_down = False
     local_ragdoll = 0.0
     kick_lay_dir = -1.0
     kick_bounced = False
@@ -1211,7 +1208,7 @@ def main() -> None:
                         # Trigger a blink on demand (and holding B keeps eyes closed)
                         blink_hold_timer = 0.16
                         auto_blink_timer = random.uniform(2.8, 5.0)
-                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none") and event.key == pygame.K_j:
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down) and event.key == pygame.K_j:
                         # Hold 'J' to crouch & charge jump height; release 'J' to launch! (Disabled during ragdoll mode)
                         if jump_state == "idle":
                             jump_state = "crouching"
@@ -1219,21 +1216,36 @@ def main() -> None:
                             jump_charge = 0.0
                             jump_amount = 0.0
                             wing_flap_amount = 0.0
-                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none") and event.key == pygame.K_k:
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down) and event.key == pygame.K_k:
                         # Pressing 'K' triggers a forward martial arts karate kick! (Disabled during ragdoll mode)
                         is_kicking = True
                         kick_timer = 0.0
                         kick_side = -kick_side  # alternate between right and left leg!
                         kick_hit_victims.clear()
-                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none") and event.key == pygame.K_p:
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down) and event.key == pygame.K_p:
                         # Pressing 'P' triggers a forward boxing punch / wing strike! (Disabled during ragdoll mode)
                         is_punching = True
                         punch_timer = 0.0
                         punch_side = -punch_side  # alternate between right and left wing!
                         punch_hit_victims.clear()
-                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none") and event.key == pygame.K_t:
-                        # Pressing 'T' toggles raising both arms forward like a zombie (Disabled during ragdoll mode)
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down) and event.key == pygame.K_t:
+                        # Pressing 'T' toggles raising both arms forward like a zombie (Disabled during ragdoll/lying mode)
                         is_tagging = not is_tagging
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none") and event.key == pygame.K_l:
+                        # Pressing 'L' toggles lying down on the grass!
+                        is_lying_down = not is_lying_down
+                        if is_lying_down:
+                            is_kicking = False
+                            kick_timer = 0.0
+                            is_punching = False
+                            punch_timer = 0.0
+                            is_tagging = False
+                            tag_amount = 0.0
+                            if jump_state == "crouching":
+                                jump_state = "idle"
+                                crouch_timer = 0.0
+                                jump_charge = 0.0
+                                jump_amount = 0.0
             elif event.type == pygame.KEYUP and event.key == pygame.K_j:
                 if jump_state == "crouching":
                     jump_released_this_frame = True
@@ -1516,7 +1528,7 @@ def main() -> None:
             # --- MOVEMENT CONTROLS (Arrow Up/Down + WASD) ---
             move_fwd = 0.0
             move_side = 0.0
-            if not is_typing_chat and not is_ragdoll_mode:
+            if not is_typing_chat and not is_ragdoll_mode and not is_lying_down:
                 if keys[pygame.K_UP] or keys[pygame.K_w]:
                     move_fwd += 1.0
                 if keys[pygame.K_DOWN] or keys[pygame.K_s]:
@@ -1565,6 +1577,7 @@ def main() -> None:
                         knock_vx = nx_k * 11.5
                         knock_vz = nz_k * 11.5
                         is_kick_launched = True
+                        is_lying_down = False
                         launch_accel_timer = 0.18
                         jump_state = "airborne"
                         jump_velocity_y = 0.6
@@ -1601,6 +1614,7 @@ def main() -> None:
                         knock_vz = nz_p * 5.2
                         local_headshot_face_yaw = math.atan2(-nx_p, -nz_p)
                         local_headshot_phase = "head_up"
+                        is_lying_down = False
                         local_headshot_timer = 0.0
                         kick_lay_dir = -1.0
                         kick_roll_dir = 0.0
@@ -1676,6 +1690,18 @@ def main() -> None:
                     side_lying_timer = max(0.0, side_lying_timer - dt)
                     local_lay_pitch = kick_lay_dir * (math.pi * 0.5)
                     local_ragdoll = 1.0
+                    is_moving = False
+                    is_walking = False
+                    is_running = False
+                elif is_lying_down:
+                    lie_step = math.radians(320.0) * dt
+                    target_lie = -math.pi * 0.5
+                    if abs(local_lay_pitch - target_lie) <= lie_step:
+                        local_lay_pitch = target_lie
+                    else:
+                        local_lay_pitch -= math.copysign(lie_step, local_lay_pitch - target_lie)
+                    local_rot_z = 0.0
+                    local_ragdoll = 0.0
                     is_moving = False
                     is_walking = False
                     is_running = False
@@ -3214,6 +3240,7 @@ def main() -> None:
                 blink=blink_amount,
                 character=selected_character,
                 jump_amount=jump_amount,
+                lay_pitch=local_lay_pitch,
             )
 
             # --- 2d. TOP-RIGHT PERSISTENT CHATBOX (shows everyone's messages) ---

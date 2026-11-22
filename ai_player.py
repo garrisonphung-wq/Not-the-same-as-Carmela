@@ -361,12 +361,20 @@ class AICodeCompanion:
                     target_found = True
                     break
 
-        if ai_ragdoll_locked or self.ai_role == "still":
+        if ai_ragdoll_locked or self.ai_role in ("still", "jump_only"):
             self.is_walking = False
             self.is_running = False
             if self.headshot_phase == "none":
                 self.target_head_yaw = 0.0
                 self.target_head_pitch = 0.0
+            if (not ai_ragdoll_locked) and self.ai_role == "jump_only":
+                self.action_cooldown -= dt
+                if self.action_cooldown <= 0.0 and self.jump_state == "idle":
+                    self.action_cooldown = random.uniform(2.2, 4.8)
+                    self.climb_impulse = self.JUMP_IMPULSE
+                    self.jump_state = "crouching"
+                    self.crouch_timer = 0.0
+                    self.jump_amount = 0.0
         else:
             # Climber AI: if already standing on top of a chick, perch smoothly; otherwise move toward the still chick & leap on!
             is_perched = (self.riding_pid is not None and self.jump_offset_y >= 0.85)
