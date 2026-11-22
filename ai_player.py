@@ -649,7 +649,7 @@ class AICodeCompanion:
             dist_str = f"{speaker_name}距离你约{dist:.1f}米"
         else:
             dist_str = f"{speaker_name}在草地上"
-        return f"你当前状态:{state_str}；{dist_str}；当前共有{len(self.other_players) + 1}只小鸡在岛上。"
+        return f"你当前状态:{state_str}{cloud_note}；{dist_str}；当前共有{len(self.other_players) + 1}只小鸡在岛上。"
 
     def _apply_gemini_action(self, action: str, speaker_id: int) -> None:
         # AI cannot move except jump (and cannot jump while ragdolled)
