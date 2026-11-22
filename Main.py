@@ -247,6 +247,66 @@ def get_outlined_text_surface(
     return surf
 
 
+def draw_chick_fire(
+    surface: pygame.Surface,
+    cx: int,
+    base_y: int,
+    scale_px: float,
+    anim_t: float,
+    seed: float = 0.0,
+) -> None:
+    """Draw lively storybook cel-shaded flames and rising embers enveloping a chick."""
+    if scale_px < 6.0:
+        return
+    h = max(18.0, scale_px * 1.45)
+    w = max(14.0, scale_px * 0.95)
+    flames = [
+        (-0.34, 0.72, 0.36, 0.0),
+        (0.32, 0.76, 0.36, 1.7),
+        (-0.14, 0.96, 0.44, 0.9),
+        (0.14, 0.92, 0.42, 2.5),
+        (0.00, 1.12, 0.50, 3.8),
+    ]
+    for ox_r, h_r, w_r, ph in flames:
+        flick = math.sin(anim_t * 17.0 + ph + seed) * 0.14 + math.cos(anim_t * 26.0 + ph * 1.3) * 0.08
+        fx = cx + ox_r * w + math.sin(anim_t * 14.0 + ph) * (w * 0.06)
+        fy_bot = base_y + scale_px * 0.08
+        fh = h * h_r * (1.0 + flick)
+        fw = w * w_r * (1.0 - 0.15 * flick)
+        tip_x = fx + math.sin(anim_t * 19.0 + ph + seed) * (fw * 0.45)
+        tip_y = fy_bot - fh
+        outer_pts = [
+            (round(fx - fw * 0.5), round(fy_bot)),
+            (round(fx - fw * 0.58), round(fy_bot - fh * 0.38)),
+            (round(tip_x), round(tip_y)),
+            (round(fx + fw * 0.58), round(fy_bot - fh * 0.38)),
+            (round(fx + fw * 0.5), round(fy_bot)),
+        ]
+        pygame.draw.polygon(surface, (255, 72, 16), outer_pts)
+        mid_pts = [
+            (round(fx - fw * 0.32), round(fy_bot - fh * 0.05)),
+            (round(fx - fw * 0.36), round(fy_bot - fh * 0.34)),
+            (round(tip_x * 0.65 + fx * 0.35), round(fy_bot - fh * 0.76)),
+            (round(fx + fw * 0.36), round(fy_bot - fh * 0.34)),
+            (round(fx + fw * 0.32), round(fy_bot - fh * 0.05)),
+        ]
+        pygame.draw.polygon(surface, (255, 162, 28), mid_pts)
+        core_pts = [
+            (round(fx - fw * 0.16), round(fy_bot - fh * 0.08)),
+            (round(tip_x * 0.45 + fx * 0.55), round(fy_bot - fh * 0.52)),
+            (round(fx + fw * 0.16), round(fy_bot - fh * 0.08)),
+        ]
+        pygame.draw.polygon(surface, (255, 236, 98), core_pts)
+
+    for i in range(6):
+        prog = (anim_t * 1.85 + i * 0.17 + seed * 0.11) % 1.0
+        ex = round(cx + math.sin(anim_t * 7.0 + i * 2.1 + seed) * (w * 0.55))
+        ey = round(base_y - prog * h * 1.35)
+        er = max(2, round(scale_px * 0.065 * (1.0 - prog * 0.65)))
+        ecol = (255, 225, 90) if i % 2 == 0 else (255, 115, 25)
+        pygame.draw.circle(surface, ecol, (ex, ey), er)
+
+
 def wrap_angle(angle: float) -> float:
     return (angle + math.pi) % (2.0 * math.pi) - math.pi
 
@@ -353,6 +413,7 @@ class NetworkClient:
         self._local_jump_offset_y = 0.0
         self._local_jump_amount = 0.0
         self._local_tag_amount = 0.0
+        self._local_on_fire = False
         self._pos_dirty = True
 
         self._outgoing_chats: list[str] = []
@@ -410,6 +471,7 @@ class NetworkClient:
         jump_offset_y: float = 0.0,
         jump_amount: float = 0.0,
         tag_amount: float = 0.0,
+        on_fire: bool = False,
     ) -> None:
         nx = max(0.05, min(0.95, nx))
         ny = max(0.05, min(0.95, ny))
@@ -438,6 +500,7 @@ class NetworkClient:
                 or (abs(jump_offset_y - self._local_jump_offset_y) > 0.02)
                 or (abs(jump_amount - self._local_jump_amount) > 0.02)
                 or (abs(tag_amount - self._local_tag_amount) > 0.02)
+                or (on_fire != self._local_on_fire)
             )
             if pos_changed or state_changed:
                 self._local_nx = nx
@@ -461,6 +524,7 @@ class NetworkClient:
                 self._local_jump_offset_y = jump_offset_y
                 self._local_jump_amount = jump_amount
                 self._local_tag_amount = tag_amount
+                self._local_on_fire = on_fire
                 self._pos_dirty = True
 
     def get_snapshot(self) -> tuple[bool, bool, int | None, tuple[int, int, int], dict[int, dict[str, Any]]]:
@@ -493,6 +557,7 @@ class NetworkClient:
                     "jump_offset_y": data.get("jump_offset_y", 0.0),
                     "jump_amount": data.get("jump_amount", 0.0),
                     "tag_amount": data.get("tag_amount", 0.0),
+                    "on_fire": bool(data.get("on_fire", False)),
                 }
                 for pid, data in self.remote_players.items()
             }
@@ -714,6 +779,7 @@ class NetworkClient:
                             "jump_offset_y": round(self._local_jump_offset_y, 3),
                             "jump_amount": round(self._local_jump_amount, 3),
                             "tag_amount": round(self._local_tag_amount, 3),
+                            "on_fire": self._local_on_fire,
                         },
                         separators=(",", ":"),
                     )
@@ -754,6 +820,7 @@ class NetworkClient:
             "jump_offset_y": float(pdata.get("jump_offset_y", 0.0)),
             "jump_amount": float(pdata.get("jump_amount", 0.0)),
             "tag_amount": float(pdata.get("tag_amount", 0.0)),
+            "on_fire": bool(pdata.get("on_fire", False)),
         }
 
     async def _receiver_loop(self, ws: Any) -> None:
@@ -839,6 +906,8 @@ class NetworkClient:
                             rp["jump_amount"] = float(msg["jump_amount"])
                         if "tag_amount" in msg:
                             rp["tag_amount"] = float(msg["tag_amount"])
+                        if "on_fire" in msg:
+                            rp["on_fire"] = bool(msg["on_fire"])
 
             elif msg_type == "leave":
                 pid = int(msg["id"])
@@ -934,6 +1003,11 @@ def main() -> None:
     jump_charge = 0.0      # Visual crouch progress (0.0 -> 1.0), while jump height keeps growing uncapped!
     max_jump_charge_time = 0.85
     jump_released_this_frame = False
+    is_j_air_spinning = False
+    j_spin_yaw = 0.0
+    is_on_fire = False
+    was_j_charging = False
+    pre_j_head_pitch = 0.0
     jump_amount = 0.0      # Crouch depth (1.0 = deep crouch, 0.0 = standing/jumping)
     wing_flap_amount = 0.0 # Wings flap when airborne
     MIN_JUMP_HEIGHT = 1.40 # Crisp quick-tap hop height (clears another chick!)
@@ -1541,7 +1615,7 @@ def main() -> None:
                 head_yaw = 0.0
                 head_pitch = 0.0
             else:
-                total_yaw = cam_yaw + head_yaw
+                total_yaw = cam_yaw + head_yaw + (j_spin_yaw if is_j_air_spinning else 0.0)
                 total_pitch = head_pitch
 
             # --- MOVEMENT CONTROLS (Arrow Up/Down + WASD) ---
@@ -1598,6 +1672,10 @@ def main() -> None:
                         is_kick_launched = True
                         is_lying_down = False
                         is_manual_ragdoll = False
+                        is_j_air_spinning = False
+                        j_spin_yaw = 0.0
+                        is_on_fire = False
+                        was_j_charging = False
                         launch_accel_timer = 0.18
                         jump_state = "airborne"
                         jump_velocity_y = 0.6
@@ -1636,6 +1714,10 @@ def main() -> None:
                         local_headshot_phase = "head_up"
                         is_lying_down = False
                         is_manual_ragdoll = False
+                        is_j_air_spinning = False
+                        j_spin_yaw = 0.0
+                        is_on_fire = False
+                        was_j_charging = False
                         local_headshot_timer = 0.0
                         kick_lay_dir = -1.0
                         kick_roll_dir = 0.0
@@ -1976,6 +2058,11 @@ def main() -> None:
                     crouch_timer = 0.0
                     jump_charge = 0.0
                     jump_amount = 0.0
+                    was_j_charging = False
+                    head_pitch = pre_j_head_pitch
+                is_j_air_spinning = False
+                j_spin_yaw = 0.0
+                is_on_fire = False
             is_tag_active = (not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none")) and (
                 is_tagging or (keys_down[pygame.K_t] if not is_typing_chat else False)
             )
@@ -1993,21 +2080,31 @@ def main() -> None:
                     jump_offset_y = landing_support_y
                 is_still_holding_j = (not is_typing_chat) and (not jump_released_this_frame) and bool(keys_down[pygame.K_j])
                 if is_still_holding_j:
+                    if not was_j_charging:
+                        pre_j_head_pitch = head_pitch
+                        was_j_charging = True
                     crouch_timer += dt
                     jump_charge = min(1.0, crouch_timer / max_jump_charge_time)
                     # Visual crouch starts snappy (~0.25) and sinks deeper as you hold for more jump height
                     jump_amount = min(1.0, 0.25 + 0.75 * math.sin(jump_charge * (math.pi / 2)))
                     crouch_eye_drop = -0.68 * jump_amount
                     wing_flap_amount = 0.0
+                    # Tilt head upward toward the sky while holding J!
+                    target_up_pitch = math.pi * 0.44
+                    head_pitch += (target_up_pitch - head_pitch) * min(1.0, 9.0 * dt)
                 else:
-                    # Released 'J' -> jump with height proportional to how long 'J' was held!
+                    # Released 'J' -> launch high, spin in the air, and burst into flames!
+                    was_j_charging = False
                     target_jump_h = MIN_JUMP_HEIGHT + crouch_timer * JUMP_HEIGHT_PER_SEC
                     jump_velocity_y = math.sqrt(2.0 * GRAVITY * target_jump_h)
                     jump_state = "airborne"
                     jump_offset_y = max(jump_offset_y, landing_support_y) + 0.08
-                    jump_amount = 0.0  # Fully un-crouch and thrust upward!
+                    jump_amount = 0.0  # Release arm tuck & crouch on takeoff
                     crouch_timer = 0.0
                     jump_charge = 0.0
+                    is_j_air_spinning = True
+                    j_spin_yaw = 0.0
+                    is_on_fire = True
                     riding_player_id = None
                     riding_prev_base_pos = None
             elif jump_state == "airborne":
@@ -2017,7 +2114,11 @@ def main() -> None:
                 jump_offset_y += jump_velocity_y * dt
                 jump_velocity_y -= GRAVITY * dt
                 jump_amount = 0.0      # Not crouching while jumping!
-                wing_flap_amount = 1.0 # Wings flap while flying through the air
+                wing_flap_amount = 1.0 # Wings soar in the air
+                if is_j_air_spinning and not is_kick_launched:
+                    j_spin_yaw = (j_spin_yaw + dt * 14.0) % (2.0 * math.pi)
+                    is_on_fire = True
+                    head_pitch += (pre_j_head_pitch - head_pitch) * min(1.0, 6.0 * dt)
                 if is_kick_launched:
                     # Ragdoll mode: tip into loose sprawl toward ±90 deg to land laying flat down on grass (NOT a backflip!)
                     local_ragdoll = 1.0
@@ -2042,6 +2143,9 @@ def main() -> None:
                         jump_state = "idle"   # Landed firmly on the ground or atop the player!
                         jump_amount = 0.0
                         wing_flap_amount = 0.0
+                        is_j_air_spinning = False
+                        j_spin_yaw = 0.0
+                        is_on_fire = False
                         if is_kick_launched:
                             is_kick_launched = False
                             local_lay_pitch = kick_lay_dir * (math.pi * 0.5)
@@ -2078,7 +2182,7 @@ def main() -> None:
                 is_running,
                 mouth_open,
                 is_walking=is_walking,
-                rot_y=cam_yaw,
+                rot_y=wrap_angle(cam_yaw + (j_spin_yaw if is_j_air_spinning else 0.0)),
                 rot_z=local_rot_z,
                 lay_pitch=local_lay_pitch,
                 ragdoll=local_ragdoll,
@@ -2094,6 +2198,7 @@ def main() -> None:
                 jump_offset_y=jump_offset_y,
                 jump_amount=jump_amount,
                 tag_amount=tag_amount,
+                on_fire=is_on_fire,
             )
 
         connected, is_host, my_id, my_color, remote_players = net.get_snapshot()
@@ -2217,7 +2322,7 @@ def main() -> None:
         # Keep first-person yaw & pitch synced immediately during headshot / ragdoll states
         if is_online and not is_fighting:
             if local_headshot_phase != "none":
-                total_yaw = cam_yaw + head_yaw
+                total_yaw = cam_yaw + head_yaw + (j_spin_yaw if is_j_air_spinning else 0.0)
                 total_pitch = max(-1.35, min(1.35, head_pitch))
             if abs(local_lay_pitch) > 1e-3:
                 total_pitch = max(-1.35, min(1.35, total_pitch + (-local_lay_pitch * 0.65)))
@@ -2545,6 +2650,8 @@ def main() -> None:
                     jump_amount=rs.get("jump_amount", 0.0),
                     tag_amount=rs.get("tag_amount", 0.0),
                 )
+                if pdata.get("on_fire", False):
+                    draw_chick_fire(screen, sx, sy, model_scale * 0.65, anim_time, seed=float(pid) * 1.37)
 
                 # Floating nameplates above chicken's comb:
                 # 1) Chicken's Chinese name (e.g. "小胖墩", "卡梅利多", "卡门")
@@ -3227,6 +3334,23 @@ def main() -> None:
             cover_h = max(1, min(win_h, round(win_h * blink_cover_progress)))
             pygame.draw.rect(screen, (0, 0, 0), pygame.Rect(0, 0, win_w, cover_h))
 
+        # First-person fire border & rising embers while spinning on fire in mid-air!
+        if is_online and not is_fighting and is_on_fire:
+            num_tongues = 11
+            for fi in range(num_tongues):
+                fx = round((fi + 0.5) * (win_w / num_tongues) + math.sin(anim_time * 14.0 + fi * 1.7) * 18)
+                fh = round(78 + 46 * math.sin(anim_time * 18.0 + fi * 2.3))
+                fw = max(48, win_w // num_tongues + 24)
+                tip_x = fx + round(math.sin(anim_time * 21.0 + fi) * 20)
+                pygame.draw.polygon(screen, (255, 70, 14), [(fx - fw // 2, win_h), (fx - fw // 3, win_h - fh // 2), (tip_x, win_h - fh), (fx + fw // 3, win_h - fh // 2), (fx + fw // 2, win_h)])
+                pygame.draw.polygon(screen, (255, 165, 30), [(fx - fw // 3, win_h), (tip_x, win_h - round(fh * 0.72)), (fx + fw // 3, win_h)])
+                pygame.draw.polygon(screen, (255, 236, 98), [(fx - fw // 5, win_h), (tip_x, win_h - round(fh * 0.42)), (fx + fw // 5, win_h)])
+            for si in range(14):
+                s_prog = (anim_time * 1.6 + si * 0.071) % 1.0
+                sx_e = round(((si * 0.073 + 0.03) % 1.0) * win_w + math.sin(anim_time * 8.0 + si) * 28)
+                sy_e = round(win_h - s_prog * win_h * 0.72)
+                pygame.draw.circle(screen, (255, 220, 80) if si % 2 == 0 else (255, 110, 20), (sx_e, sy_e), max(3, round(8 * (1.0 - s_prog * 0.6))))
+
         # --- 2. TOP-LEFT CORNER PICTURE: ONLY VISIBLE WHEN ONLINE (EQUIPPED CARMELITO) ---
         if is_online:
             pic_rect = pygame.Rect(16, 16, 180, 200)
@@ -3255,7 +3379,7 @@ def main() -> None:
                 surface=screen,
                 screen_pos=(106, corner_y),
                 scale=72,
-                rot_y=0.0,
+                rot_y=(j_spin_yaw if is_j_air_spinning else 0.0),
                 rot_x=0.06,
                 rot_z=local_rot_z,
                 lay_pitch=local_lay_pitch,
@@ -3274,6 +3398,11 @@ def main() -> None:
                 character=selected_character,
                 jump_amount=jump_amount,
             )
+            if is_on_fire:
+                old_clip = screen.get_clip()
+                screen.set_clip(pic_rect)
+                draw_chick_fire(screen, 106, corner_y + 4, 52.0, anim_time, seed=0.42)
+                screen.set_clip(old_clip)
 
             # --- 2d. TOP-RIGHT PERSISTENT CHATBOX (shows everyone's messages) ---
             if is_online:

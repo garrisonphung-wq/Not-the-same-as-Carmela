@@ -199,6 +199,7 @@ class GameRelayServer:
                         "jump_offset_y": p.get("jump_offset_y", 0.0),
                         "jump_amount": p.get("jump_amount", 0.0),
                         "tag_amount": p.get("tag_amount", 0.0),
+                        "on_fire": p.get("on_fire", False),
                     }
                     if p["chick_name"]:
                         bcast_msg["chick_name"] = p["chick_name"]

@@ -926,15 +926,13 @@ class Carmelito3D:
             elbow_pt = lerp_vec3(elbow_stand_walk, run_elbow, rw)
             hand_pt = lerp_vec3(hand_stand_walk, run_hand, rw)
 
-            # Jump flap / soaring wing motion when jumping with 'J'
+            # Lower entire arm straight down until touching the body while charging 'J'
             if jump_amount > 0.001:
                 ja = max(0.0, min(1.0, jump_amount))
-                # Dynamic flapping wing arc (lifts high out to the sides and flaps up!)
-                flap_phase = math.sin(run_cycle * 16.0) * 0.18
-                jump_elbow = (side * (0.42 + 0.15 * ja), body_center_y + 0.12 * ja + flap_phase, 0.04)
-                jump_hand = (side * (0.58 + 0.22 * ja), body_center_y + 0.28 * ja + flap_phase * 1.5, 0.10)
-                elbow_pt = lerp_vec3(elbow_pt, jump_elbow, ja)
-                hand_pt = lerp_vec3(hand_pt, jump_hand, ja)
+                tuck_elbow = (side * (0.265 * body_w), body_center_y - 0.14, 0.01)
+                tuck_hand = (side * (0.245 * body_w), body_center_y - 0.42, 0.02)
+                elbow_pt = lerp_vec3(elbow_pt, tuck_elbow, ja)
+                hand_pt = lerp_vec3(hand_pt, tuck_hand, ja)
 
             # Punch wing jab when player punches with 'P'
             if punch_amount > 0.001 and side == punch_side:
