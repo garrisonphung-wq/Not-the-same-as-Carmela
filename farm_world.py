@@ -22,18 +22,21 @@ import pygame
 CHICKEN_COOP = {
     "cx": -14.0,
     "cz": 14.0,
-    "w": 6.4,       # X width
-    "d": 5.4,       # Z depth
-    "wall_h": 4.0,
-    "peak_h": 6.4,
+    "w": 3.4,       # Raised wooden coop cabin X width
+    "d": 2.8,       # Raised wooden coop cabin Z depth
+    "stilt_h": 1.05,
+    "wall_h": 3.05,
+    "peak_h": 4.15,
+    "run_w": 3.6,   # Attached chicken-wire mesh run extending on +X
+    "run_h": 1.85,
 }
 
 # (cx, cz, w, d, base_y, h, yaw_rad)
 HAY_BALES: list[dict[str, float]] = [
-    # Cozy stacked trio right beside the chicken coop
-    {"cx": -8.6, "cz": 12.2, "w": 2.2, "d": 1.6, "base_y": 0.0, "h": 1.15},
-    {"cx": -8.7, "cz": 14.2, "w": 2.2, "d": 1.6, "base_y": 0.0, "h": 1.15},
-    {"cx": -8.6, "cz": 13.2, "w": 2.0, "d": 1.5, "base_y": 1.15, "h": 1.08},
+    # Cozy stacked trio right beside the chicken coop wire run
+    {"cx": -6.3, "cz": 13.0, "w": 2.1, "d": 1.5, "base_y": 0.0, "h": 1.12},
+    {"cx": -6.4, "cz": 14.9, "w": 2.1, "d": 1.5, "base_y": 0.0, "h": 1.12},
+    {"cx": -6.3, "cz": 13.9, "w": 1.9, "d": 1.4, "base_y": 1.12, "h": 1.05},
     # Sunny meadow hay stack on the right side
     {"cx": 11.5, "cz": 10.5, "w": 2.4, "d": 1.7, "base_y": 0.0, "h": 1.20},
     {"cx": 13.7, "cz": 11.2, "w": 2.1, "d": 1.6, "base_y": 0.0, "h": 1.12},
@@ -147,15 +150,27 @@ def resolve_world_props_collision(
     """Push chick cleanly outside solid walls/bales/fences/trunks and return max support height."""
     support_y = 0.0
 
-    # 1. Chicken Coop AABB + walkable roof support
+    # 1. Raised Wooden Chicken Coop + Walkable Ramp + Outboard Nest Box + Attached Wire Run
     cx = CHICKEN_COOP["cx"]
     cz = CHICKEN_COOP["cz"]
     hx = CHICKEN_COOP["w"] * 0.5 + chick_radius
     hz = CHICKEN_COOP["d"] * 0.5 + chick_radius
     wall_h = CHICKEN_COOP["wall_h"]
+    stilt_h = CHICKEN_COOP["stilt_h"]
+
+    # 1a. Walkable cleated ramp leading up to the coop pop-door on the -Z front face
+    ramp_x0, ramp_x1 = cx - 0.58, cx + 0.58
+    ramp_z_bot = cz - CHICKEN_COOP["d"] * 0.5 - 2.35
+    ramp_z_top = cz - CHICKEN_COOP["d"] * 0.5
+    if ramp_x0 <= wx <= ramp_x1 and ramp_z_bot <= wz <= ramp_z_top:
+        t_ramp = (wz - ramp_z_bot) / max(0.1, ramp_z_top - ramp_z_bot)
+        ramp_y = t_ramp * (stilt_h + 0.08)
+        if jump_y >= ramp_y - 0.45:
+            support_y = max(support_y, ramp_y)
+
+    # 1b. Coop cabin & stilts + walkable roof
     if abs(wx - cx) < hx and abs(wz - cz) < hz:
         if jump_y >= wall_h - 0.35:
-            # Perch on roof slope!
             frac_x = min(1.0, abs(wx - cx) / max(0.1, CHICKEN_COOP["w"] * 0.5))
             roof_y = CHICKEN_COOP["peak_h"] - frac_x * (CHICKEN_COOP["peak_h"] - wall_h)
             support_y = max(support_y, roof_y)
@@ -166,6 +181,42 @@ def resolve_world_props_collision(
                 wx = cx + (hx if wx >= cx else -hx)
             else:
                 wz = cz + (hz if wz >= cz else -hz)
+
+    # 1c. Outboard Nesting Box on -X side (walkable slanted top!)
+    nb_x0 = cx - CHICKEN_COOP["w"] * 0.5 - 0.95 - chick_radius
+    nb_x1 = cx - CHICKEN_COOP["w"] * 0.5
+    nb_z0 = cz - 1.05 - chick_radius
+    nb_z1 = cz + 1.05 + chick_radius
+    if nb_x0 <= wx <= nb_x1 and nb_z0 <= wz <= nb_z1:
+        if jump_y >= 1.75:
+            support_y = max(support_y, 2.05)
+        elif jump_y >= 0.75:
+            dx_nb = abs(wx - nb_x0)
+            dz_nb = min(abs(wz - nb_z0), abs(wz - nb_z1))
+            if dx_nb <= dz_nb:
+                wx = nb_x0
+            else:
+                wz = nb_z0 if abs(wz - nb_z0) < abs(wz - nb_z1) else nb_z1
+
+    # 1d. Attached Wire-Mesh Run Pen on +X side (jumpable over roof at y >= 1.85)
+    run_x0 = cx + CHICKEN_COOP["w"] * 0.5
+    run_x1 = run_x0 + CHICKEN_COOP["run_w"] + chick_radius
+    run_z0 = cz - CHICKEN_COOP["d"] * 0.5 - chick_radius
+    run_z1 = cz + CHICKEN_COOP["d"] * 0.5 + chick_radius
+    if run_x0 < wx < run_x1 and run_z0 < wz < run_z1:
+        if jump_y >= CHICKEN_COOP["run_h"] - 0.25:
+            support_y = max(support_y, CHICKEN_COOP["run_h"])
+        else:
+            d_rx1 = run_x1 - wx
+            d_rz0 = wz - run_z0
+            d_rz1 = run_z1 - wz
+            m = min(d_rx1, d_rz0, d_rz1)
+            if m == d_rx1:
+                wx = run_x1
+            elif m == d_rz0:
+                wz = run_z0
+            else:
+                wz = run_z1
 
     # 2. Hay Bales (walk/stand on top or push outside sides)
     for bale in HAY_BALES:
@@ -336,10 +387,21 @@ def collect_world_prop_draw_items(
     """Return distance-tagged prop items to interleave cleanly in PASS 2 with chicks."""
     items: list[tuple[float, str, object]] = []
 
-    # 1. Chicken Coop
-    coop_cam = to_cam(CHICKEN_COOP["cx"], current_ground_y + 1.5, CHICKEN_COOP["cz"])
-    if coop_cam[2] > -5.5:
-        items.append((coop_cam[2], "coop", CHICKEN_COOP))
+    # 1. Chicken Coop Sub-Parts (depth-sorted independently so ramp/nest/wire-run/cabin never z-fight from any angle!)
+    _cx, _cz = CHICKEN_COOP["cx"], CHICKEN_COOP["cz"]
+    _hx, _hz = CHICKEN_COOP["w"] * 0.5, CHICKEN_COOP["d"] * 0.5
+    c_cabin = to_cam(_cx, current_ground_y + 1.8, _cz)
+    if c_cabin[2] > -4.0:
+        items.append((c_cabin[2], "coop_cabin", CHICKEN_COOP))
+    c_run = to_cam(_cx + _hx + CHICKEN_COOP["run_w"] * 0.5, current_ground_y + 0.9, _cz)
+    if c_run[2] > -4.0:
+        items.append((c_run[2], "coop_run", CHICKEN_COOP))
+    c_nest = to_cam(_cx - _hx - 0.48, current_ground_y + 1.45, _cz)
+    if c_nest[2] > -3.0:
+        items.append((c_nest[2], "coop_nest", CHICKEN_COOP))
+    c_ramp = to_cam(_cx, current_ground_y + 0.5, _cz - _hz - 1.15)
+    if c_ramp[2] > -3.0:
+        items.append((c_ramp[2], "coop_ramp", CHICKEN_COOP))
 
     # 2. Hay Bales
     for bale in HAY_BALES:
@@ -396,21 +458,85 @@ def draw_world_prop_item(
     anim_time: float,
 ) -> None:
     """Render one 3D farm building or nature prop."""
-    if kind == "coop":
+    if kind == "coop_run":
         coop = payload  # type: ignore[assignment]
         cx, cz = coop["cx"], coop["cz"]
         w, d = coop["w"], coop["d"]
+        run_w, run_h = coop["run_w"], coop["run_h"]
+        hx, hz = w * 0.5, d * 0.5
+        y_ground = current_ground_y
+        leg_col = {
+            "top": (152, 102, 58),
+            "front": (132, 86, 46),
+            "right": (122, 78, 42),
+            "left": (110, 70, 38),
+            "back": (102, 64, 34),
+        }
+        rx0, rx1 = cx + hx, cx + hx + run_w
+        rz0, rz1 = cz - hz, cz + hz
+        ry_top = y_ground + run_h
+        for px, pz in ((rx1, rz0), (rx1, rz1)):
+            _draw_box(
+                screen, to_cam, px - 0.10, y_ground, pz, 0.20, run_h, 0.20,
+                leg_col, near_z, hw, hh, focal, win_w, win_h, edge_col=(78, 48, 24),
+            )
+        _draw_box(screen, to_cam, (rx0 + rx1) * 0.5, ry_top - 0.12, rz0 + 0.08, run_w, 0.14, 0.14, leg_col, near_z, hw, hh, focal, win_w, win_h)
+        _draw_box(screen, to_cam, (rx0 + rx1) * 0.5, ry_top - 0.12, rz1 - 0.08, run_w, 0.14, 0.14, leg_col, near_z, hw, hh, focal, win_w, win_h)
+        _draw_box(screen, to_cam, rx1 - 0.08, ry_top - 0.12, cz, 0.14, 0.14, d, leg_col, near_z, hw, hh, focal, win_w, win_h)
+
+        wire_col = (182, 192, 200)
+        def _wire_line(p1: tuple[float, float, float], p2: tuple[float, float, float]) -> None:
+            c1, c2 = to_cam(*p1), to_cam(*p2)
+            if c1[2] > near_z and c2[2] > near_z:
+                s1 = (round(hw + (c1[0] / c1[2]) * focal), round(hh - (c1[1] / c1[2]) * focal))
+                s2 = (round(hw + (c2[0] / c2[2]) * focal), round(hh - (c2[1] / c2[2]) * focal))
+                pygame.draw.line(screen, wire_col, s1, s2, 1)
+
+        for wi in range(1, 5):
+            wy = y_ground + (wi / 5.0) * run_h
+            _wire_line((rx0, wy, rz0), (rx1, wy, rz0))
+            _wire_line((rx0, wy, rz1), (rx1, wy, rz1))
+            _wire_line((rx1, wy, rz0), (rx1, wy, rz1))
+        for wx_i in range(1, 7):
+            wxp = rx0 + (wx_i / 7.0) * run_w
+            _wire_line((wxp, y_ground, rz0), (wxp, ry_top, rz0))
+            _wire_line((wxp, y_ground, rz1), (wxp, ry_top, rz1))
+            _wire_line((wxp, ry_top, rz0), (wxp, ry_top, rz1))
+        for wz_i in range(1, 6):
+            wzp = rz0 + (wz_i / 6.0) * d
+            _wire_line((rx1, y_ground, wzp), (rx1, ry_top, wzp))
+            _wire_line((rx0, ry_top, wzp), (rx1, ry_top, wzp))
+
+    elif kind == "coop_cabin":
+        coop = payload  # type: ignore[assignment]
+        cx, cz = coop["cx"], coop["cz"]
+        w, d = coop["w"], coop["d"]
+        stilt_h = coop["stilt_h"]
         wall_h, peak_h = coop["wall_h"], coop["peak_h"]
         hx, hz = w * 0.5, d * 0.5
-        y0 = current_ground_y
-        y_wall = y0 + wall_h
-        y_peak = y0 + peak_h
+        y_ground = current_ground_y
+        y_floor = y_ground + stilt_h
+        y_wall = y_ground + wall_h
+        y_peak = y_ground + peak_h
 
-        # Wall corners & roof ridge
-        w00 = to_cam(cx - hx, y0, cz - hz)
-        w10 = to_cam(cx + hx, y0, cz - hz)
-        w11 = to_cam(cx + hx, y0, cz + hz)
-        w01 = to_cam(cx - hx, y0, cz + hz)
+        leg_col = {
+            "top": (152, 102, 58),
+            "front": (132, 86, 46),
+            "right": (122, 78, 42),
+            "left": (110, 70, 38),
+            "back": (102, 64, 34),
+        }
+        for lx in (cx - hx + 0.18, cx + hx - 0.18):
+            for lz in (cz - hz + 0.18, cz + hz - 0.18):
+                _draw_box(
+                    screen, to_cam, lx, y_ground, lz, 0.24, stilt_h + 0.05, 0.24,
+                    leg_col, near_z, hw, hh, focal, win_w, win_h, edge_col=(78, 48, 24),
+                )
+
+        w00 = to_cam(cx - hx, y_floor, cz - hz)
+        w10 = to_cam(cx + hx, y_floor, cz - hz)
+        w11 = to_cam(cx + hx, y_floor, cz + hz)
+        w01 = to_cam(cx - hx, y_floor, cz + hz)
         t00 = to_cam(cx - hx, y_wall, cz - hz)
         t10 = to_cam(cx + hx, y_wall, cz - hz)
         t11 = to_cam(cx + hx, y_wall, cz + hz)
@@ -418,60 +544,102 @@ def draw_world_prop_item(
         r_front = to_cam(cx, y_peak, cz - hz)
         r_back = to_cam(cx, y_peak, cz + hz)
 
-        # Overhanging roof corners
-        oh = 0.45
+        oh = 0.34
         rhx, rhz = hx + oh, hz + oh
-        ry_eave = y_wall - 0.18
+        ry_eave = y_wall - 0.14
         rf_l = to_cam(cx - rhx, ry_eave, cz - rhz)
         rf_r = to_cam(cx + rhx, ry_eave, cz - rhz)
         rb_l = to_cam(cx - rhx, ry_eave, cz + rhz)
         rb_r = to_cam(cx + rhx, ry_eave, cz + rhz)
-        rr_f = to_cam(cx, y_peak + 0.08, cz - rhz)
-        rr_b = to_cam(cx, y_peak + 0.08, cz + rhz)
+        rr_f = to_cam(cx, y_peak + 0.06, cz - rhz)
+        rr_b = to_cam(cx, y_peak + 0.06, cz + rhz)
 
-        # Arched/framed coop door on the +X side facing the meadow!
-        door_x = cx + hx + 0.02
-        d_z0, d_z1 = cz - 0.85, cz + 0.85
-        d_y1 = y0 + 2.35
-        dr0 = to_cam(door_x, y0, d_z0)
-        dr1 = to_cam(door_x, y0, d_z1)
-        dr2 = to_cam(door_x, d_y1, d_z1)
-        dr3 = to_cam(door_x, d_y1, d_z0)
+        pop_w = 0.48
+        dz_f = cz - hz - 0.02
+        pop0 = to_cam(cx - pop_w, y_floor + 0.06, dz_f)
+        pop1 = to_cam(cx + pop_w, y_floor + 0.06, dz_f)
+        pop2 = to_cam(cx + pop_w, y_floor + 1.15, dz_f)
+        pop3 = to_cam(cx - pop_w, y_floor + 1.15, dz_f)
 
-        # Also a front coop window on -Z wall facing spawn!
-        win_z = cz - hz - 0.02
-        wn0 = to_cam(cx - 0.85, y0 + 1.65, win_z)
-        wn1 = to_cam(cx + 0.85, y0 + 1.65, win_z)
-        wn2 = to_cam(cx + 0.85, y0 + 2.85, win_z)
-        wn3 = to_cam(cx - 0.85, y0 + 2.85, win_z)
+        vt0 = to_cam(cx - 0.38, y_wall + 0.12, dz_f)
+        vt1 = to_cam(cx + 0.38, y_wall + 0.12, dz_f)
+        vt2 = to_cam(cx + 0.38, y_wall + 0.62, dz_f)
+        vt3 = to_cam(cx - 0.38, y_wall + 0.62, dz_f)
 
-        # Wooden ramp leading up to coop door
-        ramp0 = to_cam(cx + hx, y0 + 0.18, cz - 0.72)
-        ramp1 = to_cam(cx + hx, y0 + 0.18, cz + 0.72)
-        ramp2 = to_cam(cx + hx + 1.65, y0 + 0.02, cz + 0.72)
-        ramp3 = to_cam(cx + hx + 1.65, y0 + 0.02, cz - 0.72)
-
-        raw_faces = [
-            ([w00, w10, t10, r_front, t00], (244, 224, 172), (176, 138, 86)),  # Front gable wall (-Z)
-            ([w11, w01, t01, r_back, t11], (222, 198, 146), (160, 124, 76)),   # Back gable wall (+Z)
-            ([w01, w00, t00, t01], (228, 206, 154), (166, 128, 78)),           # Left wall (-X)
-            ([w10, w11, t11, t10], (250, 232, 182), (182, 144, 90)),           # Right wall (+X, yard side)
-            ([rf_l, rr_f, rr_b, rb_l], (198, 58, 52), (138, 34, 30)),          # Left red roof slope
-            ([rr_f, rf_r, rb_r, rr_b], (220, 68, 58), (150, 40, 34)),          # Right red roof slope
-            ([dr0, dr1, dr2, dr3], (116, 72, 40), (74, 42, 20)),               # Coop door (+X)
-            ([wn0, wn1, wn2, wn3], (152, 206, 236), (112, 74, 42)),            # Cozy blue window (-Z)
-            ([ramp0, ramp1, ramp2, ramp3], (182, 132, 76), (124, 86, 46)),     # Wooden ramp (+X)
+        cabin_faces = [
+            ([w00, w10, w11, w01], (116, 74, 38), (78, 48, 24)),
+            ([w00, w10, t10, r_front, t00], (196, 138, 78), (124, 80, 42)),
+            ([w11, w01, t01, r_back, t11], (166, 114, 62), (108, 68, 36)),
+            ([w01, w00, t00, t01], (176, 122, 68), (112, 72, 38)),
+            ([w10, w11, t11, t10], (188, 132, 74), (118, 76, 40)),
+            ([rf_l, rr_f, rr_b, rb_l], (138, 68, 48), (88, 40, 26)),
+            ([rr_f, rf_r, rb_r, rr_b], (162, 82, 56), (98, 46, 30)),
+            ([pop0, pop1, pop2, pop3], (58, 36, 22), (112, 72, 36)),
+            ([vt0, vt1, vt2, vt3], (86, 56, 34), (124, 82, 44)),
         ]
         faces = []
-        for pts, col, ecol in raw_faces:
+        for pts, col, ecol in cabin_faces:
             if max(p[2] for p in pts) <= near_z:
                 continue
             avg_d = sum(p[2] for p in pts) / len(pts)
-            # Small tie-breaker so door/window/ramp draw in front of wall
-            if col in ((116, 72, 40), (152, 206, 236), (182, 132, 76)):
-                avg_d -= 0.12
+            if col in ((58, 36, 22), (86, 56, 34)):
+                avg_d -= 0.10
             faces.append((avg_d, pts, col, ecol))
         _draw_quad_list(screen, faces, near_z, hw, hh, focal, win_w, win_h)
+
+        for pi in range(1, 5):
+            py = y_floor + (pi / 5.0) * (wall_h - stilt_h)
+            _wire_p1, _wire_p2 = to_cam(cx - hx, py, dz_f), to_cam(cx + hx, py, dz_f)
+            if _wire_p1[2] > near_z and _wire_p2[2] > near_z:
+                sa = (round(hw + (_wire_p1[0] / _wire_p1[2]) * focal), round(hh - (_wire_p1[1] / _wire_p1[2]) * focal))
+                sb = (round(hw + (_wire_p2[0] / _wire_p2[2]) * focal), round(hh - (_wire_p2[1] / _wire_p2[2]) * focal))
+                pygame.draw.line(screen, (132, 86, 44), sa, sb, 1)
+
+    elif kind == "coop_ramp":
+        coop = payload  # type: ignore[assignment]
+        cx, cz = coop["cx"], coop["cz"]
+        hz = coop["d"] * 0.5
+        stilt_h = coop["stilt_h"]
+        y_ground = current_ground_y
+        y_floor = y_ground + stilt_h
+        rz_top = cz - hz
+        rz_bot = rz_top - 2.35
+        rm_l_t = to_cam(cx - 0.50, y_floor + 0.05, rz_top)
+        rm_r_t = to_cam(cx + 0.50, y_floor + 0.05, rz_top)
+        rm_r_b = to_cam(cx + 0.50, y_ground + 0.03, rz_bot)
+        rm_l_b = to_cam(cx - 0.50, y_ground + 0.03, rz_bot)
+        if max(p[2] for p in (rm_l_t, rm_r_t, rm_r_b, rm_l_b)) > near_z:
+            scr_ramp = _clip_poly_cam([rm_l_t, rm_r_t, rm_r_b, rm_l_b], near_z, hw, hh, focal, win_w, win_h)
+            if len(scr_ramp) >= 3:
+                pygame.draw.polygon(screen, (186, 134, 78), scr_ramp)
+                pygame.draw.polygon(screen, (112, 74, 38), scr_ramp, 1)
+        for ci in range(1, 7):
+            ct = ci / 7.0
+            cz_c = rz_bot + ct * (rz_top - rz_bot)
+            cy_c = (y_ground + 0.05) + ct * (stilt_h + 0.02)
+            ca, cb = to_cam(cx - 0.48, cy_c, cz_c), to_cam(cx + 0.48, cy_c, cz_c)
+            if ca[2] > near_z and cb[2] > near_z:
+                sa = (round(hw + (ca[0] / ca[2]) * focal), round(hh - (ca[1] / ca[2]) * focal))
+                sb = (round(hw + (cb[0] / cb[2]) * focal), round(hh - (cb[1] / cb[2]) * focal))
+                pygame.draw.line(screen, (108, 68, 34), sa, sb, 3)
+
+    elif kind == "coop_nest":
+        coop = payload  # type: ignore[assignment]
+        cx, cz = coop["cx"], coop["cz"]
+        hx = coop["w"] * 0.5
+        nb_cx = cx - hx - 0.48
+        _draw_box(
+            screen, to_cam, nb_cx, current_ground_y + 1.05, cz, 0.92, 0.85, 2.05,
+            colors={
+                "top": (166, 86, 58),
+                "front": (188, 132, 74),
+                "right": (176, 122, 68),
+                "left": (172, 118, 66),
+                "back": (158, 108, 58),
+            },
+            near_z=near_z, hw=hw, hh=hh, focal=focal, win_w=win_w, win_h=win_h,
+            edge_col=(104, 66, 34),
+        )
 
     elif kind == "hay":
         bale = payload  # type: ignore[assignment]
