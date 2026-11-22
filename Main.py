@@ -1148,9 +1148,9 @@ def main() -> None:
     remote_states: dict[int, dict[str, float]] = {}
 
     CLOUD_SPAWN_WX = 0.0
-    CLOUD_SPAWN_WZ = 10.0
-    CLOUD_SPAWN_Y = 14.0
-    CLOUD_PLATFORM_RADIUS = 6.2
+    CLOUD_SPAWN_WZ = 14.0
+    CLOUD_SPAWN_Y = 42.0
+    CLOUD_PLATFORM_RADIUS = 11.5
 
     play_button_rect = pygame.Rect(0, 0, 10, 10)
     name_button_rect = pygame.Rect(-100, -100, 0, 0)
@@ -2602,7 +2602,7 @@ def main() -> None:
             # Vector in world sky relative to eye
             c_dx = sky_dome_r * math.cos(c_el) * math.sin(c_az)
             c_dz = sky_dome_r * math.cos(c_el) * math.cos(c_az)
-            c_dy = sky_dome_r * math.sin(c_el)
+            c_dy = sky_dome_r * math.sin(c_el) - (jump_offset_y if is_online else 0.0)
 
             # Transform into camera coordinates
             rx = c_dx * cos_yaw - c_dz * sin_yaw
@@ -2628,7 +2628,7 @@ def main() -> None:
                             ph = max(3, round(base_r * ph_rel * 1.2))
                             # Clip below horizon so clouds don't draw on the grass/ocean
                             p_rect = pygame.Rect(round(px - pw * 0.5), round(py - ph * 0.5), pw, ph)
-                            if has_cam_roll or p_rect.bottom < horizon_y + 10 or not is_online:
+                            if has_cam_roll or (is_online and jump_offset_y >= 10.0) or p_rect.bottom < horizon_y + 10 or not is_online:
                                 pygame.draw.ellipse(screen, col, p_rect)
 
         # Render the Giant Island once per frame (not once per cloud!), clamping coordinates to avoid SDL giant-polygon lag when looking up in ragdoll mode
@@ -2794,9 +2794,11 @@ def main() -> None:
             ry_cam_feet = dy_feet * cos_pitch - rz_forward * sin_pitch
             rz_cam_feet = dy_feet * sin_pitch + rz_forward * cos_pitch
 
+            # True camera-ray depth for high/cloud chicks so feet align pixel-for-pixel with the 3D cloud top
+            eff_dist = rz_cam_feet if (abs(rwy - eye_y) > 2.5 and rz_cam_feet > 0.25) else horiz_dist
             # In front of player if either forward distance is positive or camera z is positive
-            if rz_forward > 0.15 or rz_cam_feet > 0.15:
-                visible_remotes.append((horiz_dist, pid, pdata, rs, rx_unpitched, ry_cam_feet, rz_forward))
+            if (rz_forward > 0.15 or rz_cam_feet > 0.15) and (abs(rwy - eye_y) <= 2.5 or rz_cam_feet > 0.25):
+                visible_remotes.append((eff_dist, pid, pdata, rs, rx_unpitched, ry_cam_feet, rz_forward))
 
         # 1c-2. Helper to draw the walkable 3D Sky Cloud Platform (visible to ground players, AI chick, & cloud players!)
         def draw_walkable_sky_cloud() -> None:
