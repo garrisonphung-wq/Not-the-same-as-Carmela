@@ -98,7 +98,9 @@ FARM_TREES: list[dict[str, float]] = [
 
 
 def _build_meadow_flowers() -> list[dict[str, object]]:
-    """Generate ~58 deterministic colorful flowers scattered across the meadow."""
+    """Generate deterministic colorful flowers scattered evenly across the meadow."""
+    import random as _rand
+    rng = _rand.Random(42069)
     palette = [
         (255, 250, 240),  # White daisy
         (255, 130, 165),  # Pink tulip
@@ -113,14 +115,9 @@ def _build_meadow_flowers() -> list[dict[str, object]]:
     coop_z0 = CHICKEN_COOP["cz"] - CHICKEN_COOP["d"] * 0.5 - 1.0
     coop_z1 = CHICKEN_COOP["cz"] + CHICKEN_COOP["d"] * 0.5 + 1.0
 
-    for idx in range(72):
-        # Deterministic quasi-random distribution inside [-24, 24] x [-16, 26]
-        h1 = ((idx * 1103515245 + 12345) & 0x7FFFFFFF) / 0x7FFFFFFF
-        h2 = ((idx * 214013 + 2531011) & 0x7FFFFFFF) / 0x7FFFFFFF
-        h3 = ((idx * 1664525 + 1013904223) & 0x7FFFFFFF) / 0x7FFFFFFF
-        wx = -24.0 + h1 * 48.0
-        wz = -15.5 + h2 * 41.5
-        # Keep out of chicken coop footprint and direct center spawn point
+    for idx in range(95):
+        wx = rng.uniform(-23.5, 23.5)
+        wz = rng.uniform(-14.5, 25.5)
         if coop_x0 <= wx <= coop_x1 and coop_z0 <= wz <= coop_z1:
             continue
         if math.hypot(wx, wz + 6.0) < 2.2:
@@ -131,8 +128,8 @@ def _build_meadow_flowers() -> list[dict[str, object]]:
             "wx": wx,
             "wz": wz,
             "color": palette[idx % len(palette)],
-            "h": 0.34 + h3 * 0.20,
-            "size": 0.14 + (idx % 3) * 0.03,
+            "h": rng.uniform(0.34, 0.56),
+            "size": 0.15 + (idx % 3) * 0.035,
             "phase": idx * 0.7,
         })
     return flowers
