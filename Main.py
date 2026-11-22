@@ -4,6 +4,7 @@ import json
 import math
 import os
 import random
+import socket
 import sys
 import threading
 import time
@@ -368,6 +369,36 @@ def is_local_server_url(server_url: str) -> tuple[bool, int]:
     return host in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}, port
 
 
+def normalize_server_url(raw_text: str, fallback: str = DEFAULT_SERVER_URL) -> str:
+    txt = str(raw_text or "").strip()
+    if not txt or txt.lower() in {"local", "auto", "local (auto)"}:
+        return fallback
+    if txt.startswith(("ws://", "wss://")):
+        return txt
+    if ":" not in txt or txt.startswith("["):
+        return f"ws://{txt}:8765"
+    return f"ws://{txt}"
+
+
+def get_lan_ip() -> str:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.settimeout(0.25)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            if ip and not ip.startswith("127."):
+                return ip
+    except OSError:
+        pass
+    try:
+        ip = socket.gethostbyname(socket.gethostname())
+        if ip and not ip.startswith("127."):
+            return ip
+    except OSError:
+        pass
+    return "127.0.0.1"
+
+
 class NetworkClient:
     def __init__(
         self,
@@ -380,6 +411,8 @@ class NetworkClient:
 
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
+        self._server_epoch = 0
+        self._active_ws: Any = None
         self._host_started = False
         self._is_online = is_online
 
@@ -637,6 +670,31 @@ class NetworkClient:
             self._incoming_chats.clear()
             return chats
 
+    def switch_server(self, new_url: str, auto_host: bool | None = None) -> None:
+        clean_url = str(new_url or DEFAULT_SERVER_URL).strip()
+        is_loc, _ = is_local_server_url(clean_url)
+        target_auto_host = is_loc if auto_host is None else bool(auto_host and is_loc)
+        ws_to_close = None
+        with self._lock:
+            if clean_url == self.server_url and target_auto_host == self.auto_host:
+                return
+            self.server_url = clean_url
+            self.auto_host = target_auto_host
+            self._server_epoch += 1
+            self.connected = False
+            self.my_id = None
+            self.remote_players.clear()
+            self._pos_dirty = True
+            ws_to_close = self._active_ws
+        if ws_to_close is not None:
+            try:
+                close_coro = ws_to_close.close()
+                loop = getattr(self, "_loop", None)
+                if loop is not None and loop.is_running():
+                    asyncio.run_coroutine_threadsafe(close_coro, loop)
+            except Exception:
+                pass
+
     def stop(self) -> None:
         self._stop_event.set()
 
@@ -693,11 +751,19 @@ class NetworkClient:
         asyncio.run(self._network_main())
 
     async def _network_main(self) -> None:
-        is_local, port = is_local_server_url(self.server_url)
+        self._loop = asyncio.get_running_loop()
         while not self._stop_event.is_set():
+            with self._lock:
+                cur_url = self.server_url
+                cur_auto_host = self.auto_host
+                cur_epoch = self._server_epoch
+            is_local, port = is_local_server_url(cur_url)
             try:
-                async with connect(self.server_url, ping_interval=15, ping_timeout=15) as ws:
+                async with connect(cur_url, ping_interval=15, ping_timeout=15, open_timeout=3.0) as ws:
                     with self._lock:
+                        if self._server_epoch != cur_epoch:
+                            continue
+                        self._active_ws = ws
                         self.connected = True
                         self._pos_dirty = True
                     tasks = [
@@ -716,7 +782,7 @@ class NetworkClient:
                             if exc is not None and not isinstance(exc, ConnectionClosed):
                                 raise exc
             except (ConnectionRefusedError, OSError):
-                if is_local and self.auto_host and not self._host_started:
+                if is_local and cur_auto_host and not self._host_started:
                     self._start_embedded_server(port)
                     await asyncio.sleep(0.15)
                     continue
@@ -727,9 +793,15 @@ class NetworkClient:
                 with self._lock:
                     self.connected = False
                     self.remote_players.clear()
+            finally:
+                with self._lock:
+                    self._active_ws = None
 
             if not self._stop_event.is_set():
-                await asyncio.sleep(1.5)
+                with self._lock:
+                    epoch_changed = (self._server_epoch != cur_epoch)
+                if not epoch_changed:
+                    await asyncio.sleep(1.2)
 
     async def _sender_loop(self, ws: Any) -> None:
         interval = 1.0 / NETWORK_SEND_HZ
@@ -1158,6 +1230,7 @@ def main() -> None:
     play_button_rect = pygame.Rect(0, 0, 10, 10)
     name_button_rect = pygame.Rect(-100, -100, 0, 0)
     name_input_rect = pygame.Rect(-100, -100, 0, 0)
+    server_input_rect = pygame.Rect(-100, -100, 0, 0)
     place_box_rect = pygame.Rect(-100, -100, 0, 0)
     place_option_rects: list[tuple[str, pygame.Rect]] = []
     spawn_place_options = ("ground", "on cloud")
@@ -1165,7 +1238,10 @@ def main() -> None:
     place_dropdown_open = False
     custom_player_name = ""
     is_typing_menu_name = False
+    is_typing_menu_server = False
     menu_ime_comp_text = ""
+    custom_server_input = "" if args.server == DEFAULT_SERVER_URL else args.server
+    lan_ip_str = get_lan_ip()
 
     # Chat system state
     is_typing_chat = False
@@ -1249,6 +1325,11 @@ def main() -> None:
                 txt_in = str(getattr(event, "text", "") or "")
                 if txt_in and len(custom_player_name) < 20:
                     custom_player_name = (custom_player_name + txt_in)[:20]
+            elif not is_online and menu_state == "title" and is_typing_menu_server and event.type == pygame.TEXTINPUT:
+                txt_in = str(getattr(event, "text", "") or "")
+                clean_chars = "".join(c for c in txt_in if c.isascii() and not c.isspace())
+                if clean_chars and len(custom_server_input) < 48:
+                    custom_server_input = (custom_server_input + clean_chars)[:48]
             elif is_online and is_typing_chat and event.type == getattr(pygame, "TEXTEDITING", -1):
                 # Native OS IME composition preview (e.g. macOS Pinyin before committing)
                 ime_comp_text = str(getattr(event, "text", "") or "")
@@ -1283,6 +1364,16 @@ def main() -> None:
                             if hasattr(pygame.key, "stop_text_input"):
                                 pygame.key.stop_text_input()
                     # Do nothing else while typing in the menu name box!
+                elif not is_online and menu_state == "title" and is_typing_menu_server:
+                    if event.key == pygame.K_BACKSPACE:
+                        if custom_server_input:
+                            custom_server_input = custom_server_input[:-1]
+                    elif is_enter_key or event.key == pygame.K_ESCAPE:
+                        is_typing_menu_server = False
+                        if hasattr(pygame.key, "stop_text_input"):
+                            pygame.key.stop_text_input()
+                        target_srv = normalize_server_url(custom_server_input, fallback=DEFAULT_SERVER_URL)
+                        net.switch_server(target_srv, auto_host=(not args.no_auto_host))
                 elif is_online and is_typing_chat:
                     if event.key == pygame.K_TAB:
                         # Toggle built-in Chinese Pinyin mode
@@ -1427,14 +1518,30 @@ def main() -> None:
                             is_dragging_island = False
                         elif place_box_rect.collidepoint(event.pos):
                             place_dropdown_open = not place_dropdown_open
-                            if is_typing_menu_name:
+                            if is_typing_menu_name or is_typing_menu_server:
                                 is_typing_menu_name = False
+                                if is_typing_menu_server:
+                                    is_typing_menu_server = False
+                                    net.switch_server(normalize_server_url(custom_server_input, fallback=DEFAULT_SERVER_URL), auto_host=(not args.no_auto_host))
                                 menu_ime_comp_text = ""
                                 if hasattr(pygame.key, "stop_text_input"):
                                     pygame.key.stop_text_input()
                             is_dragging_island = False
+                        elif server_input_rect.collidepoint(event.pos):
+                            place_dropdown_open = False
+                            is_typing_menu_name = False
+                            is_typing_menu_server = True
+                            menu_ime_comp_text = ""
+                            if hasattr(pygame.key, "start_text_input"):
+                                pygame.key.start_text_input()
+                            if hasattr(pygame.key, "set_text_input_rect"):
+                                pygame.key.set_text_input_rect(server_input_rect)
+                            is_dragging_island = False
                         elif name_button_rect.collidepoint(event.pos) or name_input_rect.collidepoint(event.pos):
                             place_dropdown_open = False
+                            if is_typing_menu_server:
+                                is_typing_menu_server = False
+                                net.switch_server(normalize_server_url(custom_server_input, fallback=DEFAULT_SERVER_URL), auto_host=(not args.no_auto_host))
                             is_typing_menu_name = True
                             menu_ime_comp_text = ""
                             if hasattr(pygame.key, "start_text_input"):
@@ -1445,17 +1552,22 @@ def main() -> None:
                         elif play_button_rect.collidepoint(event.pos):
                             # Clicking PLAY opens character select: Carmelito appears spinning, with name and USE button
                             place_dropdown_open = False
-                            if is_typing_menu_name:
+                            if is_typing_menu_name or is_typing_menu_server:
                                 is_typing_menu_name = False
+                                is_typing_menu_server = False
                                 menu_ime_comp_text = ""
                                 if hasattr(pygame.key, "stop_text_input"):
                                     pygame.key.stop_text_input()
+                            net.switch_server(normalize_server_url(custom_server_input, fallback=DEFAULT_SERVER_URL), auto_host=(not args.no_auto_host))
                             menu_state = "character_select"
                             is_dragging_island = False
                         else:
                             place_dropdown_open = False
-                            if is_typing_menu_name:
+                            if is_typing_menu_name or is_typing_menu_server:
                                 is_typing_menu_name = False
+                                if is_typing_menu_server:
+                                    is_typing_menu_server = False
+                                    net.switch_server(normalize_server_url(custom_server_input, fallback=DEFAULT_SERVER_URL), auto_host=(not args.no_auto_host))
                                 menu_ime_comp_text = ""
                                 if hasattr(pygame.key, "stop_text_input"):
                                     pygame.key.stop_text_input()
@@ -1494,6 +1606,8 @@ def main() -> None:
                             local_lay_pitch = 0.0
                             local_rot_z = 0.0
                             local_ragdoll = 0.0
+                            _snap_peers = net.get_snapshot()[4]
+                            _spawn_nudge = 0.0
                             if selected_spawn_place == "on cloud":
                                 cam_x = CLOUD_SPAWN_WX
                                 cam_z = CLOUD_SPAWN_WZ
@@ -1504,6 +1618,19 @@ def main() -> None:
                                 cam_z = ground_cam_z
                                 jump_offset_y = 0.0
                                 cam_yaw = ground_cam_yaw
+                            # Avoid spawning overlapping another player standing at the spawn spot
+                            for _attempt in range(6):
+                                _occ = any(
+                                    abs((_p.get("wx") or 0.0) - (cam_x + _spawn_nudge)) < 1.35
+                                    and abs((_p.get("wz") or 0.0) - cam_z) < 1.35
+                                    and abs(float(_p.get("jump_offset_y", 0.0)) - jump_offset_y) < 3.0
+                                    for _p in _snap_peers.values()
+                                )
+                                if not _occ:
+                                    break
+                                _step = (_attempt // 2 + 1) * 1.75
+                                _spawn_nudge = _step if (_attempt % 2 == 0) else -_step
+                            cam_x += _spawn_nudge
                             head_yaw = 0.0
                             head_pitch = 0.0
                             is_dragging_island = False
@@ -2895,19 +3022,22 @@ def main() -> None:
                 remote_char = resolve_character_id(pdata)
                 char_scale = 0.82 if remote_char == "carmen" else (1.15 if remote_char in ("pangdun", "小胖墩", "belino", "coquenpate") else (1.08 if remote_char in ("xiaoliuzi", "小六子", "coqsix", "克西斯") else 1.0))
                 
-                # Ground shadow screen position
-                dy_g = current_ground_y - eye_y
-                g_rz_cam = dy_g * sin_pitch + rz_forward * cos_pitch
-                if g_rz_cam > 0.25:
-                    g_ry_cam = dy_g * cos_pitch - rz_forward * sin_pitch
-                    g_rx_r, g_ry_r = roll_cam_xy(rx_unpitched, g_ry_cam)
-                    g_sx = hw + (g_rx_r / horiz_dist) * focal
-                    g_sy = hh - (g_ry_r / horiz_dist) * focal
-                    alt_fade = max(0.35, 1.0 - max(0.0, rs.get("jump_offset_y", 0.0)) * 0.03)
-                    sh_w = max(6, round((1.18 * char_scale * alt_fade / horiz_dist) * focal))
-                    sh_h = max(2, round((0.38 * char_scale * alt_fade / horiz_dist) * focal))
-                    shadow_rect = pygame.Rect(round(g_sx - sh_w * 0.5), round(g_sy - sh_h * 0.4), sh_w, sh_h)
-                    pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, shadow_rect)
+                # Ground shadow screen position (skip if high inside elevated coop so shadow doesn't bleed under stilts!)
+                r_jy = rs.get("jump_offset_y", 0.0)
+                _, _, _r_sup_chk = farm_world.resolve_world_props_collision(rwx, rwz, r_jy, chick_radius=0.48)
+                if _r_sup_chk < 6.5:
+                    dy_g = current_ground_y - eye_y
+                    g_rz_cam = dy_g * sin_pitch + rz_forward * cos_pitch
+                    if g_rz_cam > 0.25:
+                        g_ry_cam = dy_g * cos_pitch - rz_forward * sin_pitch
+                        g_rx_r, g_ry_r = roll_cam_xy(rx_unpitched, g_ry_cam)
+                        g_sx = hw + (g_rx_r / horiz_dist) * focal
+                        g_sy = hh - (g_ry_r / horiz_dist) * focal
+                        alt_fade = max(0.35, 1.0 - max(0.0, r_jy) * 0.03)
+                        sh_w = max(6, round((1.18 * char_scale * alt_fade / horiz_dist) * focal))
+                        sh_h = max(2, round((0.38 * char_scale * alt_fade / horiz_dist) * focal))
+                        shadow_rect = pygame.Rect(round(g_sx - sh_w * 0.5), round(g_sy - sh_h * 0.4), sh_w, sh_h)
+                        pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, shadow_rect)
 
         # PASS 2: Depth-sort 3D farm buildings/nature props interleaved with remote chicks!
         # Ground-layer items (props + ground chicks) sort furthest-to-nearest first;
@@ -2990,6 +3120,20 @@ def main() -> None:
                     if pid in remote_ragdolls:
                         remote_ragdolls[pid].reset()
                     rem_rg_pose = None
+
+                # Elevated support shadow when remote player stands inside coop, on stairs, on barrel, or on hay
+                _rem_jy = rs.get("jump_offset_y", 0.0)
+                if 0.05 < _rem_jy < CLOUD_SPAWN_Y - 1.5:
+                    _, _, _rem_sup_y = farm_world.resolve_world_props_collision(rs["wx"], rs["wz"], _rem_jy, chick_radius=0.48)
+                    if _rem_sup_y > 0.08 and _rem_jy >= _rem_sup_y - 0.15:
+                        _sh_cam = to_cam(rs["wx"], current_ground_y + _rem_sup_y + 0.02, rs["wz"])
+                        if _sh_cam[2] > near_z:
+                            _sh_sx = hw + (_sh_cam[0] / _sh_cam[2]) * focal
+                            _sh_sy = hh - (_sh_cam[1] / _sh_cam[2]) * focal
+                            _sh_fade = max(0.35, 1.0 - max(0.0, _rem_jy - _rem_sup_y) * 0.12)
+                            _sh_w = max(6, round((1.12 * (rem_scale / CARMELITO_WORLD_SCALE) * _sh_fade / _sh_cam[2]) * focal))
+                            _sh_h = max(2, round((0.34 * (rem_scale / CARMELITO_WORLD_SCALE) * _sh_fade / _sh_cam[2]) * focal))
+                            pygame.draw.ellipse(screen, (96, 66, 36), pygame.Rect(round(_sh_sx - _sh_w * 0.5), round(_sh_sy - _sh_h * 0.45), _sh_w, _sh_h))
 
                 model_3d.render(
                     surface=screen,
@@ -4087,6 +4231,59 @@ def main() -> None:
                 else:
                     pygame.draw.polygon(screen, (70, 90, 115), [(tri_cx - 5, tri_cy - 3), (tri_cx + 5, tri_cy - 3), (tri_cx, tri_cy + 4)])
 
+                # "server:" input box right below "place:" so Dad can enter host LAN IP or leave local (auto)!
+                srv_lbl_surf = get_outlined_text_surface("server:", lbl_px, outline_px=lbl_outline_px)
+                srv_row_y = place_row_y + box_h + max(10, round(win_h * 0.018))
+                srv_total_w = srv_lbl_surf.get_width() + row_gap + box_w
+                srv_row_x = (win_w - srv_total_w) // 2
+                srv_lbl_y = srv_row_y + (box_h - srv_lbl_surf.get_height()) // 2
+                screen.blit(srv_lbl_surf, (srv_row_x, srv_lbl_y))
+
+                sbox_x = srv_row_x + srv_lbl_surf.get_width() + row_gap
+                server_input_rect = pygame.Rect(sbox_x, srv_row_y, box_w, box_h)
+                if is_typing_menu_server and hasattr(pygame.key, "set_text_input_rect"):
+                    pygame.key.set_text_input_rect(server_input_rect)
+
+                pygame.draw.rect(screen, (180, 195, 210), pygame.Rect(sbox_x + 2, srv_row_y + 2, box_w, box_h), border_radius=10)
+                pygame.draw.rect(screen, (255, 255, 255), server_input_rect, border_radius=10)
+                s_border_col = (55, 130, 225) if is_typing_menu_server else (140, 160, 185)
+                pygame.draw.rect(screen, s_border_col, server_input_rect, width=2, border_radius=10)
+
+                s_text_y = srv_row_y + (box_h - name_font.get_height()) // 2
+                clip_s_prev = screen.get_clip()
+                screen.set_clip(pygame.Rect(sbox_x + 8, srv_row_y + 2, box_w - 16, box_h - 4))
+                if custom_server_input:
+                    srv_val_surf = name_font.render(custom_server_input, True, (28, 36, 48))
+                    draw_sx = sbox_x + 10
+                    if srv_val_surf.get_width() > box_w - 20:
+                        draw_sx -= (srv_val_surf.get_width() - (box_w - 20))
+                    screen.blit(srv_val_surf, (draw_sx, s_text_y))
+                    cur_sx = draw_sx + srv_val_surf.get_width()
+                else:
+                    if not is_typing_menu_server:
+                        ph_surf = name_font.render("local (auto)", True, (138, 150, 165))
+                        screen.blit(ph_surf, (sbox_x + 10, s_text_y))
+                    cur_sx = sbox_x + 10
+                if is_typing_menu_server and (int(anim_time * 2.5) % 2) == 0:
+                    pygame.draw.line(screen, (28, 36, 48), (cur_sx + 1, s_text_y + 2), (cur_sx + 1, s_text_y + name_font.get_height() - 2), 2)
+                screen.set_clip(clip_s_prev)
+
+                # Subtle Host LAN IP / Connection status hint below server box for easy Dad multiplayer!
+                _srv_is_local, _srv_port = is_local_server_url(net.server_url)
+                if _srv_is_local and is_host:
+                    _status_txt = f"Host LAN IP: {lan_ip_str}:{_srv_port}  •  Players: {len(remote_players) + 1}"
+                elif connected:
+                    _status_txt = f"Connected to {urlparse(net.server_url).hostname or net.server_url}  •  Players: {len(remote_players) + 1}"
+                else:
+                    _status_txt = f"Connecting to {urlparse(net.server_url).hostname or net.server_url}..."
+                _hint_font = get_chinese_font(max(13, min(16, round(box_h * 0.42))))
+                _hint_surf = _hint_font.render(_status_txt, True, (255, 255, 255))
+                _hint_shadow = _hint_font.render(_status_txt, True, (40, 65, 95))
+                _hx = (win_w - _hint_surf.get_width()) // 2
+                _hy = srv_row_y + box_h + 7
+                screen.blit(_hint_shadow, (_hx + 1, _hy + 1))
+                screen.blit(_hint_surf, (_hx, _hy))
+
                 place_option_rects = []
                 if place_dropdown_open:
                     m_pos = pygame.mouse.get_pos()
@@ -4110,6 +4307,7 @@ def main() -> None:
             elif menu_state in ("character_select", "character_used"):
                 name_button_rect = pygame.Rect(-100, -100, 0, 0)
                 name_input_rect = pygame.Rect(-100, -100, 0, 0)
+                server_input_rect = pygame.Rect(-100, -100, 0, 0)
                 place_box_rect = pygame.Rect(-100, -100, 0, 0)
                 place_option_rects = []
                 place_dropdown_open = False

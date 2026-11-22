@@ -262,15 +262,15 @@ class AICodeCompanion:
                     self.dest_x = self.CLOUD_SPAWN_WX + math.cos(ang) * rad
                     self.dest_z = self.CLOUD_SPAWN_WZ + math.sin(ang) * rad
             else:
-                ground_peers = [p for p in self.other_players.values() if p.get("jump_y", 0.0) < 8.0]
+                ground_peers = [p for p in self.other_players.values() if p.get("jump_y", 0.0) < self.CLOUD_SPAWN_Y - 10.0]
                 if ground_peers and random.random() < 0.45:
                     _t = random.choice(ground_peers)
                     ang = random.uniform(0.0, 2.0 * math.pi)
-                    self.dest_x = max(-24.0, min(24.0, _t["wx"] + math.cos(ang) * random.uniform(2.0, 5.5)))
-                    self.dest_z = max(-24.0, min(24.0, _t["wz"] + math.sin(ang) * random.uniform(2.0, 5.5)))
+                    self.dest_x = max(-150.0, min(150.0, _t["wx"] + math.cos(ang) * random.uniform(2.0, 6.0)))
+                    self.dest_z = max(-115.0, min(175.0, _t["wz"] + math.sin(ang) * random.uniform(2.0, 6.0)))
                 else:
                     ang = random.uniform(0.0, 2.0 * math.pi)
-                    rad = random.uniform(3.0, 22.0)
+                    rad = random.uniform(3.0, 48.0)
                     self.dest_x = math.cos(ang) * rad
                     self.dest_z = math.sin(ang) * rad
             self.mode = "run" if random.random() < 0.45 else "walk"
@@ -935,14 +935,13 @@ class AICodeCompanion:
             self.arms_down_amount = max(0.0, self.arms_down_amount - 10.0 * dt)
             cur_floor = max(0.0, ai_landing_support_y)
             if not self.is_buried_in_crater:
-                if self.jump_offset_y > 0.0:
-                    if cur_floor > 0.0:
-                        self.jump_offset_y = cur_floor
-                    elif self.jump_offset_y > 0.12:
-                        self.jump_state = "airborne"
-                        self.jump_velocity_y = 0.0
-                    else:
-                        self.jump_offset_y = 0.0
+                if cur_floor > 0.0 and (self.jump_offset_y > 0.0 or cur_floor <= max(0.0, self.jump_offset_y) + 1.15):
+                    self.jump_offset_y = cur_floor
+                elif self.jump_offset_y > 0.12:
+                    self.jump_state = "airborne"
+                    self.jump_velocity_y = 0.0
+                else:
+                    self.jump_offset_y = 0.0
             self.jump_amount = 0.0
 
 
