@@ -655,7 +655,7 @@ class NetworkClient:
 
         # Launch 1 companion AI chick (cannot walk/move around, can only jump and chat)
         ai_chick_configs = [
-            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "wx": 0.0, "wz": 7.2, "role": "free", "target": None, "chat": True, "delay": 0.45},
+            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "wx": 3.5, "wz": 15.5, "jump_y": 2475.0, "rot_y": math.pi, "role": "free", "target": None, "chat": True, "delay": 0.45},
         ]
 
         def launch_single_ai(cfg: dict[str, Any]) -> None:
@@ -676,6 +676,8 @@ class NetworkClient:
                 bot.wz = cfg["wz"]
                 bot.dest_x = cfg["wx"]
                 bot.dest_z = cfg["wz"]
+                bot.jump_offset_y = float(cfg.get("jump_y", 0.0))
+                bot.rot_y = float(cfg.get("rot_y", 0.0))
                 asyncio.run(bot.run())
             except Exception:
                 pass
