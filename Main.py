@@ -1149,8 +1149,8 @@ def main() -> None:
 
     CLOUD_SPAWN_WX = 0.0
     CLOUD_SPAWN_WZ = 14.0
-    CLOUD_SPAWN_Y = 42.0
-    CLOUD_PLATFORM_RADIUS = 11.5
+    CLOUD_SPAWN_Y = 2475.0   # 0.5 * 22.0 * (15s)^2 = 2475m -> ~15s fall to ground!
+    CLOUD_PLATFORM_RADIUS = 22.0
 
     play_button_rect = pygame.Rect(0, 0, 10, 10)
     name_button_rect = pygame.Rect(-100, -100, 0, 0)
@@ -2593,16 +2593,19 @@ def main() -> None:
 
         # 1a-2. RENDER PUFFY STORYBOOK WHITE CLOUDS IN THE SKY:
         # Floating high across the sky dome, drifting gently with the breeze!
-        sky_dome_r = 160.0
+        sky_dome_r = 160.0 if not is_online else 6400.0
         for c_data in sky_clouds_data:
             c_az = c_data["az"] + anim_time * c_data["drift_spd"]
             c_el = c_data["el"]
-            c_scale = c_data["scale"]
+            c_scale = c_data["scale"] * (38.0 if is_online else 1.0)
 
-            # Vector in world sky relative to eye
+            # Vector in world sky relative to eye (very high ~2475m cloud layer in online mode!)
             c_dx = sky_dome_r * math.cos(c_el) * math.sin(c_az)
             c_dz = sky_dome_r * math.cos(c_el) * math.cos(c_az)
-            c_dy = sky_dome_r * math.sin(c_el) - (jump_offset_y if is_online else 0.0)
+            if is_online:
+                c_dy = (CLOUD_SPAWN_Y + (c_el - 0.27) * 2800.0) - jump_offset_y
+            else:
+                c_dy = sky_dome_r * math.sin(c_el)
 
             # Transform into camera coordinates
             rx = c_dx * cos_yaw - c_dz * sin_yaw
