@@ -1985,6 +1985,7 @@ class Carmelito3D:
         for quad_verts, base_col, has_contour in faces:
             trans_verts = []
             sum_z = 0.0
+            sum_local_y = 0.0
             for vx, vy, vz in quad_verts:
                 lvx = vx
                 lvy = vy
@@ -1997,6 +1998,7 @@ class Carmelito3D:
                     lvy, lvz = dy_l * cos_lp - lvz * sin_lp + roll_pivot_y, dy_l * sin_lp + lvz * cos_lp
                 if has_roll_or_lay:
                     lvy -= roll_drop_y
+                sum_local_y += lvy
 
                 rx1 = lvx * cos_y + lvz * sin_y
                 rz1 = -lvx * sin_y + lvz * cos_y
@@ -2005,6 +2007,9 @@ class Carmelito3D:
 
                 trans_verts.append((rx1, ry2, rz2))
                 sum_z += rz2
+
+            if clip_min_y is not None and (sum_local_y / len(quad_verts)) < clip_min_y:
+                continue
 
             # Fast inline cross product & backface cull before sqrt / lighting / projection
             v0 = trans_verts[0]

@@ -222,6 +222,18 @@ class GameRelayServer:
                         await self.broadcast(join_msg, exclude_id=player_id)
                     else:
                         await self.broadcast(bcast_msg, exclude_id=player_id)
+                elif data.get("type") == "crater":
+                    c_wx = safe_float(data.get("wx", 0.0), 0.0, limit=5000.0)
+                    c_wz = safe_float(data.get("wz", 0.0), 0.0, limit=5000.0)
+                    c_rad = max(0.4, min(6.0, safe_float(data.get("radius", 1.38), 1.38, limit=10.0)))
+                    crater_obj = {"wx": c_wx, "wz": c_wz, "radius": c_rad}
+                    self._craters.append(crater_obj)
+                    if len(self._craters) > 60:
+                        self._craters = self._craters[-60:]
+                    await self.broadcast(
+                        {"type": "crater", "id": player_id, "wx": c_wx, "wz": c_wz, "radius": c_rad},
+                        exclude_id=player_id,
+                    )
                 elif data.get("type") == "kick_hit":
                     try:
                         target_id = int(data.get("target_id", -1))

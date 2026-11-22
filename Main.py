@@ -568,6 +568,18 @@ class NetworkClient:
             }
             return self.connected, self.is_host, self.my_id, self.my_color, players_copy
 
+    def send_crater(self, wx: float, wz: float, radius: float = 1.38) -> None:
+        if not self.is_online:
+            return
+        with self._lock:
+            self._outgoing_craters.append({"wx": float(wx), "wz": float(wz), "radius": float(radius)})
+
+    def fetch_new_craters(self) -> list[dict[str, float]]:
+        with self._lock:
+            out = list(self._incoming_craters)
+            self._incoming_craters.clear()
+            return out
+
     def send_punch_hit(self, target_id: int, dir_x: float, dir_z: float, headshot: bool, punch_side: float = 1.0) -> None:
         with self._lock:
             self._outgoing_punch_hits.append({
@@ -846,6 +858,7 @@ class NetworkClient:
                 my_id = int(msg["id"])
                 my_color = tuple(int(c) for c in msg["color"])
                 raw_players = msg.get("players", {})
+                raw_craters = msg.get("craters", [])
                 with self._lock:
                     self.my_id = my_id
                     self.my_color = my_color
@@ -855,7 +868,16 @@ class NetworkClient:
                         if pid == my_id:
                             continue
                         self.remote_players[pid] = self._parse_remote_player(pdata)
+                    for cr in raw_craters:
+                        self._incoming_craters.append({"wx": float(cr.get("wx", 0.0)), "wz": float(cr.get("wz", 0.0)), "radius": float(cr.get("radius", 1.38))})
 
+            elif msg_type == "crater":
+                with self._lock:
+                    self._incoming_craters.append({
+                        "wx": float(msg.get("wx", 0.0)),
+                        "wz": float(msg.get("wz", 0.0)),
+                        "radius": float(msg.get("radius", 1.38)),
+                    })
             elif msg_type == "join":
                 pid = int(msg["id"])
                 with self._lock:
@@ -1018,6 +1040,9 @@ def main() -> None:
     airborne_timer = 0.0
     arms_down_amount = 0.0
     was_j_facing_up = False
+    is_buried_in_crater = False
+    buried_p_hold_timer = 0.0
+    world_craters: list[dict[str, float]] = []
     jump_amount = 0.0      # Crouch depth (1.0 = deep crouch, 0.0 = standing/jumping)
     wing_flap_amount = 0.0 # Wings flap when airborne
     MIN_JUMP_HEIGHT = 1.40 # Crisp quick-tap hop height (clears another chick!)
@@ -1294,7 +1319,7 @@ def main() -> None:
                         # Trigger a blink on demand (and holding B keeps eyes closed)
                         blink_hold_timer = 0.16
                         auto_blink_timer = random.uniform(2.8, 5.0)
-                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down) and event.key == pygame.K_j:
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down or is_buried_in_crater) and event.key == pygame.K_j:
                         # Hold 'J' to crouch & charge jump height; release 'J' to launch! (Disabled during ragdoll mode)
                         if jump_state == "idle":
                             jump_state = "crouching"
@@ -1302,22 +1327,22 @@ def main() -> None:
                             jump_charge = 0.0
                             jump_amount = 0.0
                             wing_flap_amount = 0.0
-                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down) and event.key == pygame.K_k:
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down or is_buried_in_crater) and event.key == pygame.K_k:
                         # Pressing 'K' triggers a forward martial arts karate kick! (Disabled during ragdoll mode)
                         is_kicking = True
                         kick_timer = 0.0
                         kick_side = -kick_side  # alternate between right and left leg!
                         kick_hit_victims.clear()
-                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down) and event.key == pygame.K_p:
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down or is_buried_in_crater) and event.key == pygame.K_p:
                         # Pressing 'P' triggers a forward boxing punch / wing strike! (Disabled during ragdoll mode)
                         is_punching = True
                         punch_timer = 0.0
                         punch_side = -punch_side  # alternate between right and left wing!
                         punch_hit_victims.clear()
-                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down) and event.key == pygame.K_t:
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down or is_buried_in_crater) and event.key == pygame.K_t:
                         # Pressing 'T' toggles raising both arms forward like a zombie (Disabled during ragdoll/lying mode)
                         is_tagging = not is_tagging
-                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none") and event.key == pygame.K_l:
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_buried_in_crater) and event.key == pygame.K_l:
                         # Pressing 'L' toggles lying down on the grass!
                         is_lying_down = not is_lying_down
                         if is_lying_down:
@@ -1332,7 +1357,7 @@ def main() -> None:
                                 crouch_timer = 0.0
                                 jump_charge = 0.0
                                 jump_amount = 0.0
-                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_headshot_phase != "none") and event.key == pygame.K_r:
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_headshot_phase != "none" or is_buried_in_crater) and event.key == pygame.K_r:
                         # Pressing 'R' toggles ragdoll mode!
                         is_manual_ragdoll = not is_manual_ragdoll
                         if is_manual_ragdoll:
@@ -1354,7 +1379,7 @@ def main() -> None:
                     jump_released_this_frame = True
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # Menu navigation and joining in offline mode
-                if (not is_online) or math.hypot(cam_x, cam_z) > ISLAND_RADIUS - 350.0:
+                if not is_online:
                     if menu_state == "title":
                         if name_button_rect.collidepoint(event.pos) or name_input_rect.collidepoint(event.pos):
                             is_typing_menu_name = True
@@ -1601,7 +1626,7 @@ def main() -> None:
 
             # --- VIEW TURNING CONTROLS (Left/Right Arrows + Q/E) ---
             turn_input = 0.0
-            if not is_typing_chat and not is_fighting and not is_ragdoll_mode:
+            if not is_typing_chat and not is_fighting and not is_ragdoll_mode and not is_buried_in_crater:
                 if keys[pygame.K_LEFT] or keys[pygame.K_q]:
                     turn_input -= 1.0
                 if keys[pygame.K_RIGHT] or keys[pygame.K_e]:
@@ -1631,7 +1656,7 @@ def main() -> None:
             # --- MOVEMENT CONTROLS (Arrow Up/Down + WASD) ---
             move_fwd = 0.0
             move_side = 0.0
-            if not is_typing_chat and not is_ragdoll_mode and not is_lying_down:
+            if not is_typing_chat and not is_ragdoll_mode and not is_lying_down and not is_buried_in_crater:
                 if keys[pygame.K_UP] or keys[pygame.K_w]:
                     move_fwd += 1.0
                 if keys[pygame.K_DOWN] or keys[pygame.K_s]:
@@ -1733,6 +1758,8 @@ def main() -> None:
                         airborne_timer = 0.0
                         arms_down_amount = 0.0
                         was_j_facing_up = False
+                        is_buried_in_crater = False
+                        buried_p_hold_timer = 0.0
                         local_headshot_timer = 0.0
                         kick_lay_dir = -1.0
                         kick_roll_dir = 0.0
@@ -1811,6 +1838,24 @@ def main() -> None:
                     is_moving = False
                     is_walking = False
                     is_running = False
+                elif is_buried_in_crater:
+                    local_lay_pitch = -math.pi
+                    local_ragdoll = 0.0
+                    is_moving = False
+                    is_walking = False
+                    is_running = False
+                    keys_buried = pygame.key.get_pressed()
+                    if (not is_typing_chat) and bool(keys_buried[pygame.K_p]):
+                        buried_p_hold_timer += dt
+                        local_rot_z = math.sin(anim_time * 20.0) * 0.09
+                        if buried_p_hold_timer >= 10.0:
+                            is_buried_in_crater = False
+                            buried_p_hold_timer = 0.0
+                            jump_offset_y = 0.0
+                            local_rot_z = 0.0
+                    else:
+                        buried_p_hold_timer = 0.0
+                        local_rot_z = 0.0
                 elif is_manual_ragdoll:
                     rg_step = math.radians(340.0) * dt
                     target_rg_lay = -math.pi * 0.5
@@ -1836,7 +1881,7 @@ def main() -> None:
                     is_moving = False
                     is_walking = False
                     is_running = False
-                elif not is_kick_launched and (abs(local_lay_pitch) > 1e-3 or abs(local_rot_z) > 1e-3 or local_ragdoll > 1e-3):
+                elif not is_kick_launched and not (jump_state == "airborne" and is_j_air_spinning) and (abs(local_lay_pitch) > 1e-3 or abs(local_rot_z) > 1e-3 or local_ragdoll > 1e-3):
                     rec_step = math.radians(280.0) * dt
                     if abs(local_lay_pitch) <= rec_step:
                         local_lay_pitch = 0.0
@@ -2143,6 +2188,12 @@ def main() -> None:
                     airborne_timer += dt
                     if is_j_air_spinning:
                         j_spin_yaw = (j_spin_yaw + dt * 14.0) % (2.0 * math.pi)
+                        # Starting to go down -> gradually turn degrees until whole body is upside down (-pi)!
+                        if jump_velocity_y < 0.0 and local_lay_pitch > -math.pi:
+                            fall_dist = max(0.05, jump_offset_y - max(0.0, landing_support_y))
+                            t_rem = max(0.10, (jump_velocity_y + math.sqrt(jump_velocity_y * jump_velocity_y + 2.0 * GRAVITY * fall_dist)) / GRAVITY)
+                            turn_rate = max(math.radians(150.0), min(math.radians(720.0), abs(-math.pi - local_lay_pitch) / t_rem))
+                            local_lay_pitch = max(-math.pi, local_lay_pitch - turn_rate * dt)
                     # Catch fire only if still in the air for 30 seconds or more!
                     if airborne_timer >= 30.0:
                         is_on_fire = True
@@ -2165,7 +2216,7 @@ def main() -> None:
                         jump_velocity_y = min(2.1, -jump_velocity_y * 0.22)
                         kick_bounced = True
                     else:
-                        jump_offset_y = current_floor
+                        landed_upside_down = (not is_kick_launched) and is_j_air_spinning and (abs(local_lay_pitch) >= math.pi * 0.72) and (current_floor <= 0.05)
                         jump_velocity_y = 0.0
                         jump_state = "idle"   # Landed firmly on the ground or atop the player!
                         jump_amount = 0.0
@@ -2173,6 +2224,22 @@ def main() -> None:
                         is_j_air_spinning = False
                         j_spin_yaw = 0.0
                         is_on_fire = False
+                        airborne_timer = 0.0
+                        if landed_upside_down:
+                            # Hit ground upside down -> 50% under the grass + crater!
+                            jump_offset_y = -0.58
+                            local_lay_pitch = -math.pi
+                            local_rot_z = 0.0
+                            local_ragdoll = 0.0
+                            is_buried_in_crater = True
+                            buried_p_hold_timer = 0.0
+                            crater_entry = {"wx": cam_x, "wz": cam_z, "radius": 1.38}
+                            world_craters.append(crater_entry)
+                            if len(world_craters) > 60:
+                                world_craters = world_craters[-60:]
+                            net.send_crater(cam_x, cam_z, 1.38)
+                        else:
+                            jump_offset_y = current_floor
                         if is_kick_launched:
                             is_kick_launched = False
                             local_lay_pitch = kick_lay_dir * (math.pi * 0.5)
@@ -2182,7 +2249,9 @@ def main() -> None:
             else:
                 # Idle state: if standing on another chick, stay locked atop them as they move!
                 current_floor = max(0.0, landing_support_y)
-                if jump_offset_y > 0.0:
+                if is_buried_in_crater:
+                    jump_offset_y = -0.58
+                elif jump_offset_y > 0.0:
                     if landing_support_y > 0.0:
                         # Smoothly stick to their head/back
                         jump_offset_y = landing_support_y
@@ -2191,6 +2260,8 @@ def main() -> None:
                         jump_velocity_y = 0.0
                     else:
                         jump_offset_y = 0.0
+                else:
+                    jump_offset_y = 0.0
                 jump_amount = 0.0
                 arms_down_amount = 0.0
                 wing_flap_amount = 0.0
@@ -2233,6 +2304,10 @@ def main() -> None:
             )
 
         connected, is_host, my_id, my_color, remote_players = net.get_snapshot()
+        for cr in net.fetch_new_craters():
+            world_craters.append(cr)
+            if len(world_craters) > 60:
+                world_craters = world_craters[-60:]
 
         # Fetch and dispatch incoming chats from remote chickens / players
         for chat_msg in net.fetch_new_chats():
@@ -2359,8 +2434,13 @@ def main() -> None:
                 total_yaw = cam_yaw + head_yaw + (j_spin_yaw if is_j_air_spinning else 0.0)
                 total_pitch = max(-1.35, min(1.35, head_pitch))
             if abs(local_lay_pitch) > 1e-3:
-                total_pitch = max(-1.35, min(1.35, total_pitch + (-local_lay_pitch * 0.65)))
-                eye_y -= abs(math.sin(local_lay_pitch)) * 0.42
+                if abs(local_lay_pitch) <= math.pi * 0.5 + 1e-3 and not (is_j_air_spinning or is_buried_in_crater):
+                    total_pitch = max(-1.35, min(1.35, total_pitch + (-local_lay_pitch * 0.65)))
+                    eye_y -= abs(math.sin(local_lay_pitch)) * 0.42
+                else:
+                    if is_buried_in_crater:
+                        eye_y = -2.62
+                        total_pitch = -0.18
 
         # --- 1. RENDER WHAT YOU SEE: THE GIANT ISLAND, CHICKENS, GRASS, HORIZON ---
         screen.fill(BG_COLOR)
@@ -2390,7 +2470,8 @@ def main() -> None:
         else:
             current_ground_y = GROUND_Y
 
-        cam_roll = local_rot_z if (is_online and not is_fighting) else 0.0
+        dive_cam_roll = abs(local_lay_pitch) if (is_j_air_spinning or is_buried_in_crater or abs(local_lay_pitch) > math.pi * 0.52) else 0.0
+        cam_roll = (local_rot_z + dive_cam_roll) if (is_online and not is_fighting) else 0.0
         has_cam_roll = abs(cam_roll) > 1e-4
         cos_roll = math.cos(cam_roll)
         sin_roll = math.sin(cam_roll)
@@ -2416,10 +2497,10 @@ def main() -> None:
         raw_horizon_y = hh + math.tan(total_pitch) * focal
         horizon_y = max(0, min(win_h, round(raw_horizon_y)))
         ground_col_fill = GRASS_GROUND_COLOR if is_online else OCEAN_WATER_COLOR
-        if abs(local_rot_z) > 1e-3 and is_online:
-            # Draw tilted grass ground polygon below rotated horizon line
-            cos_r = math.cos(local_rot_z)
-            sin_r = math.sin(local_rot_z)
+        if abs(cam_roll) > 1e-3 and is_online:
+            # Draw tilted/upside-down grass ground polygon below rotated horizon line
+            cos_r = math.cos(cam_roll)
+            sin_r = math.sin(cam_roll)
             hy_rel = raw_horizon_y - hh
             big = max(win_w, win_h) * 2.5
             local_ground_pts = [(-big, hy_rel), (big, hy_rel), (big, hy_rel + big), (-big, hy_rel + big)]
@@ -2684,6 +2765,7 @@ def main() -> None:
                     jump_amount=rs.get("jump_amount", 0.0),
                     arms_down_amount=rs.get("arms_down_amount", 0.0),
                     tag_amount=rs.get("tag_amount", 0.0),
+                    clip_min_y=(-rs.get("jump_offset_y", 0.0) if rs.get("jump_offset_y", 0.0) < -0.10 else None),
                 )
                 if pdata.get("on_fire", False):
                     draw_chick_fire(screen, sx, sy, model_scale * 0.65, anim_time, seed=float(pid) * 1.37)
@@ -3386,6 +3468,24 @@ def main() -> None:
                 sy_e = round(win_h - s_prog * win_h * 0.72)
                 pygame.draw.circle(screen, (255, 220, 80) if si % 2 == 0 else (255, 110, 20), (sx_e, sy_e), max(3, round(8 * (1.0 - s_prog * 0.6))))
 
+        # Buried upside-down in crater HUD + crater wall vignette + 10s hold-P progress bar
+        if is_online and not is_fighting and is_buried_in_crater:
+            pygame.draw.rect(screen, (82, 54, 32), pygame.Rect(0, 0, win_w, 34))
+            pygame.draw.rect(screen, (116, 80, 48), pygame.Rect(0, 34, win_w, 12))
+            pygame.draw.rect(screen, (82, 54, 32), pygame.Rect(0, win_h - 34, win_w, 34))
+            pygame.draw.rect(screen, (116, 80, 48), pygame.Rect(0, win_h - 46, win_w, 12))
+            bar_w, bar_h = 380, 44
+            bar_x = (win_w - bar_w) // 2
+            bar_y = win_h - 110
+            pygame.draw.rect(screen, (32, 24, 18), pygame.Rect(bar_x - 4, bar_y - 4, bar_w + 8, bar_h + 8), border_radius=12)
+            pygame.draw.rect(screen, (245, 236, 220), pygame.Rect(bar_x, bar_y, bar_w, bar_h), border_radius=10)
+            prog = max(0.0, min(1.0, buried_p_hold_timer / 10.0))
+            if prog > 0.0:
+                pygame.draw.rect(screen, (86, 188, 92), pygame.Rect(bar_x + 4, bar_y + 4, round((bar_w - 8) * prog), bar_h - 8), border_radius=7)
+            lbl_txt = f"Buried in crater! Hold P to stand up: {buried_p_hold_timer:.1f}s / 10.0s"
+            lbl_surf = chat_font.render(lbl_txt, True, (40, 30, 22))
+            screen.blit(lbl_surf, (bar_x + (bar_w - lbl_surf.get_width()) // 2, bar_y + (bar_h - lbl_surf.get_height()) // 2))
+
         # --- 2. TOP-LEFT CORNER PICTURE: ONLY VISIBLE WHEN ONLINE (EQUIPPED CARMELITO) ---
         if is_online:
             pic_rect = pygame.Rect(16, 16, 180, 200)
@@ -3409,7 +3509,11 @@ def main() -> None:
             else:
                 local_ragdoll_sim.reset()
                 local_rg_pose = None
-            corner_y = max(142, 185 - round(min(1.9, jump_offset_y) * 22))
+            corner_y = max(142, 185 - round(max(-0.85, min(1.9, jump_offset_y)) * 22))
+            if is_buried_in_crater:
+                grass_line_y = corner_y - round(0.58 * 72)
+                pygame.draw.rect(screen, GRASS_GROUND_COLOR, pygame.Rect(pic_rect.x, grass_line_y, pic_rect.w, pic_rect.bottom - grass_line_y))
+                pygame.draw.ellipse(screen, (96, 66, 38), pygame.Rect(106 - 46, grass_line_y - 7, 92, 20))
             model_3d.render(
                 surface=screen,
                 screen_pos=(106, corner_y),
@@ -3433,6 +3537,7 @@ def main() -> None:
                 character=selected_character,
                 jump_amount=jump_amount,
                 arms_down_amount=arms_down_amount,
+                clip_min_y=(-jump_offset_y if jump_offset_y < -0.10 else None),
             )
             if is_on_fire:
                 old_clip = screen.get_clip()
