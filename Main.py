@@ -1270,7 +1270,7 @@ def main() -> None:
                     jump_released_this_frame = True
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 # Menu navigation and joining in offline mode
-                if not is_online:
+                if (not is_online) or math.hypot(cam_x, cam_z) > ISLAND_RADIUS - 350.0:
                     if menu_state == "title":
                         if name_button_rect.collidepoint(event.pos) or name_input_rect.collidepoint(event.pos):
                             is_typing_menu_name = True
@@ -2333,43 +2333,22 @@ def main() -> None:
                             if has_cam_roll or p_rect.bottom < horizon_y + 10 or not is_online:
                                 pygame.draw.ellipse(screen, col, p_rect)
 
-            # Render the Giant Island (Top lush plateau, Sandy beach edge, and 3D Rocky Cliffs)
-            # Compute island outline vertices at top plateau (GROUND_Y) and water base (ISLAND_WATER_Y)
-            top_rim_cam: list[tuple[float, float, float]] = []
-            top_rim_scr: list[tuple[int, int] | None] = []
-            bot_rim_cam: list[tuple[float, float, float]] = []
-            bot_rim_scr: list[tuple[int, int] | None] = []
-
+        # Render the Giant Island once per frame (not once per cloud!), clamping coordinates to avoid SDL giant-polygon lag when looking up in ragdoll mode
+        if not is_online:
+            top_rim_scr: list[tuple[int, int]] = []
             for i in range(ISLAND_SEGMENTS):
                 ang = (2.0 * math.pi * i) / ISLAND_SEGMENTS
-                # Organic island shape with wavy shorelines
                 r = ISLAND_RADIUS + 9.5 * math.sin(ang * 4.0) + 5.5 * math.cos(ang * 7.0)
                 ix = math.sin(ang) * r
                 iz = math.cos(ang) * r
-
                 tc = to_cam(ix, GROUND_Y, iz)
-                top_rim_cam.append(tc)
-                if tc[2] > near_z:
-                    top_rim_scr.append((round(hw + (tc[0] / tc[2]) * focal), round(hh - (tc[1] / tc[2]) * focal)))
-                else:
-                    top_rim_scr.append(None)
-
-                bc = to_cam(ix * 1.05, ISLAND_WATER_Y, iz * 1.05)
-                bot_rim_cam.append(bc)
-                if bc[2] > near_z:
-                    bot_rim_scr.append((round(hw + (bc[0] / bc[2]) * focal), round(hh - (bc[1] / bc[2]) * focal)))
-                else:
-                    bot_rim_scr.append(None)
-
-            # Island top plateau lush green surface
-            valid_top = [pt for pt in top_rim_scr if pt is not None]
-            if len(valid_top) >= 3:
-                # Sandy rim stroke
-                pygame.draw.polygon(screen, ISLAND_RIM_SAND, valid_top)
-                # Lush green plateau fill slightly inset
-                pygame.draw.polygon(screen, ISLAND_TOP_COLOR, valid_top)
-
-            # (Sides of the island are omitted so only the lush top of the island is seen)
+                if tc[2] > 1.0:
+                    sx_i = max(-win_w * 2, min(win_w * 3, round(hw + (tc[0] / tc[2]) * focal)))
+                    sy_i = max(-win_h * 2, min(win_h * 3, round(hh - (tc[1] / tc[2]) * focal)))
+                    top_rim_scr.append((sx_i, sy_i))
+            if len(top_rim_scr) >= 3:
+                pygame.draw.polygon(screen, ISLAND_RIM_SAND, top_rim_scr)
+                pygame.draw.polygon(screen, ISLAND_TOP_COLOR, top_rim_scr)
 
         # 1c. Render 3D grass blades across the island
         base_sway = math.sin(anim_time * 2.2) * 0.045

@@ -1966,6 +1966,9 @@ class Carmelito3D:
         roll_drop_y = max(abs(sin_lp) * 0.40, abs(sin_z) * 0.38)
 
         projected_faces = []
+        lx_d, ly_d, lz_d = self.light_dir
+        has_roll_or_lay = has_roll or has_lay
+        six_scale = 6.0 * scale
 
         for quad_verts, base_col, has_contour in faces:
             trans_verts = []
@@ -1974,70 +1977,70 @@ class Carmelito3D:
                 lvx = vx
                 lvy = vy
                 lvz = vz
-                # 1) Apply subtle ragdoll/local Z tilt
                 if has_roll:
                     dy_p = lvy - roll_pivot_y
-                    nx_r = lvx * cos_z - dy_p * sin_z
-                    ny_r = lvx * sin_z + dy_p * cos_z + roll_pivot_y
-                    lvx, lvy = nx_r, ny_r
-                # 2) Apply local lay-down pitch around X (0 -> ±90 deg so chick lands laying flat down, NOT a backflip!)
+                    lvx, lvy = lvx * cos_z - dy_p * sin_z, lvx * sin_z + dy_p * cos_z + roll_pivot_y
                 if has_lay:
                     dy_l = lvy - roll_pivot_y
-                    ny_l = dy_l * cos_lp - lvz * sin_lp + roll_pivot_y
-                    nz_l = dy_l * sin_lp + lvz * cos_lp
-                    lvy, lvz = ny_l, nz_l
-                if has_roll or has_lay:
+                    lvy, lvz = dy_l * cos_lp - lvz * sin_lp + roll_pivot_y, dy_l * sin_lp + lvz * cos_lp
+                if has_roll_or_lay:
                     lvy -= roll_drop_y
 
-                # Rotate around Y axis
                 rx1 = lvx * cos_y + lvz * sin_y
-                ry1 = lvy
                 rz1 = -lvx * sin_y + lvz * cos_y
+                ry2 = lvy * cos_x - rz1 * sin_x
+                rz2 = lvy * sin_x + rz1 * cos_x
 
-                # Rotate around X axis (elevation pitch)
-                rx2 = rx1
-                ry2 = ry1 * cos_x - rz1 * sin_x
-                rz2 = ry1 * sin_x + rz1 * cos_x
-
-                trans_verts.append((rx2, ry2, rz2))
+                trans_verts.append((rx1, ry2, rz2))
                 sum_z += rz2
 
-            # Compute normal for backface culling and lighting
+            # Fast inline cross product & backface cull before sqrt / lighting / projection
             v0 = trans_verts[0]
             v1 = trans_verts[1]
             v2 = trans_verts[2]
-            edge1 = (v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2])
-            edge2 = (v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2])
-            normal = self._cross(edge1, edge2)
-            normal = self._normalize(normal)
+            e1x = v1[0] - v0[0]
+            e1y = v1[1] - v0[1]
+            e1z = v1[2] - v0[2]
+            e2x = v2[0] - v0[0]
+            e2y = v2[1] - v0[1]
+            e2z = v2[2] - v0[2]
+            nx = e1y * e2z - e1z * e2y
+            ny = e1z * e2x - e1x * e2z
+            nz = e1x * e2y - e1y * e2x
 
-            if normal[2] <= 0.0:
+            if nz <= 0.0:
                 continue
 
-            # Storybook cel lighting: warm key light + gentle fill
-            diffuse = max(0.0, self._dot(normal, self.light_dir))
+            nlen = math.sqrt(nx * nx + ny * ny + nz * nz)
+            if nlen > 1e-8:
+                inv_n = 1.0 / nlen
+                nx *= inv_n
+                ny *= inv_n
+                nz *= inv_n
+
+            diffuse = nx * lx_d + ny * ly_d + nz * lz_d
+            if diffuse < 0.0:
+                diffuse = 0.0
             brightness = 0.72 + 0.28 * diffuse
 
-            shaded_r = min(255, int(base_col[0] * brightness))
-            shaded_g = min(255, int(base_col[1] * brightness))
-            shaded_b = min(255, int(base_col[2] * brightness))
-            face_col = (shaded_r, shaded_g, shaded_b)
+            r0, g0, b0 = base_col
+            face_col = (
+                min(255, int(r0 * brightness)),
+                min(255, int(g0 * brightness)),
+                min(255, int(b0 * brightness)),
+            )
 
-            # Silhouette outline detection
-            is_silhouette = normal[2] < 0.32
+            is_silhouette = nz < 0.32
 
-            # Project to 2D screen coordinates
-            screen_pts = []
-            for rx, ry, rz in trans_verts:
-                dist = 6.0 + rz
-                proj_factor = 6.0 / max(0.5, dist)
-                sx = cx_screen + rx * scale * proj_factor
-                sy = cy_screen - ry * scale * proj_factor
-                screen_pts.append((round(sx), round(sy)))
+            screen_pts = [
+                (
+                    round(cx_screen + rx * (six_scale / max(0.5, 6.0 + rz))),
+                    round(cy_screen - ry * (six_scale / max(0.5, 6.0 + rz))),
+                )
+                for rx, ry, rz in trans_verts
+            ]
 
             avg_z = sum_z / len(trans_verts)
-
-            # Priority offset for pupils / closed blink lines so they render cleanly on top of eyes
             if base_col == COLOR_PUPIL_DARK:
                 avg_z += 0.20
 
@@ -2046,23 +2049,23 @@ class Carmelito3D:
         # Sort back to front (Painter's algorithm: lowest Z drawn first, highest Z drawn last on top)
         projected_faces.sort(key=lambda item: item[0])
 
-        # Render filled polygons and inked silhouette contours
+        if char_l in ("carmen", "卡门"):
+            ink_color = COLOR_CARMEN_INK
+        elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
+            ink_color = COLOR_PANGDUN_INK
+        elif char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
+            ink_color = COLOR_XIAOLIUZI_INK
+        else:
+            ink_color = COLOR_INK_LINE
+
+        draw_poly = pygame.draw.polygon
         for _, pts, f_col, draw_ink in projected_faces:
             if len(pts) >= 3:
-                pygame.draw.polygon(surface, f_col, pts)
+                draw_poly(surface, f_col, pts)
                 if draw_ink:
-                    char_l = character.lower()
-                    if char_l in ("carmen", "卡门"):
-                        ink_color = COLOR_CARMEN_INK
-                    elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
-                        ink_color = COLOR_PANGDUN_INK
-                    elif char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
-                        ink_color = COLOR_XIAOLIUZI_INK
-                    else:
-                        ink_color = COLOR_INK_LINE
-                    pygame.draw.polygon(surface, ink_color, pts, 1)
+                    draw_poly(surface, ink_color, pts, 1)
                 elif draw_wireframe:
-                    pygame.draw.polygon(surface, COLOR_INK_LINE, pts, 1)
+                    draw_poly(surface, COLOR_INK_LINE, pts, 1)
 
     def render_first_person_beak(
         self,
