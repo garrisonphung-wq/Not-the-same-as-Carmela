@@ -103,7 +103,9 @@ class GameRelayServer:
             "punch_side": 1.0,
             "jump_offset_y": 0.0,
             "jump_amount": 0.0,
+            "arms_down_amount": 0.0,
             "tag_amount": 0.0,
+            "on_fire": False,
         }
 
         try:
