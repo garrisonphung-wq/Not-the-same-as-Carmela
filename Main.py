@@ -958,11 +958,13 @@ def main() -> None:
     local_rot_z = 0.0
     local_lay_pitch = 0.0
     is_lying_down = False
+    is_manual_ragdoll = False
     local_ragdoll = 0.0
     kick_lay_dir = -1.0
     kick_bounced = False
     side_lying_timer = 0.0
     remote_ragdolls: dict[int, ChickRagdollSim] = {}
+    local_ragdoll_sim = ChickRagdollSim()
 
     # First-person punch action (triggered with 'P' key)
     is_punching = False
@@ -1235,6 +1237,23 @@ def main() -> None:
                         # Pressing 'L' toggles lying down on the grass!
                         is_lying_down = not is_lying_down
                         if is_lying_down:
+                            is_kicking = False
+                            kick_timer = 0.0
+                            is_punching = False
+                            punch_timer = 0.0
+                            is_tagging = False
+                            tag_amount = 0.0
+                            if jump_state == "crouching":
+                                jump_state = "idle"
+                                crouch_timer = 0.0
+                                jump_charge = 0.0
+                                jump_amount = 0.0
+                    elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_headshot_phase != "none") and event.key == pygame.K_r:
+                        # Pressing 'R' toggles ragdoll mode!
+                        is_manual_ragdoll = not is_manual_ragdoll
+                        if is_manual_ragdoll:
+                            is_lying_down = False
+                            local_ragdoll = 1.0
                             is_kicking = False
                             kick_timer = 0.0
                             is_punching = False
@@ -1578,6 +1597,7 @@ def main() -> None:
                         knock_vz = nz_k * 11.5
                         is_kick_launched = True
                         is_lying_down = False
+                        is_manual_ragdoll = False
                         launch_accel_timer = 0.18
                         jump_state = "airborne"
                         jump_velocity_y = 0.6
@@ -1615,6 +1635,7 @@ def main() -> None:
                         local_headshot_face_yaw = math.atan2(-nx_p, -nz_p)
                         local_headshot_phase = "head_up"
                         is_lying_down = False
+                        is_manual_ragdoll = False
                         local_headshot_timer = 0.0
                         kick_lay_dir = -1.0
                         kick_roll_dir = 0.0
@@ -1689,6 +1710,19 @@ def main() -> None:
                 elif side_lying_timer > 0.0:
                     side_lying_timer = max(0.0, side_lying_timer - dt)
                     local_lay_pitch = kick_lay_dir * (math.pi * 0.5)
+                    local_ragdoll = 1.0
+                    is_moving = False
+                    is_walking = False
+                    is_running = False
+                elif is_manual_ragdoll:
+                    rg_step = math.radians(340.0) * dt
+                    target_rg_lay = -math.pi * 0.5
+                    if abs(local_lay_pitch - target_rg_lay) <= rg_step:
+                        local_lay_pitch = target_rg_lay
+                    else:
+                        local_lay_pitch -= math.copysign(rg_step, local_lay_pitch - target_rg_lay)
+                    target_rg_roll = math.radians(22.0)
+                    local_rot_z += (target_rg_roll - local_rot_z) * min(1.0, 9.0 * dt)
                     local_ragdoll = 1.0
                     is_moving = False
                     is_walking = False
@@ -3222,6 +3256,21 @@ def main() -> None:
             pygame.draw.rect(screen, (255, 255, 255), pic_rect, border_radius=16)
             pygame.draw.rect(screen, (215, 224, 232), pic_rect, width=2, border_radius=16)
 
+            if local_ragdoll > 0.01:
+                local_rg_pose = local_ragdoll_sim.step(
+                    dt=dt,
+                    wx=cam_x,
+                    jump_y=jump_offset_y,
+                    wz=cam_z,
+                    world_rot_y=cam_yaw,
+                    rot_z=local_rot_z,
+                    lay_pitch=local_lay_pitch,
+                    ragdoll=local_ragdoll,
+                    scale=1.0,
+                )
+            else:
+                local_ragdoll_sim.reset()
+                local_rg_pose = None
             corner_y = 185 - round(jump_offset_y * 22)
             model_3d.render(
                 surface=screen,
@@ -3229,6 +3278,11 @@ def main() -> None:
                 scale=72,
                 rot_y=0.0,
                 rot_x=0.06,
+                rot_z=local_rot_z,
+                lay_pitch=local_lay_pitch,
+                ragdoll=local_ragdoll,
+                ragdoll_seed=0.42,
+                ragdoll_pose=local_rg_pose,
                 head_yaw=head_yaw,
                 head_pitch=head_pitch,
                 mouth_open=mouth_open,
@@ -3240,7 +3294,6 @@ def main() -> None:
                 blink=blink_amount,
                 character=selected_character,
                 jump_amount=jump_amount,
-                lay_pitch=local_lay_pitch,
             )
 
             # --- 2d. TOP-RIGHT PERSISTENT CHATBOX (shows everyone's messages) ---
