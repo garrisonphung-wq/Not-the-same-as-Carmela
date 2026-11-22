@@ -655,7 +655,7 @@ class NetworkClient:
 
         # Launch 1 companion AI chick (cannot walk/move around, can only jump and chat)
         ai_chick_configs = [
-            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "wx": 0.0, "wz": 7.2, "role": "jump_only", "target": None, "chat": True, "delay": 0.45},
+            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "wx": 0.0, "wz": 7.2, "role": "free", "target": None, "chat": True, "delay": 0.45},
         ]
 
         def launch_single_ai(cfg: dict[str, Any]) -> None:

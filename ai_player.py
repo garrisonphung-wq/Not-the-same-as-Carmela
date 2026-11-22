@@ -120,7 +120,23 @@ class AICodeCompanion:
         self.tag_duration = 2.2
         self.tag_amount = 0.0
 
-        self.action_cooldown = random.uniform(3.0, 7.0)
+        self.action_cooldown = random.uniform(2.5, 5.5)
+
+        # Rocket Chicken + new playful state flags
+        self.arms_down_amount = 0.0
+        self.on_fire = False
+        self.airborne_timer = 0.0
+        self.is_j_air_spinning = False
+        self.rocket_charge_dur = 0.0
+        self.rocket_impulse = 75.0
+        self.is_rocket_charging = False
+        self.is_lying_down = False
+        self.lie_down_timer = 0.0
+        self.is_manual_ragdoll = False
+        self.manual_ragdoll_timer = 0.0
+        self.is_buried_in_crater = False
+        self.buried_timer = 0.0
+        self._pending_craters: list[tuple[float, float, float]] = []
 
         # Independent AI decision state machine
         self.mode = "idle"
@@ -159,16 +175,134 @@ class AICodeCompanion:
 
         threading.Thread(target=server_runner, daemon=True).start()
 
-    def _choose_next_action(self) -> None:
-        # AI cannot walk or run; it stays in place and can only jump!
-        self.dest_x = self.wx
-        self.dest_z = self.wz
-        self.mode = "idle"
-        self.mode_timer = random.uniform(1.6, 3.8)
+    def _get_world_scale(self) -> float:
+        cl = self.character.lower()
+        if cl in ("carmen", "卡门"):
+            return 1.65 * 0.82
+        if cl in ("pangdun", "小胖墩", "belino", "coquenpate"):
+            return 1.65 * 1.15
+        if cl in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
+            return 1.65 * 1.08
+        return 1.65
+
+    def start_rocket_chicken(self, mega_fire: bool | None = None) -> None:
+        if self.jump_state != "idle" or self.is_buried_in_crater:
+            return
         self.is_walking = False
         self.is_running = False
+        self.is_lying_down = False
+        self.is_manual_ragdoll = False
+        self.is_tagging = False
+        self.is_rocket_charging = True
+        self.target_head_yaw = 0.0
+        self.target_head_pitch = 0.88
+        self.head_pitch = max(self.head_pitch, 0.35)
+        self.jump_state = "crouching"
+        self.crouch_timer = 0.0
+        self.jump_amount = 0.0
+        if mega_fire is None:
+            mega_fire = (random.random() < 0.25)
+        if mega_fire:
+            self.rocket_charge_dur = random.uniform(2.2, 3.0)
+            self.rocket_impulse = random.uniform(338.0, 355.0)  # >= 30s airtime -> catches fire!
+        else:
+            self.rocket_charge_dur = random.uniform(1.5, 2.5)
+            self.rocket_impulse = random.uniform(55.0, 95.0)    # High spinning rocket + upside-down crater dive!
+
+    def _choose_next_action(self) -> None:
+        if self.ai_role in ("still", "jump_only"):
+            self.dest_x = self.wx
+            self.dest_z = self.wz
+            self.mode = "idle"
+            self.mode_timer = random.uniform(1.6, 3.8)
+            self.is_walking = False
+            self.is_running = False
+            return
+
+        if self.is_buried_in_crater or self.is_rocket_charging or self.jump_state != "idle":
+            self.mode_timer = 0.8
+            return
+
+        roll = random.random()
+        if roll < 0.34:
+            # Free walk or run to a spot around the island (or near a player)
+            if self.other_players and random.random() < 0.45:
+                _t = random.choice(list(self.other_players.values()))
+                ang = random.uniform(0.0, 2.0 * math.pi)
+                self.dest_x = max(-24.0, min(24.0, _t["wx"] + math.cos(ang) * random.uniform(2.0, 5.5)))
+                self.dest_z = max(-24.0, min(24.0, _t["wz"] + math.sin(ang) * random.uniform(2.0, 5.5)))
+            else:
+                ang = random.uniform(0.0, 2.0 * math.pi)
+                rad = random.uniform(3.0, 22.0)
+                self.dest_x = math.cos(ang) * rad
+                self.dest_z = math.sin(ang) * rad
+            self.mode = "run" if random.random() < 0.45 else "walk"
+            self.target_head_yaw = random.uniform(-0.25, 0.25)
+            self.target_head_pitch = random.uniform(-0.08, 0.15)
+            self.mode_timer = random.uniform(2.0, 4.8)
+        elif roll < 0.50:
+            # Idle & look around
+            self.mode = "idle"
+            self.is_walking = False
+            self.is_running = False
+            self.target_head_yaw = random.uniform(-0.7, 0.7)
+            self.target_head_pitch = random.uniform(-0.25, 0.45)
+            self.mode_timer = random.uniform(1.2, 2.6)
+        elif roll < 0.62:
+            # Normal playful jump
+            self.mode = "idle"
+            self.is_walking = False
+            self.is_running = False
+            self.jump_state = "crouching"
+            self.crouch_timer = 0.0
+            self.jump_amount = 0.0
+            self.mode_timer = random.uniform(1.5, 2.8)
+        elif roll < 0.78:
+            # ROCKET CHICKEN! (look up, crouch + arms down, spin launch into sky, dive into crater!)
+            self.mode = "rocket"
+            self.start_rocket_chicken()
+            self.mode_timer = 4.0
+        elif roll < 0.87:
+            # Punch, kick, or zombie tag arms
+            self.mode = "idle"
+            self.is_walking = False
+            self.is_running = False
+            sub = random.random()
+            if sub < 0.35:
+                self.is_punching = True
+                self.punch_timer = 0.0
+                self.punch_side = -self.punch_side
+            elif sub < 0.70:
+                self.is_kicking = True
+                self.kick_timer = 0.0
+                self.kick_side = -self.kick_side
+            else:
+                self.is_tagging = True
+                self.tag_timer = 0.0
+                self.tag_duration = random.uniform(1.8, 3.2)
+            self.mode_timer = random.uniform(1.2, 2.5)
+        elif roll < 0.94:
+            # Lie down on the grass!
+            self.mode = "lie_down"
+            self.is_walking = False
+            self.is_running = False
+            self.is_lying_down = True
+            self.lie_down_timer = random.uniform(2.5, 4.2)
+            self.mode_timer = self.lie_down_timer + 0.4
+        else:
+            # Manual ragdoll mode!
+            self.mode = "ragdoll"
+            self.is_walking = False
+            self.is_running = False
+            self.is_manual_ragdoll = True
+            self.manual_ragdoll_timer = random.uniform(2.0, 3.4)
+            self.mode_timer = self.manual_ragdoll_timer + 0.4
 
     def apply_punch_hit(self, dir_x: float, dir_z: float, headshot: bool, punch_side: float = 1.0) -> None:
+        if self.is_buried_in_crater:
+            return
+        self.is_rocket_charging = False
+        self.arms_down_amount = 0.0
         dlen = math.hypot(dir_x, dir_z)
         nx = dir_x / dlen if dlen > 1e-4 else 0.0
         nz = dir_z / dlen if dlen > 1e-4 else 1.0
@@ -201,6 +335,10 @@ class AICodeCompanion:
             self.knock_vz = nz * 8.2
 
     def apply_kick_hit(self, dir_x: float, dir_z: float, launch: bool, roll_dir: float) -> None:
+        if self.is_buried_in_crater:
+            return
+        self.is_rocket_charging = False
+        self.arms_down_amount = 0.0
         dlen = math.hypot(dir_x, dir_z)
         nx = dir_x / dlen if dlen > 1e-4 else 0.0
         nz = dir_z / dlen if dlen > 1e-4 else 1.0
@@ -293,7 +431,40 @@ class AICodeCompanion:
                 self.ragdoll = 1.0
                 self.headshot_phase = "none"
                 self.side_lying_timer = 1.0
-        elif not self.is_kick_launched and (abs(self.lay_pitch) > 1e-3 or abs(self.rot_z) > 1e-3 or self.ragdoll > 1e-3):
+        elif self.is_buried_in_crater:
+            # Stuck upside-down 50% under the grass -> wiggle 10s then stand back up!
+            self.is_walking = False
+            self.is_running = False
+            self.buried_timer += dt
+            self.lay_pitch = -math.pi
+            self.rot_z = math.sin(self.buried_timer * 24.0) * 0.06
+            self.jump_offset_y = -0.58 * self._get_world_scale()
+            self.ragdoll = 0.0
+            if self.buried_timer >= 10.0:
+                self.is_buried_in_crater = False
+                self.buried_timer = 0.0
+                self.lay_pitch = 0.0
+                self.rot_z = 0.0
+                self.jump_offset_y = 0.0
+                self.target_head_pitch = 0.0
+        elif self.is_lying_down:
+            self.is_walking = False
+            self.is_running = False
+            self.lie_down_timer -= dt
+            self.lay_pitch = max(-math.pi * 0.5, self.lay_pitch - math.radians(320.0) * dt)
+            self.ragdoll = 0.0
+            if self.lie_down_timer <= 0.0:
+                self.is_lying_down = False
+        elif self.is_manual_ragdoll:
+            self.is_walking = False
+            self.is_running = False
+            self.manual_ragdoll_timer -= dt
+            self.ragdoll = 1.0
+            self.lay_pitch = max(-math.pi * 0.5, self.lay_pitch - math.radians(260.0) * dt)
+            self.rot_z += (0.28 - self.rot_z) * min(1.0, 8.0 * dt)
+            if self.manual_ragdoll_timer <= 0.0:
+                self.is_manual_ragdoll = False
+        elif not self.is_kick_launched and not self.is_j_air_spinning and (abs(self.lay_pitch) > 1e-3 or abs(self.rot_z) > 1e-3 or self.ragdoll > 1e-3):
             # Smoothly recover upright from ragdoll lay-down
             rec_step = math.radians(280.0) * dt
             if abs(self.lay_pitch) <= rec_step:
@@ -312,7 +483,7 @@ class AICodeCompanion:
         self.blink_timer -= dt
         self.climb_jump_cooldown = max(0.0, self.climb_jump_cooldown - dt)
 
-        ai_ragdoll_locked = (self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05 or self.headshot_phase != "none")
+        ai_ragdoll_locked = (self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05 or self.headshot_phase != "none" or self.is_buried_in_crater or self.is_lying_down or self.is_manual_ragdoll)
         if ai_ragdoll_locked:
             self.is_kicking = False
             self.kick_timer = 0.0
@@ -399,6 +570,51 @@ class AICodeCompanion:
                     self.jump_state = "crouching"
                     self.crouch_timer = 0.0
                     self.jump_amount = 0.0
+        elif self.ai_role == "free":
+            # Free AI: walk or run around the island freely, jump, look at sky-cloud players, or rocket-launch!
+            if self.is_rocket_charging or self.jump_state == "crouching":
+                self.is_walking = False
+                self.is_running = False
+            elif self.mode in ("walk", "run"):
+                dx_d = self.dest_x - self.wx
+                dz_d = self.dest_z - self.wz
+                dist_d = math.hypot(dx_d, dz_d)
+                if dist_d > 0.45:
+                    desired_yaw = math.atan2(dx_d, dz_d)
+                    diff = wrap_angle(desired_yaw - self.rot_y)
+                    max_turn = self.TURN_SPEED * 1.4 * dt
+                    if abs(diff) <= max_turn:
+                        self.rot_y = desired_yaw
+                    else:
+                        self.rot_y = wrap_angle(self.rot_y + math.copysign(max_turn, diff))
+                    self.is_running = (self.mode == "run" and dist_d > 1.8)
+                    self.is_walking = not self.is_running
+                    move_spd = self.RUN_SPEED if self.is_running else self.WALK_SPEED
+                    step = min(dist_d, move_spd * dt)
+                    self.wx += (dx_d / dist_d) * step
+                    self.wz += (dz_d / dist_d) * step
+                    # Keep within island
+                    r_w = math.hypot(self.wx, self.wz)
+                    if r_w > self.WORLD_LIMIT:
+                        self.wx = self.wx / r_w * self.WORLD_LIMIT
+                        self.wz = self.wz / r_w * self.WORLD_LIMIT
+                else:
+                    self.is_walking = False
+                    self.is_running = False
+                    self.mode = "idle"
+                    self.mode_timer = min(self.mode_timer, 0.8)
+            else:
+                self.is_walking = False
+                self.is_running = False
+                # While idle, occasionally look up at a player on the sky cloud!
+                if not self.is_rocket_charging and self.jump_state == "idle":
+                    for _opid, _oinfo in self.other_players.items():
+                        if _oinfo.get("jump_y", 0.0) >= 8.0 and math.hypot(_oinfo["wx"] - self.wx, _oinfo["wz"] - self.wz) < 45.0:
+                            _desired_yaw = math.atan2(_oinfo["wx"] - self.wx, _oinfo["wz"] - self.wz)
+                            _rel_yaw = wrap_angle(_desired_yaw - self.rot_y)
+                            self.target_head_yaw = max(-0.85, min(0.85, _rel_yaw))
+                            self.target_head_pitch = 0.92
+                            break
         else:
             # Climber AI: if already standing on top of a chick, perch smoothly; otherwise move toward the still chick & leap on!
             is_perched = (self.riding_pid is not None and self.jump_offset_y >= 0.85)
@@ -519,7 +735,7 @@ class AICodeCompanion:
                     ratio_me = 0.50
                     ratio_other = 0.50
 
-                if self.ai_role != "still":
+                if self.ai_role != "still" and not self.is_buried_in_crater:
                     self.wx += nx * (overlap * ratio_me)
                     self.wz += nz * (overlap * ratio_me)
 
@@ -571,18 +787,35 @@ class AICodeCompanion:
         else:
             self.tag_amount = max(0.0, self.tag_amount - 10.0 * dt)
 
-        # Jump physics
+        # Jump & Rocket Chicken physics
         if self.jump_state == "crouching":
             if ai_landing_support_y > 0.0:
                 self.jump_offset_y = ai_landing_support_y
             self.crouch_timer += dt
-            cp = min(1.0, self.crouch_timer / self.crouch_duration)
+            target_crouch_dur = self.rocket_charge_dur if self.is_rocket_charging else self.crouch_duration
+            cp = min(1.0, self.crouch_timer / max(0.05, target_crouch_dur))
             self.jump_amount = math.sin(cp * (math.pi / 2))
-            if self.crouch_timer >= self.crouch_duration:
+            if self.is_rocket_charging:
+                self.target_head_pitch = 0.88
+                if self.head_pitch > math.radians(15.0):
+                    self.arms_down_amount = min(1.0, self.arms_down_amount + 8.0 * dt)
+            if self.crouch_timer >= target_crouch_dur:
                 self.jump_state = "airborne"
-                self.jump_velocity_y = self.climb_impulse if self.ai_role == "climber" else self.JUMP_IMPULSE
+                if self.is_rocket_charging:
+                    self.jump_velocity_y = self.rocket_impulse
+                    self.is_j_air_spinning = True
+                    self.is_rocket_charging = False
+                elif self.ai_role == "climber":
+                    self.jump_velocity_y = self.climb_impulse
+                    self.is_j_air_spinning = False
+                else:
+                    self.jump_velocity_y = self.JUMP_IMPULSE
+                    self.is_j_air_spinning = False
                 self.jump_offset_y = max(self.jump_offset_y, ai_landing_support_y) + 0.08
                 self.jump_amount = 0.0
+                self.arms_down_amount = 0.0
+                self.airborne_timer = 0.0
+                self.on_fire = False
                 self.riding_pid = None
                 self.riding_prev_pos = None
         elif self.jump_state == "airborne":
@@ -592,6 +825,18 @@ class AICodeCompanion:
             self.jump_offset_y += self.jump_velocity_y * dt
             self.jump_velocity_y -= self.GRAVITY * dt
             self.jump_amount = 0.0
+            self.arms_down_amount = 0.0
+            if not self.is_kick_launched:
+                self.airborne_timer += dt
+                if self.is_j_air_spinning:
+                    self.rot_y = (self.rot_y + dt * 14.0) % (2.0 * math.pi)
+                    if self.jump_velocity_y < 0.0 and self.lay_pitch > -math.pi:
+                        fall_dist = max(0.05, self.jump_offset_y - max(0.0, ai_landing_support_y))
+                        t_rem = max(0.10, (self.jump_velocity_y + math.sqrt(self.jump_velocity_y * self.jump_velocity_y + 2.0 * self.GRAVITY * fall_dist)) / self.GRAVITY)
+                        turn_rate = max(math.radians(150.0), min(math.radians(720.0), abs(-math.pi - self.lay_pitch) / t_rem))
+                        self.lay_pitch = max(-math.pi, self.lay_pitch - turn_rate * dt)
+                if self.airborne_timer >= 30.0:
+                    self.on_fire = True
             if self.is_kick_launched:
                 # Ragdoll mode: tip into loose sprawl toward ±90 deg to land laying flat down on grass (NOT a backflip!)
                 self.ragdoll = 1.0
@@ -610,10 +855,23 @@ class AICodeCompanion:
                     self.jump_velocity_y = min(2.1, -self.jump_velocity_y * 0.22)
                     self.kick_bounced = True
                 else:
-                    self.jump_offset_y = cur_floor
+                    landed_upside_down = (not self.is_kick_launched) and self.is_j_air_spinning and (abs(self.lay_pitch) >= math.pi * 0.72) and (cur_floor <= 0.05)
                     self.jump_velocity_y = 0.0
                     self.jump_state = "idle"
                     self.jump_amount = 0.0
+                    self.is_j_air_spinning = False
+                    self.on_fire = False
+                    self.airborne_timer = 0.0
+                    if landed_upside_down:
+                        self.jump_offset_y = -0.58 * self._get_world_scale()
+                        self.lay_pitch = -math.pi
+                        self.rot_z = 0.0
+                        self.ragdoll = 0.0
+                        self.is_buried_in_crater = True
+                        self.buried_timer = 0.0
+                        self._pending_craters.append((self.wx, self.wz, 1.38))
+                    else:
+                        self.jump_offset_y = cur_floor
                     if self.is_kick_launched:
                         self.is_kick_launched = False
                         self.lay_pitch = self.kick_lay_dir * (math.pi * 0.5)
@@ -621,15 +879,17 @@ class AICodeCompanion:
                         self.ragdoll = 1.0
                         self.side_lying_timer = 1.0
         else:
+            self.arms_down_amount = max(0.0, self.arms_down_amount - 10.0 * dt)
             cur_floor = max(0.0, ai_landing_support_y)
-            if self.jump_offset_y > 0.0:
-                if cur_floor > 0.0:
-                    self.jump_offset_y = cur_floor
-                elif self.jump_offset_y > 0.12:
-                    self.jump_state = "airborne"
-                    self.jump_velocity_y = 0.0
-                else:
-                    self.jump_offset_y = 0.0
+            if not self.is_buried_in_crater:
+                if self.jump_offset_y > 0.0:
+                    if cur_floor > 0.0:
+                        self.jump_offset_y = cur_floor
+                    elif self.jump_offset_y > 0.12:
+                        self.jump_state = "airborne"
+                        self.jump_velocity_y = 0.0
+                    else:
+                        self.jump_offset_y = 0.0
             self.jump_amount = 0.0
 
 
@@ -655,7 +915,11 @@ class AICodeCompanion:
         # AI cannot move except jump (and cannot jump while ragdolled)
         if self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05 or self.headshot_phase != "none":
             return
-        if action == "jump" and self.jump_state == "idle":
+        if self.is_buried_in_crater or self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05:
+            return
+        if action == "rocket" and self.jump_state == "idle":
+            self.start_rocket_chicken()
+        elif action == "jump" and self.jump_state == "idle":
             self.jump_state = "crouching"
             self.crouch_timer = 0.0
             self.jump_amount = 0.0
@@ -855,10 +1119,18 @@ class AICodeCompanion:
                     "punch_side": round(self.punch_side, 1),
                     "jump_offset_y": round(self.jump_offset_y, 3),
                     "jump_amount": round(self.jump_amount, 3),
+                    "arms_down_amount": round(self.arms_down_amount, 3),
+                    "on_fire": bool(self.on_fire),
                     "tag_amount": round(self.tag_amount, 3),
                 },
                 separators=(",", ":"),
             )
+            while self._pending_craters:
+                c_wx, c_wz, c_r = self._pending_craters.pop(0)
+                try:
+                    await ws.send(json.dumps({"type": "crater", "wx": round(c_wx, 3), "wz": round(c_wz, 3), "radius": round(c_r, 3)}, separators=(",", ":")))
+                except Exception:
+                    pass
             try:
                 await ws.send(payload)
             except ConnectionClosed:
