@@ -2274,8 +2274,8 @@ def main() -> None:
                             t_rem = max(0.10, (jump_velocity_y + math.sqrt(jump_velocity_y * jump_velocity_y + 2.0 * GRAVITY * fall_dist)) / GRAVITY)
                             turn_rate = max(math.radians(150.0), min(math.radians(720.0), abs(-math.pi - local_lay_pitch) / t_rem))
                             local_lay_pitch = max(-math.pi, local_lay_pitch - turn_rate * dt)
-                    # Catch fire only if still in the air for 30 seconds or more!
-                    if airborne_timer >= 30.0:
+                    # Rocket chicken catches fire after 5 seconds in the air!
+                    if is_j_air_spinning and airborne_timer >= 5.0:
                         is_on_fire = True
                 if is_kick_launched:
                     # Ragdoll mode: tip into loose sprawl toward ±90 deg to land laying flat down on grass (NOT a backflip!)

@@ -207,11 +207,11 @@ class AICodeCompanion:
         if mega_fire is None:
             mega_fire = (random.random() < 0.25)
         if mega_fire:
-            self.rocket_charge_dur = random.uniform(2.2, 3.0)
-            self.rocket_impulse = random.uniform(338.0, 355.0)  # >= 30s airtime -> catches fire!
+            self.rocket_charge_dur = random.uniform(2.0, 2.8)
+            self.rocket_impulse = random.uniform(90.0, 145.0)   # ~8-13s airtime -> catches fire at 5s!
         else:
-            self.rocket_charge_dur = random.uniform(1.5, 2.5)
-            self.rocket_impulse = random.uniform(55.0, 95.0)    # High spinning rocket + upside-down crater dive!
+            self.rocket_charge_dur = random.uniform(1.4, 2.2)
+            self.rocket_impulse = random.uniform(64.0, 95.0)    # ~5.8-8.6s airtime -> catches fire at 5s + crater dive!
 
     def _choose_next_action(self) -> None:
         if self.ai_role in ("still", "jump_only"):
@@ -879,7 +879,7 @@ class AICodeCompanion:
                         t_rem = max(0.10, (self.jump_velocity_y + math.sqrt(self.jump_velocity_y * self.jump_velocity_y + 2.0 * self.GRAVITY * fall_dist)) / self.GRAVITY)
                         turn_rate = max(math.radians(150.0), min(math.radians(720.0), abs(-math.pi - self.lay_pitch) / t_rem))
                         self.lay_pitch = max(-math.pi, self.lay_pitch - turn_rate * dt)
-                if self.airborne_timer >= 30.0:
+                if self.is_j_air_spinning and self.airborne_timer >= 5.0:
                     self.on_fire = True
             if self.is_kick_launched:
                 # Ragdoll mode: tip into loose sprawl toward ±90 deg to land laying flat down on grass (NOT a backflip!)
