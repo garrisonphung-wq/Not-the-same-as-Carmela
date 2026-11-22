@@ -1147,9 +1147,19 @@ def main() -> None:
     net = NetworkClient(server_url=args.server, auto_host=not args.no_auto_host, is_online=is_online)
     remote_states: dict[int, dict[str, float]] = {}
 
+    CLOUD_SPAWN_WX = 0.0
+    CLOUD_SPAWN_WZ = 10.0
+    CLOUD_SPAWN_Y = 14.0
+    CLOUD_PLATFORM_RADIUS = 6.2
+
     play_button_rect = pygame.Rect(0, 0, 10, 10)
     name_button_rect = pygame.Rect(-100, -100, 0, 0)
     name_input_rect = pygame.Rect(-100, -100, 0, 0)
+    place_box_rect = pygame.Rect(-100, -100, 0, 0)
+    place_option_rects: list[tuple[str, pygame.Rect]] = []
+    spawn_place_options = ("ground", "on cloud")
+    selected_spawn_place = "ground"
+    place_dropdown_open = False
     custom_player_name = ""
     is_typing_menu_name = False
     menu_ime_comp_text = ""
@@ -1402,7 +1412,26 @@ def main() -> None:
                 # Menu navigation and joining in offline mode
                 if not is_online:
                     if menu_state == "title":
-                        if name_button_rect.collidepoint(event.pos) or name_input_rect.collidepoint(event.pos):
+                        picked_place_opt = None
+                        if place_dropdown_open:
+                            for opt_val, opt_r in place_option_rects:
+                                if opt_r.collidepoint(event.pos):
+                                    picked_place_opt = opt_val
+                                    break
+                        if picked_place_opt is not None:
+                            selected_spawn_place = picked_place_opt
+                            place_dropdown_open = False
+                            is_dragging_island = False
+                        elif place_box_rect.collidepoint(event.pos):
+                            place_dropdown_open = not place_dropdown_open
+                            if is_typing_menu_name:
+                                is_typing_menu_name = False
+                                menu_ime_comp_text = ""
+                                if hasattr(pygame.key, "stop_text_input"):
+                                    pygame.key.stop_text_input()
+                            is_dragging_island = False
+                        elif name_button_rect.collidepoint(event.pos) or name_input_rect.collidepoint(event.pos):
+                            place_dropdown_open = False
                             is_typing_menu_name = True
                             menu_ime_comp_text = ""
                             if hasattr(pygame.key, "start_text_input"):
@@ -1412,6 +1441,7 @@ def main() -> None:
                             is_dragging_island = False
                         elif play_button_rect.collidepoint(event.pos):
                             # Clicking PLAY opens character select: Carmelito appears spinning, with name and USE button
+                            place_dropdown_open = False
                             if is_typing_menu_name:
                                 is_typing_menu_name = False
                                 menu_ime_comp_text = ""
@@ -1420,6 +1450,7 @@ def main() -> None:
                             menu_state = "character_select"
                             is_dragging_island = False
                         else:
+                            place_dropdown_open = False
                             if is_typing_menu_name:
                                 is_typing_menu_name = False
                                 menu_ime_comp_text = ""
@@ -1446,15 +1477,30 @@ def main() -> None:
                             net.set_character(selected_character, selected_chick_name)
                             is_dragging_island = False
                         elif menu_state == "character_used" and play_button_rect.collidepoint(event.pos):
-                            # Clicking spawned PLAY button launches the game with chosen chick!
+                            # Clicking spawned PLAY button launches the game with chosen chick & chosen place!
                             is_online = True
                             has_entered_game = True
                             net.set_player_name(custom_player_name)
                             net.set_character(selected_character, selected_chick_name)
                             net.set_online(True)
-                            cam_x = ground_cam_x
-                            cam_z = ground_cam_z
-                            cam_yaw = ground_cam_yaw
+                            jump_state = "idle"
+                            jump_velocity_y = 0.0
+                            jump_amount = 0.0
+                            is_buried_in_crater = False
+                            buried_p_hold_timer = 0.0
+                            local_lay_pitch = 0.0
+                            local_rot_z = 0.0
+                            local_ragdoll = 0.0
+                            if selected_spawn_place == "on cloud":
+                                cam_x = CLOUD_SPAWN_WX
+                                cam_z = CLOUD_SPAWN_WZ
+                                jump_offset_y = CLOUD_SPAWN_Y
+                                cam_yaw = math.pi
+                            else:
+                                cam_x = ground_cam_x
+                                cam_z = ground_cam_z
+                                jump_offset_y = 0.0
+                                cam_yaw = ground_cam_yaw
                             head_yaw = 0.0
                             head_pitch = 0.0
                             is_dragging_island = False
@@ -2016,6 +2062,14 @@ def main() -> None:
                         # Displace remote player:
                         rs["wx"] = ox - nx * (overlap * ratio_other)
                         rs["wz"] = oz - nz * (overlap * ratio_other)
+
+                # Cloud platform support (if spawned on or jumped onto the sky cloud)
+                if (
+                    jump_offset_y >= CLOUD_SPAWN_Y - 0.85
+                    and math.hypot(cam_x - CLOUD_SPAWN_WX, cam_z - CLOUD_SPAWN_WZ) <= CLOUD_PLATFORM_RADIUS
+                ):
+                    if CLOUD_SPAWN_Y > landing_support_y:
+                        landing_support_y = CLOUD_SPAWN_Y
 
                 # Update carrier tracking cleanly:
                 if found_carrier_id is not None and found_carrier_id in remote_states:
@@ -2744,11 +2798,86 @@ def main() -> None:
             if rz_forward > 0.15 or rz_cam_feet > 0.15:
                 visible_remotes.append((horiz_dist, pid, pdata, rs, rx_unpitched, ry_cam_feet, rz_forward))
 
+        # 1c-2. Helper to draw the walkable 3D Sky Cloud Platform (visible to ground players, AI chick, & cloud players!)
+        def draw_walkable_sky_cloud() -> None:
+            CLOUD_SEGS = 20
+            def _clip_cloud_poly(cam_pts: list[tuple[float, float, float]]) -> list[tuple[int, int]]:
+                clipped: list[tuple[float, float, float]] = []
+                n_pts = len(cam_pts)
+                for idx in range(n_pts):
+                    a = cam_pts[idx]
+                    b = cam_pts[(idx + 1) % n_pts]
+                    a_in = a[2] >= near_z
+                    b_in = b[2] >= near_z
+                    if a_in and b_in:
+                        clipped.append(b)
+                    elif a_in and not b_in:
+                        t = (near_z - a[2]) / (b[2] - a[2])
+                        clipped.append((a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), near_z))
+                    elif (not a_in) and b_in:
+                        t = (near_z - a[2]) / (b[2] - a[2])
+                        clipped.append((a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), near_z))
+                        clipped.append(b)
+                return [
+                    (
+                        max(-5000, min(win_w + 5000, round(hw + (pt[0] / pt[2]) * focal))),
+                        max(-5000, min(win_h + 5000, round(hh - (pt[1] / pt[2]) * focal))),
+                    )
+                    for pt in clipped
+                ]
+
+            cloud_y_top = current_ground_y + CLOUD_SPAWN_Y
+            cloud_y_bot = cloud_y_top - 0.85
+            bot_cam: list[tuple[float, float, float]] = []
+            rim_cam: list[tuple[float, float, float]] = []
+            top_cam: list[tuple[float, float, float]] = []
+            for si in range(CLOUD_SEGS):
+                ang = (si / CLOUD_SEGS) * 2.0 * math.pi
+                lobe = 1.0 + 0.12 * math.sin(ang * 7.0) + 0.06 * math.cos(ang * 3.0)
+                r_top = CLOUD_PLATFORM_RADIUS * lobe
+                r_rim = (CLOUD_PLATFORM_RADIUS + 0.42) * lobe
+                r_bot = (CLOUD_PLATFORM_RADIUS - 0.35) * lobe
+                bot_cam.append(to_cam(CLOUD_SPAWN_WX + math.cos(ang) * r_bot, cloud_y_bot, CLOUD_SPAWN_WZ + math.sin(ang) * r_bot))
+                rim_cam.append(to_cam(CLOUD_SPAWN_WX + math.cos(ang) * r_rim, cloud_y_top - 0.35, CLOUD_SPAWN_WZ + math.sin(ang) * r_rim))
+                top_cam.append(to_cam(CLOUD_SPAWN_WX + math.cos(ang) * r_top, cloud_y_top, CLOUD_SPAWN_WZ + math.sin(ang) * r_top))
+            bot_pts = _clip_cloud_poly(bot_cam)
+            rim_pts = _clip_cloud_poly(rim_cam)
+            top_pts = _clip_cloud_poly(top_cam)
+            if eye_y < cloud_y_top:
+                if len(top_pts) >= 3:
+                    pygame.draw.polygon(screen, (246, 250, 255), top_pts)
+                if len(rim_pts) >= 3:
+                    pygame.draw.polygon(screen, (236, 242, 252), rim_pts)
+                if len(bot_pts) >= 3:
+                    pygame.draw.polygon(screen, (220, 229, 242), bot_pts)
+            else:
+                if len(bot_pts) >= 3:
+                    pygame.draw.polygon(screen, (220, 229, 242), bot_pts)
+                if len(rim_pts) >= 3:
+                    pygame.draw.polygon(screen, (242, 247, 255), rim_pts)
+                if len(top_pts) >= 3:
+                    pygame.draw.polygon(screen, (255, 255, 255), top_pts)
+            # Soft shadow under any remote player standing on the cloud
+            for _hd, _pid, _pdata, _rs, _rxu, _ryf, _rzf in visible_remotes:
+                if _pdata.get("is_carmelito", True) and _rs.get("jump_offset_y", 0.0) >= CLOUD_SPAWN_Y - 1.0:
+                    if math.hypot(_rs["wx"] - CLOUD_SPAWN_WX, _rs["wz"] - CLOUD_SPAWN_WZ) <= CLOUD_PLATFORM_RADIUS + 0.5:
+                        _sc = to_cam(_rs["wx"], cloud_y_top + 0.03, _rs["wz"])
+                        if _sc[2] > near_z:
+                            _sx = hw + (_sc[0] / _sc[2]) * focal
+                            _sy = hh - (_sc[1] / _sc[2]) * focal
+                            _sw = max(8, round((1.15 / _sc[2]) * focal))
+                            _sh = max(3, round((0.36 / _sc[2]) * focal))
+                            pygame.draw.ellipse(screen, (206, 216, 230), pygame.Rect(round(_sx - _sw * 0.5), round(_sy - _sh * 0.4), _sw, _sh))
+
+        viewer_on_cloud_side = (eye_y >= current_ground_y + CLOUD_SPAWN_Y - 0.9)
+        if not viewer_on_cloud_side:
+            draw_walkable_sky_cloud()
+
         # PASS 1: Render ALL ground shadows first (so shadows never occlude any chick's feet or body)
         for horiz_dist, pid, pdata, rs, rx_unpitched, ry_cam_feet, rz_forward in visible_remotes:
             if is_fighting and pid == fight_opponent_pid:
                 continue
-            if pdata.get("is_carmelito", True) and rs.get("jump_offset_y", 0.0) >= -0.10:
+            if pdata.get("is_carmelito", True) and -0.10 <= rs.get("jump_offset_y", 0.0) < CLOUD_SPAWN_Y - 1.0:
                 rwx, rwz = rs["wx"], rs["wz"]
                 remote_char = resolve_character_id(pdata)
                 char_scale = 0.82 if remote_char == "carmen" else (1.15 if remote_char in ("pangdun", "小胖墩", "belino", "coquenpate") else (1.08 if remote_char in ("xiaoliuzi", "小六子", "coqsix", "克西斯") else 1.0))
@@ -2768,8 +2897,21 @@ def main() -> None:
                     pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, shadow_rect)
 
         # PASS 2: Render 3D chick models and nameplates sorted from furthest to nearest
+        # If viewer is up on the cloud, draw ground chicks first -> cloud platform -> cloud chicks!
         visible_remotes.sort(key=lambda item: item[0], reverse=True)
-        for horiz_dist, pid, pdata, rs, rx_unpitched, ry_cam_feet, rz_forward in visible_remotes:
+        if viewer_on_cloud_side:
+            ordered_remotes = (
+                [it for it in visible_remotes if it[3].get("jump_offset_y", 0.0) < CLOUD_SPAWN_Y - 1.5]
+                + [None]
+                + [it for it in visible_remotes if it[3].get("jump_offset_y", 0.0) >= CLOUD_SPAWN_Y - 1.5]
+            )
+        else:
+            ordered_remotes = visible_remotes
+        for remote_item in ordered_remotes:
+            if remote_item is None:
+                draw_walkable_sky_cloud()
+                continue
+            horiz_dist, pid, pdata, rs, rx_unpitched, ry_cam_feet, rz_forward = remote_item
             if is_fighting and pid == fight_opponent_pid:
                 continue  # Rendered in dedicated battle clash scene below!
 
@@ -3883,9 +4025,59 @@ def main() -> None:
                         pygame.draw.line(screen, (28, 36, 48), (box_x + 10, text_y + 2), (box_x + 10, text_y + name_font.get_height() - 2), 2)
                 screen.set_clip(clip_prev)
 
+                # "place:" label + non-typeable white picker box ("ground" / "on cloud") directly below "name:"
+                place_lbl_surf = get_outlined_text_surface("place:", lbl_px, outline_px=lbl_outline_px)
+                place_row_y = row_y + box_h + max(10, round(win_h * 0.018))
+                place_total_w = place_lbl_surf.get_width() + row_gap + box_w
+                place_row_x = (win_w - place_total_w) // 2
+                place_lbl_y = place_row_y + (box_h - place_lbl_surf.get_height()) // 2
+                screen.blit(place_lbl_surf, (place_row_x, place_lbl_y))
+
+                pbox_x = place_row_x + place_lbl_surf.get_width() + row_gap
+                place_box_rect = pygame.Rect(pbox_x, place_row_y, box_w, box_h)
+                pygame.draw.rect(screen, (180, 195, 210), pygame.Rect(pbox_x + 2, place_row_y + 2, box_w, box_h), border_radius=10)
+                pygame.draw.rect(screen, (255, 255, 255), place_box_rect, border_radius=10)
+                p_border_col = (55, 130, 225) if place_dropdown_open else (140, 160, 185)
+                pygame.draw.rect(screen, p_border_col, place_box_rect, width=2, border_radius=10)
+
+                p_text_y = place_row_y + (box_h - name_font.get_height()) // 2
+                p_val_surf = name_font.render(selected_spawn_place, True, (28, 36, 48))
+                screen.blit(p_val_surf, (pbox_x + 12, p_text_y))
+
+                # Dropdown chevron triangle on the right side of the white box
+                tri_cx = pbox_x + box_w - 16
+                tri_cy = place_row_y + box_h // 2
+                if place_dropdown_open:
+                    pygame.draw.polygon(screen, (70, 90, 115), [(tri_cx - 5, tri_cy + 3), (tri_cx + 5, tri_cy + 3), (tri_cx, tri_cy - 3)])
+                else:
+                    pygame.draw.polygon(screen, (70, 90, 115), [(tri_cx - 5, tri_cy - 3), (tri_cx + 5, tri_cy - 3), (tri_cx, tri_cy + 4)])
+
+                place_option_rects = []
+                if place_dropdown_open:
+                    m_pos = pygame.mouse.get_pos()
+                    opt_h = box_h
+                    drop_y = place_row_y + box_h + 4
+                    drop_bg = pygame.Rect(pbox_x, drop_y, box_w, opt_h * len(spawn_place_options))
+                    pygame.draw.rect(screen, (180, 195, 210), pygame.Rect(pbox_x + 2, drop_y + 2, box_w, drop_bg.h), border_radius=10)
+                    pygame.draw.rect(screen, (255, 255, 255), drop_bg, border_radius=10)
+                    for oi, opt_label in enumerate(spawn_place_options):
+                        opt_r = pygame.Rect(pbox_x, drop_y + oi * opt_h, box_w, opt_h)
+                        place_option_rects.append((opt_label, opt_r))
+                        is_hov = opt_r.collidepoint(m_pos)
+                        is_sel = (opt_label == selected_spawn_place)
+                        if is_hov or is_sel:
+                            fill_c = (218, 236, 255) if is_hov else (238, 246, 255)
+                            pygame.draw.rect(screen, fill_c, opt_r.inflate(-4, -4), border_radius=7)
+                        opt_surf = name_font.render(opt_label, True, (28, 36, 48))
+                        screen.blit(opt_surf, (pbox_x + 12, opt_r.y + (opt_h - opt_surf.get_height()) // 2))
+                    pygame.draw.rect(screen, (55, 130, 225), drop_bg, width=2, border_radius=10)
+
             elif menu_state in ("character_select", "character_used"):
                 name_button_rect = pygame.Rect(-100, -100, 0, 0)
                 name_input_rect = pygame.Rect(-100, -100, 0, 0)
+                place_box_rect = pygame.Rect(-100, -100, 0, 0)
+                place_option_rects = []
+                place_dropdown_open = False
                 # Single character card in the center with a Right Arrow button to switch chicks!
                 play_button_rect = pygame.Rect(-100, -100, 0, 0)
 

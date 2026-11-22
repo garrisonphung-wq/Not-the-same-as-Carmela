@@ -365,8 +365,32 @@ class AICodeCompanion:
             self.is_walking = False
             self.is_running = False
             if self.headshot_phase == "none":
-                self.target_head_yaw = 0.0
-                self.target_head_pitch = 0.0
+                # Look toward nearby players (and look UP if a player is standing on the cloud!)
+                best_info = None
+                best_score = 1e9
+                for _opid, _oinfo in self.other_players.items():
+                    _d = math.hypot(_oinfo["wx"] - self.wx, _oinfo["wz"] - self.wz)
+                    # Prioritize players on the cloud or closest nearby
+                    _score = _d - (8.0 if _oinfo.get("jump_y", 0.0) >= 8.0 else 0.0)
+                    if _d < 45.0 and _score < best_score:
+                        best_score = _score
+                        best_info = _oinfo
+                if best_info is not None:
+                    _dx = best_info["wx"] - self.wx
+                    _dz = best_info["wz"] - self.wz
+                    _dy = best_info.get("jump_y", 0.0) - self.jump_offset_y
+                    _hd = max(0.5, math.hypot(_dx, _dz))
+                    _desired_yaw = math.atan2(_dx, _dz)
+                    _rel_yaw = wrap_angle(_desired_yaw - self.rot_y)
+                    if abs(_rel_yaw) > 0.75:
+                        _turn_step = 3.2 * dt
+                        self.rot_y = wrap_angle(self.rot_y + math.copysign(min(abs(_rel_yaw), _turn_step), _rel_yaw))
+                        _rel_yaw = wrap_angle(_desired_yaw - self.rot_y)
+                    self.target_head_yaw = max(-0.85, min(0.85, _rel_yaw))
+                    self.target_head_pitch = max(-0.55, min(0.98, math.atan2(_dy, _hd)))
+                else:
+                    self.target_head_yaw = 0.0
+                    self.target_head_pitch = 0.0
             if (not ai_ragdoll_locked) and self.ai_role == "jump_only":
                 self.action_cooldown -= dt
                 if self.action_cooldown <= 0.0 and self.jump_state == "idle":
@@ -610,6 +634,12 @@ class AICodeCompanion:
 
 
     def _build_world_context(self, speaker_id: int, speaker_name: str) -> str:
+        cloud_watchers = [
+            f"{info.get('name', '玩家')}(在云朵上!)"
+            for info in self.other_players.values()
+            if info.get("jump_y", 0.0) >= 8.0
+        ]
+        cloud_note = ("；看到" + "、".join(cloud_watchers)) if cloud_watchers else ""
         state_str = "摔倒躺在草地上(ragdoll)" if (self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05) else (
             "正在跑" if self.is_running else ("正在走" if self.is_walking else "在草地上站着")
         )
