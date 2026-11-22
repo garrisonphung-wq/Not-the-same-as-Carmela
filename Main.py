@@ -423,6 +423,8 @@ class NetworkClient:
         self._incoming_kick_hits: list[dict[str, Any]] = []
         self._outgoing_punch_hits: list[dict[str, Any]] = []
         self._incoming_punch_hits: list[dict[str, Any]] = []
+        self._outgoing_craters: list[dict[str, float]] = []
+        self._incoming_craters: list[dict[str, float]] = []
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -754,14 +756,23 @@ class NetworkClient:
                     pass
 
             out_punches = []
+            out_craters: list[dict[str, float]] = []
             with self._lock:
                 if self._outgoing_punch_hits:
                     out_punches = list(self._outgoing_punch_hits)
                     self._outgoing_punch_hits.clear()
+                if self._outgoing_craters:
+                    out_craters = list(self._outgoing_craters)
+                    self._outgoing_craters.clear()
 
             for p_evt in out_punches:
                 try:
                     await ws.send(json.dumps(p_evt, separators=(",", ":")))
+                except Exception:
+                    pass
+            for c_evt in out_craters:
+                try:
+                    await ws.send(json.dumps({"type": "crater", **c_evt}, separators=(",", ":")))
                 except Exception:
                     pass
 
