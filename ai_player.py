@@ -30,6 +30,10 @@ def wrap_angle(angle: float) -> float:
 
 class AICodeCompanion:
     WORLD_LIMIT = 280000.0  # Full Colorado island scale!
+    CLOUD_SPAWN_WX = 0.0
+    CLOUD_SPAWN_WZ = 14.0
+    CLOUD_SPAWN_Y = 2475.0
+    CLOUD_PLATFORM_RADIUS = 22.0
     WALK_SPEED = 3.2
     RUN_SPEED = 6.8
     TURN_SPEED = 3.2
@@ -225,17 +229,49 @@ class AICodeCompanion:
 
         roll = random.random()
         if roll < 0.34:
-            # Free walk or run to a spot around the island (or near a player)
-            if self.other_players and random.random() < 0.45:
-                _t = random.choice(list(self.other_players.values()))
-                ang = random.uniform(0.0, 2.0 * math.pi)
-                self.dest_x = max(-24.0, min(24.0, _t["wx"] + math.cos(ang) * random.uniform(2.0, 5.5)))
-                self.dest_z = max(-24.0, min(24.0, _t["wz"] + math.sin(ang) * random.uniform(2.0, 5.5)))
+            on_cloud_now = (
+                self.jump_offset_y >= self.CLOUD_SPAWN_Y - 1.0
+                and math.hypot(self.wx - self.CLOUD_SPAWN_WX, self.wz - self.CLOUD_SPAWN_WZ) <= self.CLOUD_PLATFORM_RADIUS
+            )
+            if on_cloud_now:
+                cloud_peers = [
+                    p for p in self.other_players.values()
+                    if p.get("jump_y", 0.0) >= self.CLOUD_SPAWN_Y - 2.0
+                    and math.hypot(p["wx"] - self.CLOUD_SPAWN_WX, p["wz"] - self.CLOUD_SPAWN_WZ) <= self.CLOUD_PLATFORM_RADIUS
+                ]
+                if cloud_peers and random.random() < 0.45:
+                    _t = random.choice(cloud_peers)
+                    ang = random.uniform(0.0, 2.0 * math.pi)
+                    tx = _t["wx"] + math.cos(ang) * random.uniform(1.8, 4.5)
+                    tz = _t["wz"] + math.sin(ang) * random.uniform(1.8, 4.5)
+                    d_c = math.hypot(tx - self.CLOUD_SPAWN_WX, tz - self.CLOUD_SPAWN_WZ)
+                    if d_c > self.CLOUD_PLATFORM_RADIUS - 2.5:
+                        s = (self.CLOUD_PLATFORM_RADIUS - 2.5) / d_c
+                        tx = self.CLOUD_SPAWN_WX + (tx - self.CLOUD_SPAWN_WX) * s
+                        tz = self.CLOUD_SPAWN_WZ + (tz - self.CLOUD_SPAWN_WZ) * s
+                    self.dest_x = tx
+                    self.dest_z = tz
+                elif random.random() < 0.14:
+                    ang = random.uniform(0.0, 2.0 * math.pi)
+                    self.dest_x = self.CLOUD_SPAWN_WX + math.cos(ang) * (self.CLOUD_PLATFORM_RADIUS + 4.0)
+                    self.dest_z = self.CLOUD_SPAWN_WZ + math.sin(ang) * (self.CLOUD_PLATFORM_RADIUS + 4.0)
+                else:
+                    ang = random.uniform(0.0, 2.0 * math.pi)
+                    rad = random.uniform(2.0, self.CLOUD_PLATFORM_RADIUS - 3.0)
+                    self.dest_x = self.CLOUD_SPAWN_WX + math.cos(ang) * rad
+                    self.dest_z = self.CLOUD_SPAWN_WZ + math.sin(ang) * rad
             else:
-                ang = random.uniform(0.0, 2.0 * math.pi)
-                rad = random.uniform(3.0, 22.0)
-                self.dest_x = math.cos(ang) * rad
-                self.dest_z = math.sin(ang) * rad
+                ground_peers = [p for p in self.other_players.values() if p.get("jump_y", 0.0) < 8.0]
+                if ground_peers and random.random() < 0.45:
+                    _t = random.choice(ground_peers)
+                    ang = random.uniform(0.0, 2.0 * math.pi)
+                    self.dest_x = max(-24.0, min(24.0, _t["wx"] + math.cos(ang) * random.uniform(2.0, 5.5)))
+                    self.dest_z = max(-24.0, min(24.0, _t["wz"] + math.sin(ang) * random.uniform(2.0, 5.5)))
+                else:
+                    ang = random.uniform(0.0, 2.0 * math.pi)
+                    rad = random.uniform(3.0, 22.0)
+                    self.dest_x = math.cos(ang) * rad
+                    self.dest_z = math.sin(ang) * rad
             self.mode = "run" if random.random() < 0.45 else "walk"
             self.target_head_yaw = random.uniform(-0.25, 0.25)
             self.target_head_pitch = random.uniform(-0.08, 0.15)
@@ -739,6 +775,14 @@ class AICodeCompanion:
                     self.wx += nx * (overlap * ratio_me)
                     self.wz += nz * (overlap * ratio_me)
 
+        # Cloud platform support (keeps AI chick standing/walking cleanly on the 2475m cloud)
+        if (
+            self.jump_offset_y >= self.CLOUD_SPAWN_Y - 0.85
+            and math.hypot(self.wx - self.CLOUD_SPAWN_WX, self.wz - self.CLOUD_SPAWN_WZ) <= self.CLOUD_PLATFORM_RADIUS
+        ):
+            if self.CLOUD_SPAWN_Y > ai_landing_support_y:
+                ai_landing_support_y = self.CLOUD_SPAWN_Y
+
         if found_ai_carrier is not None and found_ai_carrier in self.other_players:
             c_info = self.other_players[found_ai_carrier]
             self.riding_pid = found_ai_carrier
@@ -900,8 +944,9 @@ class AICodeCompanion:
             if info.get("jump_y", 0.0) >= 8.0
         ]
         cloud_note = ("；看到" + "、".join(cloud_watchers)) if cloud_watchers else ""
-        state_str = "摔倒躺在草地上(ragdoll)" if (self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05) else (
-            "正在跑" if self.is_running else ("正在走" if self.is_walking else "在草地上站着")
+        place_word = "高空云朵上" if self.jump_offset_y >= 8.0 else "草地上"
+        state_str = f"摔倒躺在{place_word}(ragdoll)" if (self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05) else (
+            f"在{place_word}跑" if self.is_running else (f"在{place_word}走" if self.is_walking else f"在{place_word}站着")
         )
         sp = self.other_players.get(speaker_id)
         if sp is not None:
