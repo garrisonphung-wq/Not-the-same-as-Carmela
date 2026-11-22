@@ -53,6 +53,7 @@ class GameRelayServer:
         self._next_id = 1
         self._clients: dict[int, ServerConnection] = {}
         self._players: dict[int, dict[str, Any]] = {}
+        self._craters: list[dict[str, float]] = []
 
     async def broadcast(self, message: dict[str, Any], exclude_id: int | None = None) -> None:
         if not self._clients:
