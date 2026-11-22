@@ -926,11 +926,13 @@ class Carmelito3D:
             elbow_pt = lerp_vec3(elbow_stand_walk, run_elbow, rw)
             hand_pt = lerp_vec3(hand_stand_walk, run_hand, rw)
 
-            # Lower entire arm straight down until touching the body while charging 'J'
+            # Lower whole arm (shoulder -> elbow -> hand) straight down until touching the body while charging 'J'
             if jump_amount > 0.001:
                 ja = max(0.0, min(1.0, jump_amount))
-                tuck_elbow = (side * (0.265 * body_w), body_center_y - 0.14, 0.01)
-                tuck_hand = (side * (0.245 * body_w), body_center_y - 0.42, 0.02)
+                tuck_shoulder = (side * (0.265 * body_w), body_center_y + 0.08, 0.01)
+                tuck_elbow = (side * (0.255 * body_w), body_center_y - 0.16, 0.01)
+                tuck_hand = (side * (0.240 * body_w), body_center_y - 0.42, 0.02)
+                shoulder_pt = lerp_vec3(shoulder_pt, tuck_shoulder, ja)
                 elbow_pt = lerp_vec3(elbow_pt, tuck_elbow, ja)
                 hand_pt = lerp_vec3(hand_pt, tuck_hand, ja)
 

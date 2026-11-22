@@ -3374,7 +3374,7 @@ def main() -> None:
             else:
                 local_ragdoll_sim.reset()
                 local_rg_pose = None
-            corner_y = 185 - round(jump_offset_y * 22)
+            corner_y = max(142, 185 - round(min(1.9, jump_offset_y) * 22))
             model_3d.render(
                 surface=screen,
                 screen_pos=(106, corner_y),

@@ -164,6 +164,8 @@ class GameRelayServer:
                         p["jump_amount"] = safe_float(data.get("jump_amount", 0.0), 0.0, limit=2.0)
                     if "tag_amount" in data:
                         p["tag_amount"] = safe_float(data.get("tag_amount", 0.0), 0.0, limit=2.0)
+                    if "on_fire" in data:
+                        p["on_fire"] = bool(data["on_fire"])
                     if "character" in data and data["character"]:
                         p["character"] = str(data["character"])[:32]
                     if "is_carmelito" in data:
