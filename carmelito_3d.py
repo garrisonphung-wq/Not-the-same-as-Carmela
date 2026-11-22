@@ -305,6 +305,7 @@ class Carmelito3D:
         punch_amount: float = 0.0,
         punch_side: float = 1.0,
         jump_amount: float = 0.0,
+        arms_down_amount: float = 0.0,
         tag_amount: float = 0.0,
         ragdoll: float = 0.0,
         ragdoll_seed: float = 0.0,
@@ -926,15 +927,24 @@ class Carmelito3D:
             elbow_pt = lerp_vec3(elbow_stand_walk, run_elbow, rw)
             hand_pt = lerp_vec3(hand_stand_walk, run_hand, rw)
 
-            # Lower whole arm (shoulder -> elbow -> hand) straight down until touching the body while charging 'J'
-            if jump_amount > 0.001:
+            # Normal jump wing motion when 'J' held without looking up
+            if jump_amount > 0.001 and arms_down_amount <= 0.001:
                 ja = max(0.0, min(1.0, jump_amount))
+                flap_phase = math.sin(run_cycle * 16.0) * 0.18
+                jump_elbow = (side * (0.42 + 0.15 * ja), body_center_y + 0.12 * ja + flap_phase, 0.04)
+                jump_hand = (side * (0.58 + 0.22 * ja), body_center_y + 0.28 * ja + flap_phase * 1.5, 0.10)
+                elbow_pt = lerp_vec3(elbow_pt, jump_elbow, ja)
+                hand_pt = lerp_vec3(hand_pt, jump_hand, ja)
+
+            # If facing upwards while holding 'J', lower whole arm down until touching the body!
+            if arms_down_amount > 0.001:
+                ad = max(0.0, min(1.0, arms_down_amount))
                 tuck_shoulder = (side * (0.265 * body_w), body_center_y + 0.08, 0.01)
                 tuck_elbow = (side * (0.255 * body_w), body_center_y - 0.16, 0.01)
                 tuck_hand = (side * (0.240 * body_w), body_center_y - 0.42, 0.02)
-                shoulder_pt = lerp_vec3(shoulder_pt, tuck_shoulder, ja)
-                elbow_pt = lerp_vec3(elbow_pt, tuck_elbow, ja)
-                hand_pt = lerp_vec3(hand_pt, tuck_hand, ja)
+                shoulder_pt = lerp_vec3(shoulder_pt, tuck_shoulder, ad)
+                elbow_pt = lerp_vec3(elbow_pt, tuck_elbow, ad)
+                hand_pt = lerp_vec3(hand_pt, tuck_hand, ad)
 
             # Punch wing jab when player punches with 'P'
             if punch_amount > 0.001 and side == punch_side:
@@ -1910,6 +1920,7 @@ class Carmelito3D:
         punch_amount: float = 0.0,
         punch_side: float = 1.0,
         jump_amount: float = 0.0,
+        arms_down_amount: float = 0.0,
         tag_amount: float = 0.0,
         ragdoll_pose: dict | None = None,
     ) -> None:
@@ -1945,6 +1956,7 @@ class Carmelito3D:
             punch_amount=punch_amount,
             punch_side=punch_side,
             jump_amount=jump_amount,
+            arms_down_amount=arms_down_amount,
             tag_amount=tag_amount,
             ragdoll=ragdoll,
             ragdoll_seed=ragdoll_seed,

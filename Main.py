@@ -412,6 +412,7 @@ class NetworkClient:
         self._local_punch_side = 1.0
         self._local_jump_offset_y = 0.0
         self._local_jump_amount = 0.0
+        self._local_arms_down_amount = 0.0
         self._local_tag_amount = 0.0
         self._local_on_fire = False
         self._pos_dirty = True
@@ -470,6 +471,7 @@ class NetworkClient:
         punch_side: float = 1.0,
         jump_offset_y: float = 0.0,
         jump_amount: float = 0.0,
+        arms_down_amount: float = 0.0,
         tag_amount: float = 0.0,
         on_fire: bool = False,
     ) -> None:
@@ -499,6 +501,7 @@ class NetworkClient:
                 or (punch_side != self._local_punch_side)
                 or (abs(jump_offset_y - self._local_jump_offset_y) > 0.02)
                 or (abs(jump_amount - self._local_jump_amount) > 0.02)
+                or (abs(arms_down_amount - self._local_arms_down_amount) > 0.02)
                 or (abs(tag_amount - self._local_tag_amount) > 0.02)
                 or (on_fire != self._local_on_fire)
             )
@@ -523,6 +526,7 @@ class NetworkClient:
                 self._local_punch_side = punch_side
                 self._local_jump_offset_y = jump_offset_y
                 self._local_jump_amount = jump_amount
+                self._local_arms_down_amount = arms_down_amount
                 self._local_tag_amount = tag_amount
                 self._local_on_fire = on_fire
                 self._pos_dirty = True
@@ -556,6 +560,7 @@ class NetworkClient:
                     "punch_side": data.get("punch_side", 1.0),
                     "jump_offset_y": data.get("jump_offset_y", 0.0),
                     "jump_amount": data.get("jump_amount", 0.0),
+                    "arms_down_amount": data.get("arms_down_amount", 0.0),
                     "tag_amount": data.get("tag_amount", 0.0),
                     "on_fire": bool(data.get("on_fire", False)),
                 }
@@ -778,6 +783,7 @@ class NetworkClient:
                             "punch_side": round(self._local_punch_side, 1),
                             "jump_offset_y": round(self._local_jump_offset_y, 3),
                             "jump_amount": round(self._local_jump_amount, 3),
+                            "arms_down_amount": round(self._local_arms_down_amount, 3),
                             "tag_amount": round(self._local_tag_amount, 3),
                             "on_fire": self._local_on_fire,
                         },
@@ -819,6 +825,7 @@ class NetworkClient:
             "punch_side": float(pdata.get("punch_side", 1.0)),
             "jump_offset_y": float(pdata.get("jump_offset_y", 0.0)),
             "jump_amount": float(pdata.get("jump_amount", 0.0)),
+            "arms_down_amount": float(pdata.get("arms_down_amount", 0.0)),
             "tag_amount": float(pdata.get("tag_amount", 0.0)),
             "on_fire": bool(pdata.get("on_fire", False)),
         }
@@ -904,6 +911,8 @@ class NetworkClient:
                             rp["jump_offset_y"] = float(msg["jump_offset_y"])
                         if "jump_amount" in msg:
                             rp["jump_amount"] = float(msg["jump_amount"])
+                        if "arms_down_amount" in msg:
+                            rp["arms_down_amount"] = float(msg["arms_down_amount"])
                         if "tag_amount" in msg:
                             rp["tag_amount"] = float(msg["tag_amount"])
                         if "on_fire" in msg:
@@ -1006,8 +1015,9 @@ def main() -> None:
     is_j_air_spinning = False
     j_spin_yaw = 0.0
     is_on_fire = False
-    was_j_charging = False
-    pre_j_head_pitch = 0.0
+    airborne_timer = 0.0
+    arms_down_amount = 0.0
+    was_j_facing_up = False
     jump_amount = 0.0      # Crouch depth (1.0 = deep crouch, 0.0 = standing/jumping)
     wing_flap_amount = 0.0 # Wings flap when airborne
     MIN_JUMP_HEIGHT = 1.40 # Crisp quick-tap hop height (clears another chick!)
@@ -1675,7 +1685,10 @@ def main() -> None:
                         is_j_air_spinning = False
                         j_spin_yaw = 0.0
                         is_on_fire = False
-                        was_j_charging = False
+                        airborne_timer = 0.0
+                        airborne_timer = 0.0
+                        arms_down_amount = 0.0
+                        was_j_facing_up = False
                         launch_accel_timer = 0.18
                         jump_state = "airborne"
                         jump_velocity_y = 0.6
@@ -1717,7 +1730,9 @@ def main() -> None:
                         is_j_air_spinning = False
                         j_spin_yaw = 0.0
                         is_on_fire = False
-                        was_j_charging = False
+                        airborne_timer = 0.0
+                        arms_down_amount = 0.0
+                        was_j_facing_up = False
                         local_headshot_timer = 0.0
                         kick_lay_dir = -1.0
                         kick_roll_dir = 0.0
@@ -2058,11 +2073,12 @@ def main() -> None:
                     crouch_timer = 0.0
                     jump_charge = 0.0
                     jump_amount = 0.0
-                    was_j_charging = False
-                    head_pitch = pre_j_head_pitch
+                arms_down_amount = 0.0
+                was_j_facing_up = False
                 is_j_air_spinning = False
                 j_spin_yaw = 0.0
                 is_on_fire = False
+                airborne_timer = 0.0
             is_tag_active = (not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none")) and (
                 is_tagging or (keys_down[pygame.K_t] if not is_typing_chat else False)
             )
@@ -2080,31 +2096,38 @@ def main() -> None:
                     jump_offset_y = landing_support_y
                 is_still_holding_j = (not is_typing_chat) and (not jump_released_this_frame) and bool(keys_down[pygame.K_j])
                 if is_still_holding_j:
-                    if not was_j_charging:
-                        pre_j_head_pitch = head_pitch
-                        was_j_charging = True
                     crouch_timer += dt
                     jump_charge = min(1.0, crouch_timer / max_jump_charge_time)
                     # Visual crouch starts snappy (~0.25) and sinks deeper as you hold for more jump height
                     jump_amount = min(1.0, 0.25 + 0.75 * math.sin(jump_charge * (math.pi / 2)))
                     crouch_eye_drop = -0.68 * jump_amount
                     wing_flap_amount = 0.0
-                    # Tilt head upward toward the sky while holding J!
-                    target_up_pitch = math.pi * 0.44
-                    head_pitch += (target_up_pitch - head_pitch) * min(1.0, 9.0 * dt)
+                    # Head moves strictly by mouse pointer! If facing upwards while holding J, lower arms to touch body:
+                    is_facing_up_now = head_pitch > math.radians(15.0)
+                    was_j_facing_up = is_facing_up_now
+                    if is_facing_up_now:
+                        arms_down_amount = min(1.0, arms_down_amount + 8.0 * dt)
+                    else:
+                        arms_down_amount = max(0.0, arms_down_amount - 8.0 * dt)
                 else:
-                    # Released 'J' -> launch high, spin in the air, and burst into flames!
-                    was_j_charging = False
+                    # Released 'J' -> jump up; if facing upwards when launching, spin in the air!
                     target_jump_h = MIN_JUMP_HEIGHT + crouch_timer * JUMP_HEIGHT_PER_SEC
                     jump_velocity_y = math.sqrt(2.0 * GRAVITY * target_jump_h)
                     jump_state = "airborne"
                     jump_offset_y = max(jump_offset_y, landing_support_y) + 0.08
-                    jump_amount = 0.0  # Release arm tuck & crouch on takeoff
+                    jump_amount = 0.0
+                    arms_down_amount = 0.0
                     crouch_timer = 0.0
                     jump_charge = 0.0
-                    is_j_air_spinning = True
-                    j_spin_yaw = 0.0
-                    is_on_fire = True
+                    airborne_timer = 0.0
+                    is_on_fire = False
+                    if was_j_facing_up or head_pitch > math.radians(15.0):
+                        is_j_air_spinning = True
+                        j_spin_yaw = 0.0
+                    else:
+                        is_j_air_spinning = False
+                        j_spin_yaw = 0.0
+                    was_j_facing_up = False
                     riding_player_id = None
                     riding_prev_base_pos = None
             elif jump_state == "airborne":
@@ -2114,11 +2137,15 @@ def main() -> None:
                 jump_offset_y += jump_velocity_y * dt
                 jump_velocity_y -= GRAVITY * dt
                 jump_amount = 0.0      # Not crouching while jumping!
+                arms_down_amount = 0.0
                 wing_flap_amount = 1.0 # Wings soar in the air
-                if is_j_air_spinning and not is_kick_launched:
-                    j_spin_yaw = (j_spin_yaw + dt * 14.0) % (2.0 * math.pi)
-                    is_on_fire = True
-                    head_pitch += (pre_j_head_pitch - head_pitch) * min(1.0, 6.0 * dt)
+                if not is_kick_launched:
+                    airborne_timer += dt
+                    if is_j_air_spinning:
+                        j_spin_yaw = (j_spin_yaw + dt * 14.0) % (2.0 * math.pi)
+                    # Catch fire only if still in the air for 30 seconds or more!
+                    if airborne_timer >= 30.0:
+                        is_on_fire = True
                 if is_kick_launched:
                     # Ragdoll mode: tip into loose sprawl toward ±90 deg to land laying flat down on grass (NOT a backflip!)
                     local_ragdoll = 1.0
@@ -2165,7 +2192,10 @@ def main() -> None:
                     else:
                         jump_offset_y = 0.0
                 jump_amount = 0.0
+                arms_down_amount = 0.0
                 wing_flap_amount = 0.0
+                airborne_timer = 0.0
+                is_on_fire = False
 
             if is_fighting:
                 eye_y = 1.65
@@ -2197,6 +2227,7 @@ def main() -> None:
                 punch_side=punch_side,
                 jump_offset_y=jump_offset_y,
                 jump_amount=jump_amount,
+                arms_down_amount=arms_down_amount,
                 tag_amount=tag_amount,
                 on_fire=is_on_fire,
             )
@@ -2287,6 +2318,7 @@ def main() -> None:
                     "punch_side": t_punch_side,
                     "jump_offset_y": t_jump_y,
                     "jump_amount": t_jump_amt,
+                    "arms_down_amount": float(pdata.get("arms_down_amount", 0.0)),
                     "tag_amount": float(pdata.get("tag_amount", 0.0)),
                 }
             else:
@@ -2312,6 +2344,8 @@ def main() -> None:
                 rs["punch_side"] = t_punch_side
                 rs["jump_offset_y"] += (t_jump_y - rs.get("jump_offset_y", 0.0)) * min(1.0, 24.0 * dt)
                 rs["jump_amount"] += (t_jump_amt - rs.get("jump_amount", 0.0)) * min(1.0, 24.0 * dt)
+                t_ad = float(pdata.get("arms_down_amount", 0.0))
+                rs["arms_down_amount"] = rs.get("arms_down_amount", 0.0) + (t_ad - rs.get("arms_down_amount", 0.0)) * min(1.0, 24.0 * dt)
                 t_tag = float(pdata.get("tag_amount", 0.0))
                 rs["tag_amount"] = rs.get("tag_amount", 0.0) + (t_tag - rs.get("tag_amount", 0.0)) * min(1.0, 18.0 * dt)
                 loco = max(rs["run_weight"], rs["walk_weight"])
@@ -2648,6 +2682,7 @@ def main() -> None:
                     punch_amount=rs.get("punch_amount", 0.0),
                     punch_side=rs.get("punch_side", 1.0),
                     jump_amount=rs.get("jump_amount", 0.0),
+                    arms_down_amount=rs.get("arms_down_amount", 0.0),
                     tag_amount=rs.get("tag_amount", 0.0),
                 )
                 if pdata.get("on_fire", False):
@@ -3397,6 +3432,7 @@ def main() -> None:
                 blink=blink_amount,
                 character=selected_character,
                 jump_amount=jump_amount,
+                arms_down_amount=arms_down_amount,
             )
             if is_on_fire:
                 old_clip = screen.get_clip()
