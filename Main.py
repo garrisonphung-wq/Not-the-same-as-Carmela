@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+import zlib
 from typing import Any
 from urllib.parse import urlparse
 
@@ -419,6 +420,119 @@ def get_lan_ip() -> str:
     return "127.0.0.1"
 
 
+ROOM_DISCOVERY_PORT = 8764
+
+
+def is_four_dotted_numbers(raw_text: str) -> bool:
+    txt = str(raw_text or "").strip()
+    parts = txt.split(".")
+    if len(parts) != 4:
+        return False
+    return all(part.isdigit() and 1 <= len(part) <= 4 for part in parts)
+
+
+def is_valid_ipv4(raw_text: str) -> bool:
+    parts = str(raw_text or "").strip().split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        return all(part.isdigit() and 0 <= int(part) <= 255 for part in parts)
+    except ValueError:
+        return False
+
+
+def port_for_room_code(code: str) -> int:
+    clean = str(code or "").strip()
+    return 8800 + (zlib.crc32(clean.encode("utf-8")) % 1000)
+
+
+def find_free_tcp_port(preferred_port: int) -> int:
+    for offset in range(30):
+        cand = preferred_port + offset
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                sock.bind(("0.0.0.0", cand))
+                return cand
+        except OSError:
+            continue
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("0.0.0.0", 0))
+        return int(sock.getsockname()[1])
+
+
+def _is_tcp_port_open(host: str, port: int, timeout: float = 0.08) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def discover_room_on_lan(code: str, timeout: float = 0.25) -> str | None:
+    clean = str(code or "").strip()
+    if not is_four_dotted_numbers(clean):
+        return None
+    msg = f"CARMELA_FIND:{clean}".encode("utf-8")
+    targets = ["127.0.0.1", "255.255.255.255"]
+    lan_ip = get_lan_ip()
+    if lan_ip and not lan_ip.startswith("127."):
+        octets = lan_ip.split(".")
+        if len(octets) == 4:
+            targets.append(f"{octets[0]}.{octets[1]}.{octets[2]}.255")
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.settimeout(timeout)
+        for tgt in targets:
+            try:
+                sock.sendto(msg, (tgt, ROOM_DISCOVERY_PORT))
+            except OSError:
+                pass
+        deadline = time.monotonic() + timeout
+        expected_prefix = f"CARMELA_HERE:{clean}:"
+        while time.monotonic() < deadline:
+            remaining = max(0.02, deadline - time.monotonic())
+            sock.settimeout(remaining)
+            try:
+                data, addr = sock.recvfrom(512)
+            except (socket.timeout, OSError):
+                break
+            text = data.decode("utf-8", errors="ignore").strip()
+            if text.startswith(expected_prefix):
+                try:
+                    ws_port = int(text[len(expected_prefix):])
+                    return f"ws://{addr[0]}:{ws_port}"
+                except ValueError:
+                    continue
+    finally:
+        sock.close()
+    return None
+
+
+def resolve_server_target(raw_text: str, fallback: str = DEFAULT_SERVER_URL) -> tuple[str | None, bool]:
+    """Resolve a user server input (empty, room code like 535.4.0.2, IP, or ws:// URL).
+    Returns (ws_url_or_None_if_unresolved_room_code, is_room_code).
+    """
+    txt = str(raw_text or "").strip()
+    if not txt or txt.lower() in {"local", "auto", "local (auto)"}:
+        return fallback, False
+    if txt.startswith(("ws://", "wss://")):
+        return txt, False
+    if is_four_dotted_numbers(txt):
+        found = discover_room_on_lan(txt, timeout=0.22)
+        if found:
+            return found, True
+        det_port = port_for_room_code(txt)
+        if _is_tcp_port_open("127.0.0.1", det_port, timeout=0.06):
+            return f"ws://127.0.0.1:{det_port}", True
+        if is_valid_ipv4(txt):
+            return f"ws://{txt}:8765", False
+        return None, True
+    return normalize_server_url(txt, fallback=fallback), False
+
+
 class NetworkClient:
     def __init__(
         self,
@@ -428,6 +542,10 @@ class NetworkClient:
     ) -> None:
         self.server_url = server_url
         self.auto_host = auto_host
+        self.target_spec = ""
+        self.hosted_code: str | None = None
+        self._hosted_rooms: dict[str, int] = {}
+        self._discovery_started = False
 
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -690,16 +808,147 @@ class NetworkClient:
             self._incoming_chats.clear()
             return chats
 
-    def switch_server(self, new_url: str, auto_host: bool | None = None) -> None:
+    def _ensure_discovery_responder(self) -> None:
+        with self._lock:
+            if self._discovery_started:
+                return
+            self._discovery_started = True
+
+        def responder_loop() -> None:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                if hasattr(socket, "SO_REUSEPORT"):
+                    try:
+                        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+                    except OSError:
+                        pass
+                sock.bind(("", ROOM_DISCOVERY_PORT))
+                sock.settimeout(0.5)
+                while not self._stop_event.is_set():
+                    try:
+                        data, addr = sock.recvfrom(512)
+                    except (socket.timeout, OSError):
+                        continue
+                    text = data.decode("utf-8", errors="ignore").strip()
+                    if text.startswith("CARMELA_FIND:"):
+                        code = text[len("CARMELA_FIND:"):].strip()
+                        with self._lock:
+                            ws_port = self._hosted_rooms.get(code)
+                        if ws_port is not None:
+                            reply = f"CARMELA_HERE:{code}:{ws_port}".encode("utf-8")
+                            try:
+                                sock.sendto(reply, addr)
+                            except OSError:
+                                pass
+            except OSError:
+                pass
+            finally:
+                sock.close()
+
+        threading.Thread(target=responder_loop, daemon=True).start()
+
+    def _spawn_server_with_ai(self, ws_port: int) -> None:
+        def server_runner() -> None:
+            try:
+                asyncio.run(game_server.run_server(host="0.0.0.0", port=ws_port))
+            except OSError:
+                pass
+
+        threading.Thread(target=server_runner, daemon=True).start()
+
+        ai_chick_configs = [
+            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "wx": 3.5, "wz": 15.5, "jump_y": 2475.0, "rot_y": math.pi, "role": "free", "target": None, "chat": True, "delay": 0.45},
+        ]
+
+        def launch_single_ai(cfg: dict[str, Any]) -> None:
+            time.sleep(cfg["delay"])
+            try:
+                import ai_player
+                bot = ai_player.AICodeCompanion(
+                    server_url=f"ws://127.0.0.1:{ws_port}",
+                    name=cfg["name"],
+                    character=cfg["character"],
+                    chick_name=cfg["chick_name"],
+                    auto_host=False,
+                    ai_role=cfg["role"],
+                    climb_target_name=cfg["target"],
+                    allow_chat_reply=cfg["chat"],
+                )
+                bot.wx = cfg["wx"]
+                bot.wz = cfg["wz"]
+                bot.dest_x = cfg["wx"]
+                bot.dest_z = cfg["wz"]
+                bot.jump_offset_y = float(cfg.get("jump_y", 0.0))
+                bot.rot_y = float(cfg.get("rot_y", 0.0))
+                asyncio.run(bot.run())
+            except Exception:
+                pass
+
+        for cfg in ai_chick_configs:
+            threading.Thread(target=launch_single_ai, args=(cfg,), daemon=True).start()
+
+    def host_new_room(self, code: str) -> tuple[bool, int, str]:
+        clean_code = str(code or "").strip()
+        if not is_four_dotted_numbers(clean_code):
+            return False, 0, "Need 4 numbers with dots (like 535.4.0.2)"
+        with self._lock:
+            existing_port = self._hosted_rooms.get(clean_code)
+        if existing_port is None:
+            ws_port = find_free_tcp_port(port_for_room_code(clean_code))
+            self._spawn_server_with_ai(ws_port)
+            with self._lock:
+                self._hosted_rooms[clean_code] = ws_port
+            self._ensure_discovery_responder()
+        else:
+            ws_port = existing_port
+        with self._lock:
+            self.hosted_code = clean_code
+            self.is_host = True
+        self.switch_server(f"ws://127.0.0.1:{ws_port}", auto_host=False, target_spec="", keep_hosted_code=clean_code)
+        return True, ws_port, f"Hosting {clean_code}"
+
+    def switch_server_target(self, raw_input: str, fallback: str = DEFAULT_SERVER_URL, auto_host: bool = True) -> None:
+        clean = str(raw_input or "").strip()
+        with self._lock:
+            hosted_port = self._hosted_rooms.get(clean)
+        if hosted_port is not None:
+            self.switch_server(f"ws://127.0.0.1:{hosted_port}", auto_host=False, target_spec="", keep_hosted_code=clean)
+            return
+        if not clean or clean.lower() in {"local", "auto", "local (auto)"}:
+            self.switch_server(fallback, auto_host=auto_host, target_spec="")
+            return
+        if is_four_dotted_numbers(clean):
+            self.switch_server(fallback, auto_host=False, target_spec=clean)
+            return
+        self.switch_server(normalize_server_url(clean, fallback=fallback), auto_host=auto_host, target_spec="")
+
+    def switch_server(
+        self,
+        new_url: str,
+        auto_host: bool | None = None,
+        target_spec: str = "",
+        keep_hosted_code: str | None = None,
+    ) -> None:
         clean_url = str(new_url or DEFAULT_SERVER_URL).strip()
+        clean_spec = str(target_spec or "").strip()
         is_loc, _ = is_local_server_url(clean_url)
         target_auto_host = is_loc if auto_host is None else bool(auto_host and is_loc)
         ws_to_close = None
         with self._lock:
-            if clean_url == self.server_url and target_auto_host == self.auto_host:
+            if (
+                clean_url == self.server_url
+                and target_auto_host == self.auto_host
+                and clean_spec == self.target_spec
+                and keep_hosted_code == self.hosted_code
+            ):
                 return
             self.server_url = clean_url
             self.auto_host = target_auto_host
+            self.target_spec = clean_spec
+            self.hosted_code = keep_hosted_code
+            if keep_hosted_code is None and not is_loc:
+                self.is_host = False
             self._server_epoch += 1
             self.connected = False
             self.my_id = None
@@ -722,48 +971,7 @@ class NetworkClient:
         if self._host_started:
             return
         self._host_started = True
-
-        def server_runner() -> None:
-            try:
-                asyncio.run(game_server.run_server(host="0.0.0.0", port=port))
-            except OSError:
-                pass
-
-        thread = threading.Thread(target=server_runner, daemon=True)
-        thread.start()
-
-        # Launch 1 companion AI chick (cannot walk/move around, can only jump and chat)
-        ai_chick_configs = [
-            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "wx": 3.5, "wz": 15.5, "jump_y": 2475.0, "rot_y": math.pi, "role": "free", "target": None, "chat": True, "delay": 0.45},
-        ]
-
-        def launch_single_ai(cfg: dict[str, Any]) -> None:
-            time.sleep(cfg["delay"])
-            try:
-                import ai_player
-                bot = ai_player.AICodeCompanion(
-                    server_url=f"ws://127.0.0.1:{port}",
-                    name=cfg["name"],
-                    character=cfg["character"],
-                    chick_name=cfg["chick_name"],
-                    auto_host=False,
-                    ai_role=cfg["role"],
-                    climb_target_name=cfg["target"],
-                    allow_chat_reply=cfg["chat"],
-                )
-                bot.wx = cfg["wx"]
-                bot.wz = cfg["wz"]
-                bot.dest_x = cfg["wx"]
-                bot.dest_z = cfg["wz"]
-                bot.jump_offset_y = float(cfg.get("jump_y", 0.0))
-                bot.rot_y = float(cfg.get("rot_y", 0.0))
-                asyncio.run(bot.run())
-            except Exception:
-                pass
-
-        for cfg in ai_chick_configs:
-            threading.Thread(target=launch_single_ai, args=(cfg,), daemon=True).start()
-
+        self._spawn_server_with_ai(port)
         with self._lock:
             self.is_host = True
 
@@ -777,6 +985,20 @@ class NetworkClient:
                 cur_url = self.server_url
                 cur_auto_host = self.auto_host
                 cur_epoch = self._server_epoch
+                cur_spec = self.target_spec
+            if cur_spec:
+                resolved_url, _ = await asyncio.to_thread(resolve_server_target, cur_spec, cur_url)
+                with self._lock:
+                    if self._server_epoch != cur_epoch:
+                        continue
+                if resolved_url is None:
+                    with self._lock:
+                        self.connected = False
+                        self.remote_players.clear()
+                    await asyncio.sleep(0.55)
+                    continue
+                cur_url = resolved_url
+                cur_auto_host = False
             is_local, port = is_local_server_url(cur_url)
             try:
                 async with connect(cur_url, ping_interval=15, ping_timeout=15, open_timeout=3.0) as ws:
@@ -1251,6 +1473,8 @@ def main() -> None:
     name_button_rect = pygame.Rect(-100, -100, 0, 0)
     name_input_rect = pygame.Rect(-100, -100, 0, 0)
     server_input_rect = pygame.Rect(-100, -100, 0, 0)
+    host_input_rect = pygame.Rect(-100, -100, 0, 0)
+    host_button_rect = pygame.Rect(-100, -100, 0, 0)
     place_box_rect = pygame.Rect(-100, -100, 0, 0)
     place_option_rects: list[tuple[str, pygame.Rect]] = []
     spawn_place_options = ("ground", "on cloud")
@@ -1259,10 +1483,29 @@ def main() -> None:
     custom_player_name = ""
     is_typing_menu_name = False
     is_typing_menu_server = False
+    is_typing_menu_host = False
     menu_ime_comp_text = ""
     custom_server_input = "" if args.server == DEFAULT_SERVER_URL else args.server
+    custom_host_input = ""
+    host_feedback_msg = ""
     lan_ip_str = get_lan_ip()
     lan_ip_check_timer = 0.0
+
+    def trigger_host_room() -> None:
+        nonlocal custom_host_input, custom_server_input, host_feedback_msg, is_typing_menu_host
+        code = custom_host_input.strip()
+        if not code:
+            code = f"{random.randint(100, 999)}.{random.randint(0, 9)}.{random.randint(0, 9)}.{random.randint(1, 9)}"
+            custom_host_input = code
+        ok, _hport, hmsg = net.host_new_room(code)
+        if ok:
+            custom_server_input = code
+            host_feedback_msg = ""
+            is_typing_menu_host = False
+            if hasattr(pygame.key, "stop_text_input"):
+                pygame.key.stop_text_input()
+        else:
+            host_feedback_msg = hmsg
 
     # Chat system state
     is_typing_chat = False
@@ -1351,6 +1594,12 @@ def main() -> None:
                 clean_chars = "".join(c for c in txt_in if c.isascii() and not c.isspace())
                 if clean_chars and len(custom_server_input) < 48:
                     custom_server_input = (custom_server_input + clean_chars)[:48]
+            elif not is_online and menu_state == "title" and is_typing_menu_host and event.type == pygame.TEXTINPUT:
+                txt_in = str(getattr(event, "text", "") or "")
+                clean_chars = "".join(c for c in txt_in if c.isdigit() or c == ".")
+                if clean_chars and len(custom_host_input) < 19:
+                    custom_host_input = (custom_host_input + clean_chars)[:19]
+                    host_feedback_msg = ""
             elif is_online and is_typing_chat and event.type == getattr(pygame, "TEXTEDITING", -1):
                 # Native OS IME composition preview (e.g. macOS Pinyin before committing)
                 ime_comp_text = str(getattr(event, "text", "") or "")
@@ -1393,8 +1642,18 @@ def main() -> None:
                         is_typing_menu_server = False
                         if hasattr(pygame.key, "stop_text_input"):
                             pygame.key.stop_text_input()
-                        target_srv = normalize_server_url(custom_server_input, fallback=DEFAULT_SERVER_URL)
-                        net.switch_server(target_srv, auto_host=(not args.no_auto_host))
+                        net.switch_server_target(custom_server_input, fallback=DEFAULT_SERVER_URL, auto_host=(not args.no_auto_host))
+                elif not is_online and menu_state == "title" and is_typing_menu_host:
+                    if event.key == pygame.K_BACKSPACE:
+                        if custom_host_input:
+                            custom_host_input = custom_host_input[:-1]
+                            host_feedback_msg = ""
+                    elif is_enter_key:
+                        trigger_host_room()
+                    elif event.key == pygame.K_ESCAPE:
+                        is_typing_menu_host = False
+                        if hasattr(pygame.key, "stop_text_input"):
+                            pygame.key.stop_text_input()
                 elif is_online and is_typing_chat:
                     if event.key == pygame.K_TAB:
                         # Toggle built-in Chinese Pinyin mode
@@ -1539,18 +1798,39 @@ def main() -> None:
                             is_dragging_island = False
                         elif place_box_rect.collidepoint(event.pos):
                             place_dropdown_open = not place_dropdown_open
-                            if is_typing_menu_name or is_typing_menu_server:
+                            if is_typing_menu_name or is_typing_menu_server or is_typing_menu_host:
                                 is_typing_menu_name = False
+                                is_typing_menu_host = False
                                 if is_typing_menu_server:
                                     is_typing_menu_server = False
-                                    net.switch_server(normalize_server_url(custom_server_input, fallback=DEFAULT_SERVER_URL), auto_host=(not args.no_auto_host))
+                                    net.switch_server_target(custom_server_input, fallback=DEFAULT_SERVER_URL, auto_host=(not args.no_auto_host))
                                 menu_ime_comp_text = ""
                                 if hasattr(pygame.key, "stop_text_input"):
                                     pygame.key.stop_text_input()
                             is_dragging_island = False
+                        elif host_button_rect.collidepoint(event.pos):
+                            place_dropdown_open = False
+                            is_typing_menu_name = False
+                            is_typing_menu_server = False
+                            trigger_host_room()
+                            is_dragging_island = False
+                        elif host_input_rect.collidepoint(event.pos):
+                            place_dropdown_open = False
+                            is_typing_menu_name = False
+                            if is_typing_menu_server:
+                                is_typing_menu_server = False
+                                net.switch_server_target(custom_server_input, fallback=DEFAULT_SERVER_URL, auto_host=(not args.no_auto_host))
+                            is_typing_menu_host = True
+                            menu_ime_comp_text = ""
+                            if hasattr(pygame.key, "start_text_input"):
+                                pygame.key.start_text_input()
+                            if hasattr(pygame.key, "set_text_input_rect"):
+                                pygame.key.set_text_input_rect(host_input_rect)
+                            is_dragging_island = False
                         elif server_input_rect.collidepoint(event.pos):
                             place_dropdown_open = False
                             is_typing_menu_name = False
+                            is_typing_menu_host = False
                             is_typing_menu_server = True
                             menu_ime_comp_text = ""
                             if hasattr(pygame.key, "start_text_input"):
@@ -1560,9 +1840,10 @@ def main() -> None:
                             is_dragging_island = False
                         elif name_button_rect.collidepoint(event.pos) or name_input_rect.collidepoint(event.pos):
                             place_dropdown_open = False
+                            is_typing_menu_host = False
                             if is_typing_menu_server:
                                 is_typing_menu_server = False
-                                net.switch_server(normalize_server_url(custom_server_input, fallback=DEFAULT_SERVER_URL), auto_host=(not args.no_auto_host))
+                                net.switch_server_target(custom_server_input, fallback=DEFAULT_SERVER_URL, auto_host=(not args.no_auto_host))
                             is_typing_menu_name = True
                             menu_ime_comp_text = ""
                             if hasattr(pygame.key, "start_text_input"):
@@ -1573,22 +1854,24 @@ def main() -> None:
                         elif play_button_rect.collidepoint(event.pos):
                             # Clicking PLAY opens character select: Carmelito appears spinning, with name and USE button
                             place_dropdown_open = False
-                            if is_typing_menu_name or is_typing_menu_server:
+                            if is_typing_menu_name or is_typing_menu_server or is_typing_menu_host:
                                 is_typing_menu_name = False
                                 is_typing_menu_server = False
+                                is_typing_menu_host = False
                                 menu_ime_comp_text = ""
                                 if hasattr(pygame.key, "stop_text_input"):
                                     pygame.key.stop_text_input()
-                            net.switch_server(normalize_server_url(custom_server_input, fallback=DEFAULT_SERVER_URL), auto_host=(not args.no_auto_host))
+                            net.switch_server_target(custom_server_input, fallback=DEFAULT_SERVER_URL, auto_host=(not args.no_auto_host))
                             menu_state = "character_select"
                             is_dragging_island = False
                         else:
                             place_dropdown_open = False
-                            if is_typing_menu_name or is_typing_menu_server:
+                            if is_typing_menu_name or is_typing_menu_server or is_typing_menu_host:
                                 is_typing_menu_name = False
+                                is_typing_menu_host = False
                                 if is_typing_menu_server:
                                     is_typing_menu_server = False
-                                    net.switch_server(normalize_server_url(custom_server_input, fallback=DEFAULT_SERVER_URL), auto_host=(not args.no_auto_host))
+                                    net.switch_server_target(custom_server_input, fallback=DEFAULT_SERVER_URL, auto_host=(not args.no_auto_host))
                                 menu_ime_comp_text = ""
                                 if hasattr(pygame.key, "stop_text_input"):
                                     pygame.key.stop_text_input()
@@ -4289,13 +4572,72 @@ def main() -> None:
                     pygame.draw.line(screen, (28, 36, 48), (cur_sx + 1, s_text_y + 2), (cur_sx + 1, s_text_y + name_font.get_height() - 2), 2)
                 screen.set_clip(clip_s_prev)
 
-                # Subtle Host LAN IP / Connection status hint below server box for easy Dad multiplayer!
+                # "host:" box + [Host] button right below "server:" to create a new server with 4 numbers with dots (like 535.4.0.2)!
+                host_lbl_surf = get_outlined_text_surface("host:", lbl_px, outline_px=lbl_outline_px)
+                host_row_y = srv_row_y + box_h + max(10, round(win_h * 0.018))
+                host_btn_w = max(58, round(box_h * 1.75))
+                host_in_w = max(110, box_w - host_btn_w - 6)
+                host_total_w = host_lbl_surf.get_width() + row_gap + host_in_w + 6 + host_btn_w
+                host_row_x = (win_w - host_total_w) // 2
+                host_lbl_y = host_row_y + (box_h - host_lbl_surf.get_height()) // 2
+                screen.blit(host_lbl_surf, (host_row_x, host_lbl_y))
+
+                hbox_x = host_row_x + host_lbl_surf.get_width() + row_gap
+                host_input_rect = pygame.Rect(hbox_x, host_row_y, host_in_w, box_h)
+                if is_typing_menu_host and hasattr(pygame.key, "set_text_input_rect"):
+                    pygame.key.set_text_input_rect(host_input_rect)
+
+                pygame.draw.rect(screen, (180, 195, 210), pygame.Rect(hbox_x + 2, host_row_y + 2, host_in_w, box_h), border_radius=10)
+                pygame.draw.rect(screen, (255, 255, 255), host_input_rect, border_radius=10)
+                h_border_col = (55, 130, 225) if is_typing_menu_host else (140, 160, 185)
+                pygame.draw.rect(screen, h_border_col, host_input_rect, width=2, border_radius=10)
+
+                h_text_y = host_row_y + (box_h - name_font.get_height()) // 2
+                clip_h_prev = screen.get_clip()
+                screen.set_clip(pygame.Rect(hbox_x + 8, host_row_y + 2, host_in_w - 16, box_h - 4))
+                if custom_host_input:
+                    h_val_surf = name_font.render(custom_host_input, True, (28, 36, 48))
+                    draw_hx = hbox_x + 10
+                    if h_val_surf.get_width() > host_in_w - 20:
+                        draw_hx -= (h_val_surf.get_width() - (host_in_w - 20))
+                    screen.blit(h_val_surf, (draw_hx, h_text_y))
+                    cur_hx = draw_hx + h_val_surf.get_width()
+                else:
+                    if not is_typing_menu_host:
+                        hph_surf = name_font.render("535.4.0.2", True, (150, 160, 175))
+                        screen.blit(hph_surf, (hbox_x + 10, h_text_y))
+                    cur_hx = hbox_x + 10
+                if is_typing_menu_host and (int(anim_time * 2.5) % 2) == 0:
+                    pygame.draw.line(screen, (28, 36, 48), (cur_hx + 1, h_text_y + 2), (cur_hx + 1, h_text_y + name_font.get_height() - 2), 2)
+                screen.set_clip(clip_h_prev)
+
+                hbtn_x = hbox_x + host_in_w + 6
+                host_button_rect = pygame.Rect(hbtn_x, host_row_y, host_btn_w, box_h)
+                _h_hov = host_button_rect.collidepoint(pygame.mouse.get_pos())
+                _is_hosted_now = bool(net.hosted_code)
+                _hbtn_bg = (52, 168, 92) if _is_hosted_now else ((68, 148, 240) if _h_hov else (52, 126, 220))
+                pygame.draw.rect(screen, (40, 75, 120), pygame.Rect(hbtn_x + 2, host_row_y + 2, host_btn_w, box_h), border_radius=10)
+                pygame.draw.rect(screen, _hbtn_bg, host_button_rect, border_radius=10)
+                _hbtn_font = get_chinese_font(max(14, min(18, box_h - 14)))
+                _hbtn_surf = _hbtn_font.render("Host", True, (255, 255, 255))
+                screen.blit(_hbtn_surf, (hbtn_x + (host_btn_w - _hbtn_surf.get_width()) // 2, host_row_y + (box_h - _hbtn_surf.get_height()) // 2))
+
+                # Subtle Host / Connection status hint below host row
                 lan_ip_check_timer += dt
                 if lan_ip_str == "127.0.0.1" and lan_ip_check_timer >= 2.0:
                     lan_ip_check_timer = 0.0
                     lan_ip_str = get_lan_ip()
                 _srv_is_local, _srv_port = is_local_server_url(net.server_url)
-                if _srv_is_local:
+                if host_feedback_msg:
+                    _status_txt = host_feedback_msg
+                elif net.hosted_code:
+                    _status_txt = f"Hosting {net.hosted_code} (LAN: {lan_ip_str})  •  Players: {len(remote_players) + 1}"
+                elif net.target_spec:
+                    if connected:
+                        _status_txt = f"Joined {net.target_spec}  •  Players: {len(remote_players) + 1}"
+                    else:
+                        _status_txt = f"Looking for {net.target_spec}..."
+                elif _srv_is_local:
                     if is_host:
                         _status_txt = f"Host LAN IP: {lan_ip_str}:{_srv_port}  •  Players: {len(remote_players) + 1}"
                     elif connected:
@@ -4310,7 +4652,7 @@ def main() -> None:
                 _hint_surf = _hint_font.render(_status_txt, True, (255, 255, 255))
                 _hint_shadow = _hint_font.render(_status_txt, True, (40, 65, 95))
                 _hx = (win_w - _hint_surf.get_width()) // 2
-                _hy = srv_row_y + box_h + 7
+                _hy = host_row_y + box_h + 7
                 screen.blit(_hint_shadow, (_hx + 1, _hy + 1))
                 screen.blit(_hint_surf, (_hx, _hy))
 
@@ -4338,6 +4680,8 @@ def main() -> None:
                 name_button_rect = pygame.Rect(-100, -100, 0, 0)
                 name_input_rect = pygame.Rect(-100, -100, 0, 0)
                 server_input_rect = pygame.Rect(-100, -100, 0, 0)
+                host_input_rect = pygame.Rect(-100, -100, 0, 0)
+                host_button_rect = pygame.Rect(-100, -100, 0, 0)
                 place_box_rect = pygame.Rect(-100, -100, 0, 0)
                 place_option_rects = []
                 place_dropdown_open = False
