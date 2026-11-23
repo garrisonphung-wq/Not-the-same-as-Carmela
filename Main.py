@@ -4516,19 +4516,6 @@ def main() -> None:
                 draw_chick_fire(screen, 106, corner_y + 4, 52.0, anim_time, seed=0.42)
                 screen.set_clip(old_clip)
 
-            # Compact activity key badge under top-left chick portrait
-            act_hint = "C: Sit  |  G: Touch Grass"
-            if is_sitting and is_touching_grass:
-                act_hint = "Sitting & Touching Grass (C/G)"
-            elif is_sitting:
-                act_hint = "Sitting on Grass (C)"
-            elif is_touching_grass:
-                act_hint = "Touching Grass (G)"
-            act_surf = get_chinese_font(12).render(act_hint, True, (40, 56, 42))
-            act_pill = pygame.Rect(pic_rect.x, pic_rect.bottom + 6, max(pic_rect.w, act_surf.get_width() + 16), 24)
-            pygame.draw.rect(screen, (244, 250, 240), act_pill, border_radius=10)
-            pygame.draw.rect(screen, (170, 198, 165), act_pill, width=1, border_radius=10)
-            screen.blit(act_surf, (act_pill.x + (act_pill.w - act_surf.get_width()) // 2, act_pill.y + (act_pill.h - act_surf.get_height()) // 2))
 
             # --- 2d. TOP-RIGHT PERSISTENT CHATBOX (shows everyone's messages) ---
             if is_online:
