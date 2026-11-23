@@ -307,6 +307,8 @@ class Carmelito3D:
         jump_amount: float = 0.0,
         arms_down_amount: float = 0.0,
         tag_amount: float = 0.0,
+        sit_amount: float = 0.0,
+        touch_grass_amount: float = 0.0,
         ragdoll: float = 0.0,
         ragdoll_seed: float = 0.0,
         ragdoll_pose: dict | None = None,
@@ -389,8 +391,11 @@ class Carmelito3D:
         walk_swing = math.sin(run_cycle * 2.0 * math.pi)
         walk_bob = abs(math.sin(run_cycle * 2.0 * math.pi)) * 0.04
 
-        # Blended bob
-        bob_y = run_bob * rw + walk_bob * (ww * (1.0 - rw))
+        sa = max(0.0, min(1.0, sit_amount))
+        tg = max(0.0, min(1.0, touch_grass_amount))
+
+        # Blended bob + sit drop + gentle touch-grass lean drop
+        bob_y = (run_bob * rw + walk_bob * (ww * (1.0 - rw))) * (1.0 - sa) - (0.38 * sa) - (0.09 * tg * (1.0 - sa))
 
         # --- 1. HEAD & NECK (Trim for Carmelito/Carmen; seamlessly merged for 小胖墩) ---
         head_center_y = (1.46 if is_pangdun else (1.64 if is_xiaoliuzi else 1.56)) + bob_y
@@ -783,6 +788,8 @@ class Carmelito3D:
             else:
                 head_yaw = head_yaw * (1.0 - rg) + 0.28 * rg
                 head_pitch = head_pitch * (1.0 - rg) + 0.22 * rg
+        if tg > 0.001:
+            head_pitch = max(-1.25, min(1.25, head_pitch - 0.42 * tg * (1.0 - 0.35 * sa)))
         pivot_y = head_center_y - 0.28
         has_rot = (abs(head_yaw) > 1e-4 or abs(head_pitch) > 1e-4)
         cos_hy = math.cos(head_yaw) if has_rot else 1.0
@@ -953,6 +960,26 @@ class Carmelito3D:
                 p_hand = (side * (0.30 - 0.14 * p_ext), body_center_y + 0.12 * p_ext, 0.06 + 0.78 * p_ext)
                 elbow_pt = lerp_vec3(elbow_pt, p_elbow, p_ext)
                 hand_pt = lerp_vec3(hand_pt, p_hand, p_ext)
+
+            # Sitting on grass ('C'): rest wings softly forward at sides
+            if sa > 0.001:
+                sit_elbow = (side * 0.40, body_center_y - 0.09, 0.04)
+                sit_hand = (side * 0.42, body_center_y - 0.26, 0.18)
+                elbow_pt = lerp_vec3(elbow_pt, sit_elbow, sa)
+                hand_pt = lerp_vec3(hand_pt, sit_hand, sa)
+
+            # Touching grass ('G'): reach right wing down to gently pat the grass blades!
+            if tg > 0.001:
+                pat_w = math.sin(run_cycle * 6.5)
+                pat_sw = math.cos(run_cycle * 6.5)
+                if side > 0:
+                    tg_elbow = (0.36, body_center_y - 0.20, 0.22)
+                    tg_hand = (0.16 + 0.06 * pat_sw, 0.09 + 0.045 * abs(pat_w), 0.40 + 0.07 * pat_sw)
+                else:
+                    tg_elbow = (-0.42, body_center_y - 0.04, -0.05)
+                    tg_hand = (-0.48, body_center_y - 0.18, -0.08)
+                elbow_pt = lerp_vec3(elbow_pt, tg_elbow, tg)
+                hand_pt = lerp_vec3(hand_pt, tg_hand, tg)
 
             # Zombie tag reach when pressing 'T':
             # Follows the direction of the head in both yaw and pitch (goes down when looking down, up when looking up).
@@ -1158,6 +1185,24 @@ class Carmelito3D:
                 knee_pt = lerp_vec3(knee_pt, crouch_knee, ja)
                 ankle_pt = lerp_vec3(ankle_pt, crouch_ankle, ja)
                 foot_angle = foot_angle * (1.0 - ja)
+
+            # Touch grass while standing ('G'): soft knee bend, feet planted firmly on grass
+            if tg > 0.001 and sa < 0.99:
+                tg_eff = tg * (1.0 - sa)
+                tg_knee = (leg_x * 1.06, 0.24, 0.11)
+                tg_ankle = (leg_x, 0.08, 0.0)
+                knee_pt = lerp_vec3(knee_pt, tg_knee, tg_eff)
+                ankle_pt = lerp_vec3(ankle_pt, tg_ankle, tg_eff)
+                foot_angle = foot_angle * (1.0 - tg_eff)
+
+            # Sitting down on grass ('C'): cute legs bent forward on the grass, toes tilted up!
+            if sa > 0.001:
+                sit_knee = (leg_x * 1.18, 0.145, 0.24)
+                sit_ankle = (leg_x * 1.12, 0.075, 0.48)
+                sit_foot_ang = -0.78
+                knee_pt = lerp_vec3(knee_pt, sit_knee, sa)
+                ankle_pt = lerp_vec3(ankle_pt, sit_ankle, sa)
+                foot_angle = foot_angle * (1.0 - sa) + sit_foot_ang * sa
 
             # Martial arts karate kick when player kicks with 'K'
             # Negative foot angle rotates toes upward so they point up towards the sky/forward
@@ -1893,6 +1938,65 @@ class Carmelito3D:
 
         return faces
 
+    def build_first_person_touch_grass_hand(
+        self,
+        touch_grass_amount: float = 0.0,
+        pat_phase: float = 0.0,
+        character: str = "carmelito",
+    ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
+        """Build first-person right wing reaching down to touch & gently pat the grass ('G' key)."""
+        if touch_grass_amount <= 0.001:
+            return []
+        char_l = character.lower()
+        if char_l in ("carmen", "卡门"):
+            body_col = COLOR_CARMEN_YELLOW
+            char_scale = 0.82
+        elif char_l in ("pangdun", "小胖墩", "belino", "coquenpate"):
+            body_col = COLOR_PANGDUN_WHITE
+            char_scale = 1.15
+        elif char_l in ("xiaoliuzi", "小六子", "coqsix", "克西斯"):
+            body_col = COLOR_XIAOLIUZI_TAN
+            char_scale = 1.08
+        else:
+            body_col = COLOR_BODY_PINK
+            char_scale = 1.0
+
+        tg = max(0.0, min(1.0, touch_grass_amount))
+        pat_w = math.sin(pat_phase * 6.5)
+        pat_sw = math.cos(pat_phase * 6.5)
+        sh_pos = (0.36 * char_scale, -0.30 * char_scale, 0.14 * char_scale)
+        elbow_pos = (0.28 * char_scale, (-0.36 - 0.14 * tg) * char_scale, (0.34 + 0.14 * tg) * char_scale)
+        hand_pos = (
+            (0.14 + 0.06 * pat_sw * tg) * char_scale,
+            (-0.34 - 0.34 * tg + 0.05 * abs(pat_w) * tg) * char_scale,
+            (0.38 + 0.34 * tg + 0.06 * pat_sw * tg) * char_scale,
+        )
+        faces: list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]] = []
+        faces.extend(create_oriented_box(
+            sh_pos, elbow_pos,
+            thickness=(0.14 * char_scale, 0.14 * char_scale),
+            base_color=body_col, subdiv_length=2, draw_contour=True,
+        ))
+        faces.extend(create_oriented_box(
+            elbow_pos, hand_pos,
+            thickness=(0.12 * char_scale, 0.13 * char_scale),
+            base_color=body_col, subdiv_length=2, draw_contour=True,
+        ))
+        faces.extend(create_cube_grid(
+            center=hand_pos,
+            size=(0.15 * char_scale, 0.10 * char_scale, 0.18 * char_scale),
+            subdivisions=(2, 2, 2),
+            base_color=body_col, roundness=0.72, draw_contour=True,
+        ))
+        for f_dx in (-0.04, 0.0, 0.04):
+            f_tip = (hand_pos[0] + f_dx * char_scale, hand_pos[1] - 0.04 * tg * char_scale, hand_pos[2] + 0.15 * char_scale)
+            faces.extend(create_oriented_box(
+                hand_pos, f_tip,
+                thickness=(0.042 * char_scale, 0.036 * char_scale),
+                base_color=body_col, subdiv_length=2, draw_contour=True,
+            ))
+        return faces
+
     def render(
         self,
         surface: pygame.Surface,
@@ -1922,6 +2026,8 @@ class Carmelito3D:
         jump_amount: float = 0.0,
         arms_down_amount: float = 0.0,
         tag_amount: float = 0.0,
+        sit_amount: float = 0.0,
+        touch_grass_amount: float = 0.0,
         ragdoll_pose: dict | None = None,
         clip_min_y: float | None = None,
     ) -> None:
@@ -1959,6 +2065,8 @@ class Carmelito3D:
             jump_amount=jump_amount,
             arms_down_amount=arms_down_amount,
             tag_amount=tag_amount,
+            sit_amount=sit_amount,
+            touch_grass_amount=touch_grass_amount,
             ragdoll=ragdoll,
             ragdoll_seed=ragdoll_seed,
             ragdoll_pose=ragdoll_pose,
