@@ -59,6 +59,7 @@ WEATHER_THEMES: dict[str, dict[str, Any]] = {
         "cloud_white": (255, 255, 255),
         "cloud_shadow": (222, 238, 250),
         "ground": (138, 202, 114),
+        "ground_shadow": (108, 170, 84),
         "blade_dark": (90, 164, 70),
         "blade_light": (108, 182, 86),
         "crater_outer": (152, 114, 70),
@@ -72,6 +73,7 @@ WEATHER_THEMES: dict[str, dict[str, Any]] = {
         "cloud_white": (255, 255, 255),
         "cloud_shadow": (214, 236, 252),
         "ground": (112, 194, 86),
+        "ground_shadow": (86, 158, 64),
         "blade_dark": (72, 152, 54),
         "blade_light": (94, 174, 72),
         "crater_outer": (162, 122, 74),
@@ -85,6 +87,7 @@ WEATHER_THEMES: dict[str, dict[str, Any]] = {
         "cloud_white": (252, 248, 242),
         "cloud_shadow": (222, 218, 216),
         "ground": (156, 118, 56),
+        "ground_shadow": (122, 90, 42),
         "blade_dark": (164, 126, 54),
         "blade_light": (188, 146, 64),
         "crater_outer": (146, 102, 62),
@@ -98,6 +101,7 @@ WEATHER_THEMES: dict[str, dict[str, Any]] = {
         "cloud_white": (250, 253, 255),
         "cloud_shadow": (216, 228, 242),
         "ground": (236, 243, 252),
+        "ground_shadow": (188, 206, 228),
         "blade_dark": (196, 214, 232),
         "blade_light": (222, 234, 248),
         "crater_outer": (188, 202, 218),
@@ -3936,7 +3940,7 @@ def main() -> None:
                         sh_w = max(6, round((1.18 * char_scale * alt_fade / horiz_dist) * focal))
                         sh_h = max(2, round((0.38 * char_scale * alt_fade / horiz_dist) * focal))
                         shadow_rect = pygame.Rect(round(g_sx - sh_w * 0.5), round(g_sy - sh_h * 0.4), sh_w, sh_h)
-                        pygame.draw.ellipse(screen, GRASS_SHADOW_COLOR, shadow_rect)
+                        pygame.draw.ellipse(screen, w_theme["ground_shadow"], shadow_rect)
 
         # PASS 2: Depth-sort 3D farm buildings/nature props interleaved with remote chicks!
         # Ground-layer items (props + ground chicks) sort furthest-to-nearest first;
@@ -4367,9 +4371,14 @@ def main() -> None:
                     ssy = hh - (scam[1] / scam[2]) * focal
                     sh_w = max(10, round((0.68 / scam[2]) * focal))
                     sh_h = max(4, round((0.44 / scam[2]) * focal))
+                    _fp_shadow_col = (
+                        (204, 224, 244)
+                        if jump_offset_y >= CLOUD_SPAWN_Y - 1.5
+                        else ((142, 108, 68) if current_support_y >= 0.25 else w_theme["ground_shadow"])
+                    )
                     pygame.draw.ellipse(
                         screen,
-                        GRASS_SHADOW_COLOR,
+                        _fp_shadow_col,
                         pygame.Rect(round(ssx - sh_w * 0.5), round(ssy - sh_h * 0.5), sh_w, sh_h),
                     )
 
@@ -4886,8 +4895,8 @@ def main() -> None:
             corner_y = max(142, 185 - round(max(-0.85, min(1.9, jump_offset_y)) * 22))
             if is_buried_in_crater:
                 grass_line_y = corner_y - round(0.58 * 72)
-                pygame.draw.rect(screen, GRASS_GROUND_COLOR, pygame.Rect(pic_rect.x, grass_line_y, pic_rect.w, pic_rect.bottom - grass_line_y))
-                pygame.draw.ellipse(screen, (96, 66, 38), pygame.Rect(106 - 46, grass_line_y - 7, 92, 20))
+                pygame.draw.rect(screen, w_theme["ground"], pygame.Rect(pic_rect.x, grass_line_y, pic_rect.w, pic_rect.bottom - grass_line_y))
+                pygame.draw.ellipse(screen, w_theme["crater_mid"], pygame.Rect(106 - 46, grass_line_y - 7, 92, 20))
             model_3d.render(
                 surface=screen,
                 screen_pos=(106, corner_y),
