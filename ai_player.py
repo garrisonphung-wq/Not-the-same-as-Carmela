@@ -154,6 +154,7 @@ class AICodeCompanion:
         self.mode_timer = 1.2
         self.dest_x = self.wx
         self.dest_z = self.wz
+        self.coop_waypoints: list[tuple[float, float]] = []
         self.head_timer = 1.0
         self.mouth_timer = 2.5
         self.blink_timer = random.uniform(2.0, 4.5)
@@ -196,6 +197,49 @@ class AICodeCompanion:
             return 1.65 * 1.08
         return 1.65
 
+    def is_inside_coop(self) -> bool:
+        cx = float(farm_world.CHICKEN_COOP["cx"])
+        cz = float(farm_world.CHICKEN_COOP["cz"])
+        erx = float(farm_world.CHICKEN_COOP["egg_rx"])
+        erz = float(farm_world.CHICKEN_COOP["egg_rz"])
+        door_y = float(farm_world.CHICKEN_COOP["door_y"])
+        if not (door_y - 1.2 <= self.jump_offset_y < self.CLOUD_SPAWN_Y - 10.0):
+            return False
+        return math.hypot((self.wx - cx) / max(0.1, erx), (self.wz - cz) / max(0.1, erz)) <= 1.05
+
+    def start_coop_visit(self, target_wx: float | None = None, target_wz: float | None = None) -> None:
+        cx = float(farm_world.CHICKEN_COOP["cx"])
+        cz = float(farm_world.CHICKEN_COOP["cz"])
+        erx = float(farm_world.CHICKEN_COOP["egg_rx"])
+        erz = float(farm_world.CHICKEN_COOP["egg_rz"])
+        stair_z_bot = cz - erz - 18.0
+        stair_z_top = cz - erz - 0.85
+        in_x = cx + random.uniform(-8.0, 8.0) if target_wx is None else max(cx - 12.0, min(cx + 12.0, target_wx))
+        in_z = cz + random.uniform(-6.0, 8.0) if target_wz is None else max(cz - 10.0, min(cz + 12.0, target_wz))
+        wps: list[tuple[float, float]] = []
+        if not self.is_inside_coop():
+            if self.wz > stair_z_bot + 1.0 and abs(self.wx - cx) > 3.0:
+                side_x = cx - erx - 6.0 if self.wx < cx else cx + erx + 6.0
+                wps.append((side_x, stair_z_bot - 2.0))
+            wps.append((cx, stair_z_bot - 1.5))
+            wps.append((cx, stair_z_top + 2.5))
+        wps.append((in_x, in_z))
+        self.coop_waypoints = wps
+        self.dest_x, self.dest_z = self.coop_waypoints.pop(0)
+        self.mode = "run"
+        self.mode_timer = 10.0
+
+    def start_coop_exit(self) -> None:
+        cx = float(farm_world.CHICKEN_COOP["cx"])
+        cz = float(farm_world.CHICKEN_COOP["cz"])
+        erz = float(farm_world.CHICKEN_COOP["egg_rz"])
+        stair_z_bot = cz - erz - 18.0
+        stair_z_top = cz - erz - 0.85
+        self.coop_waypoints = [(cx, stair_z_top + 2.5), (cx, stair_z_bot - 2.0)]
+        self.dest_x, self.dest_z = self.coop_waypoints.pop(0)
+        self.mode = "run"
+        self.mode_timer = 10.0
+
     def start_rocket_chicken(self, mega_fire: bool | None = None) -> None:
         if self.jump_state != "idle" or self.is_buried_in_crater:
             return
@@ -236,8 +280,19 @@ class AICodeCompanion:
 
         self.is_sitting = False
         self.is_touching_ground = False
+        door_y = float(farm_world.CHICKEN_COOP["door_y"])
+        cx = float(farm_world.CHICKEN_COOP["cx"])
+        cz = float(farm_world.CHICKEN_COOP["cz"])
+
+        # Keep walking/climbing if actively following coop stairs waypoints!
+        if self.coop_waypoints or (0.8 < self.jump_offset_y < door_y - 1.2):
+            self.mode = "run"
+            self.mode_timer = 5.0
+            return
+
+        inside_coop = self.is_inside_coop()
         roll = random.random()
-        if roll < 0.34:
+        if roll < 0.40:
             on_cloud_now = (
                 self.jump_offset_y >= self.CLOUD_SPAWN_Y - 1.0
                 and math.hypot(self.wx - self.CLOUD_SPAWN_WX, self.wz - self.CLOUD_SPAWN_WZ) <= self.CLOUD_PLATFORM_RADIUS
@@ -248,6 +303,7 @@ class AICodeCompanion:
                     if p.get("jump_y", 0.0) >= self.CLOUD_SPAWN_Y - 2.0
                     and math.hypot(p["wx"] - self.CLOUD_SPAWN_WX, p["wz"] - self.CLOUD_SPAWN_WZ) <= self.CLOUD_PLATFORM_RADIUS
                 ]
+                below_peers = [p for p in self.other_players.values() if p.get("jump_y", 0.0) < self.CLOUD_SPAWN_Y - 10.0]
                 if cloud_peers and random.random() < 0.45:
                     _t = random.choice(cloud_peers)
                     ang = random.uniform(0.0, 2.0 * math.pi)
@@ -260,7 +316,7 @@ class AICodeCompanion:
                         tz = self.CLOUD_SPAWN_WZ + (tz - self.CLOUD_SPAWN_WZ) * s
                     self.dest_x = tx
                     self.dest_z = tz
-                elif random.random() < 0.14:
+                elif random.random() < (0.30 if (below_peers and not cloud_peers) else 0.14):
                     ang = random.uniform(0.0, 2.0 * math.pi)
                     self.dest_x = self.CLOUD_SPAWN_WX + math.cos(ang) * (self.CLOUD_PLATFORM_RADIUS + 4.0)
                     self.dest_z = self.CLOUD_SPAWN_WZ + math.sin(ang) * (self.CLOUD_PLATFORM_RADIUS + 4.0)
@@ -269,8 +325,45 @@ class AICodeCompanion:
                     rad = random.uniform(2.0, self.CLOUD_PLATFORM_RADIUS - 3.0)
                     self.dest_x = self.CLOUD_SPAWN_WX + math.cos(ang) * rad
                     self.dest_z = self.CLOUD_SPAWN_WZ + math.sin(ang) * rad
+                self.mode = "run" if random.random() < 0.45 else "walk"
+                self.target_head_yaw = random.uniform(-0.25, 0.25)
+                self.target_head_pitch = random.uniform(-0.08, 0.15)
+                self.mode_timer = random.uniform(2.0, 4.8)
+            elif inside_coop:
+                if random.random() < 0.22:
+                    self.start_coop_exit()
+                else:
+                    coop_peers = [
+                        p for p in self.other_players.values()
+                        if door_y - 1.2 <= p.get("jump_y", 0.0) < self.CLOUD_SPAWN_Y - 10.0
+                        and math.hypot(p["wx"] - cx, p["wz"] - cz) < 22.0
+                    ]
+                    if coop_peers and random.random() < 0.55:
+                        _t = random.choice(coop_peers)
+                        ang = random.uniform(0.0, 2.0 * math.pi)
+                        self.dest_x = max(cx - 12.0, min(cx + 12.0, _t["wx"] + math.cos(ang) * random.uniform(1.8, 4.0)))
+                        self.dest_z = max(cz - 10.0, min(cz + 12.0, _t["wz"] + math.sin(ang) * random.uniform(1.8, 4.0)))
+                    else:
+                        self.dest_x = cx + random.uniform(-11.0, 11.0)
+                        self.dest_z = cz + random.uniform(-9.0, 11.0)
+                    self.mode = "walk" if random.random() < 0.65 else "run"
+                    self.target_head_yaw = random.uniform(-0.25, 0.25)
+                    self.target_head_pitch = random.uniform(-0.08, 0.15)
+                    self.mode_timer = random.uniform(1.8, 3.8)
             else:
-                ground_peers = [p for p in self.other_players.values() if p.get("jump_y", 0.0) < self.CLOUD_SPAWN_Y - 10.0]
+                coop_peers = [
+                    p for p in self.other_players.values()
+                    if door_y - 1.2 <= p.get("jump_y", 0.0) < self.CLOUD_SPAWN_Y - 10.0
+                    and math.hypot(p["wx"] - cx, p["wz"] - cz) < 22.0
+                ]
+                ground_peers = [p for p in self.other_players.values() if p.get("jump_y", 0.0) < door_y - 2.0]
+                if coop_peers and random.random() < 0.65:
+                    _t = random.choice(coop_peers)
+                    self.start_coop_visit(_t["wx"], _t["wz"])
+                    return
+                if random.random() < 0.34:
+                    self.start_coop_visit()
+                    return
                 if ground_peers and random.random() < 0.45:
                     _t = random.choice(ground_peers)
                     ang = random.uniform(0.0, 2.0 * math.pi)
@@ -281,10 +374,10 @@ class AICodeCompanion:
                     rad = random.uniform(3.0, 48.0)
                     self.dest_x = math.cos(ang) * rad
                     self.dest_z = math.sin(ang) * rad
-            self.mode = "run" if random.random() < 0.45 else "walk"
-            self.target_head_yaw = random.uniform(-0.25, 0.25)
-            self.target_head_pitch = random.uniform(-0.08, 0.15)
-            self.mode_timer = random.uniform(2.0, 4.8)
+                self.mode = "run" if random.random() < 0.45 else "walk"
+                self.target_head_yaw = random.uniform(-0.25, 0.25)
+                self.target_head_pitch = random.uniform(-0.08, 0.15)
+                self.mode_timer = random.uniform(2.0, 4.8)
         elif roll < 0.50:
             # Idle & look around
             self.mode = "idle"
@@ -302,7 +395,7 @@ class AICodeCompanion:
             self.crouch_timer = 0.0
             self.jump_amount = 0.0
             self.mode_timer = random.uniform(1.5, 2.8)
-        elif roll < 0.78:
+        elif roll < 0.78 and not inside_coop:
             # ROCKET CHICKEN! (look up, crouch + arms down, spin launch into sky, dive into crater!)
             self.mode = "rocket"
             self.start_rocket_chicken()
@@ -550,6 +643,7 @@ class AICodeCompanion:
 
         ai_ragdoll_locked = (self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05 or self.headshot_phase != "none" or self.is_buried_in_crater or self.is_lying_down or self.is_manual_ragdoll)
         if ai_ragdoll_locked:
+            self.coop_waypoints.clear()
             self.is_kicking = False
             self.kick_timer = 0.0
             self.kick_amount = 0.0
@@ -667,6 +761,9 @@ class AICodeCompanion:
                     if r_w > self.WORLD_LIMIT:
                         self.wx = self.wx / r_w * self.WORLD_LIMIT
                         self.wz = self.wz / r_w * self.WORLD_LIMIT
+                elif self.coop_waypoints:
+                    self.dest_x, self.dest_z = self.coop_waypoints.pop(0)
+                    self.mode_timer = max(self.mode_timer, 5.0)
                 else:
                     self.is_walking = False
                     self.is_running = False
