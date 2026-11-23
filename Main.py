@@ -4374,7 +4374,7 @@ def main() -> None:
                     _fp_shadow_col = (
                         (204, 224, 244)
                         if jump_offset_y >= CLOUD_SPAWN_Y - 1.5
-                        else ((142, 108, 68) if current_support_y >= 0.25 else w_theme["ground_shadow"])
+                        else ((142, 108, 68) if landing_support_y >= 0.25 else w_theme["ground_shadow"])
                     )
                     pygame.draw.ellipse(
                         screen,
