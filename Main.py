@@ -597,6 +597,7 @@ class NetworkClient:
         self._incoming_punch_hits: list[dict[str, Any]] = []
         self._outgoing_craters: list[dict[str, float]] = []
         self._incoming_craters: list[dict[str, float]] = []
+        self._world_reset_pending = False
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -753,6 +754,13 @@ class NetworkClient:
             out = list(self._incoming_craters)
             self._incoming_craters.clear()
             return out
+
+    def pop_world_reset_flag(self) -> bool:
+        with self._lock:
+            if not self._world_reset_pending:
+                return False
+            self._world_reset_pending = False
+            return True
 
     def send_punch_hit(self, target_id: int, dir_x: float, dir_z: float, headshot: bool, punch_side: float = 1.0) -> None:
         with self._lock:
@@ -953,6 +961,15 @@ class NetworkClient:
             self.connected = False
             self.my_id = None
             self.remote_players.clear()
+            self._incoming_craters.clear()
+            self._outgoing_craters.clear()
+            self._incoming_chats.clear()
+            self._outgoing_chats.clear()
+            self._incoming_kick_hits.clear()
+            self._outgoing_kick_hits.clear()
+            self._incoming_punch_hits.clear()
+            self._outgoing_punch_hits.clear()
+            self._world_reset_pending = True
             self._pos_dirty = True
             ws_to_close = self._active_ws
         if ws_to_close is not None:
@@ -1009,7 +1026,7 @@ class NetworkClient:
                         self.connected = True
                         self._pos_dirty = True
                     tasks = [
-                        asyncio.create_task(self._receiver_loop(ws)),
+                        asyncio.create_task(self._receiver_loop(ws, cur_epoch)),
                         asyncio.create_task(self._sender_loop(ws)),
                     ]
                     done, pending = await asyncio.wait(
@@ -1170,10 +1187,13 @@ class NetworkClient:
             "on_fire": bool(pdata.get("on_fire", False)),
         }
 
-    async def _receiver_loop(self, ws: Any) -> None:
+    async def _receiver_loop(self, ws: Any, expected_epoch: int) -> None:
         async for raw in ws:
             if self._stop_event.is_set():
                 return
+            with self._lock:
+                if self._server_epoch != expected_epoch:
+                    return
             if not isinstance(raw, str):
                 continue
             try:
@@ -2825,6 +2845,11 @@ def main() -> None:
                 on_fire=is_on_fire,
             )
 
+        if net.pop_world_reset_flag():
+            world_craters.clear()
+            remote_states.clear()
+            chat_bubbles.clear()
+            chat_history.clear()
         connected, is_host, my_id, my_color, remote_players = net.get_snapshot()
         for cr in net.fetch_new_craters():
             world_craters.append(cr)
