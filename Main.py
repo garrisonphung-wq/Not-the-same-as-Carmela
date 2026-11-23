@@ -1477,7 +1477,7 @@ def main() -> None:
     host_button_rect = pygame.Rect(-100, -100, 0, 0)
     place_box_rect = pygame.Rect(-100, -100, 0, 0)
     place_option_rects: list[tuple[str, pygame.Rect]] = []
-    spawn_place_options = ("ground", "on cloud")
+    spawn_place_options = ("ground", "on cloud", "in coop")
     selected_spawn_place = "ground"
     place_dropdown_open = False
     custom_player_name = ""
@@ -1917,6 +1917,11 @@ def main() -> None:
                                 cam_z = CLOUD_SPAWN_WZ
                                 jump_offset_y = CLOUD_SPAWN_Y
                                 cam_yaw = math.pi
+                            elif selected_spawn_place == "in coop":
+                                cam_x = float(farm_world.CHICKEN_COOP["cx"])
+                                cam_z = float(farm_world.CHICKEN_COOP["cz"]) - 2.0
+                                jump_offset_y = float(farm_world.CHICKEN_COOP["door_y"])
+                                cam_yaw = 0.0
                             else:
                                 cam_x = ground_cam_x
                                 cam_z = ground_cam_z
