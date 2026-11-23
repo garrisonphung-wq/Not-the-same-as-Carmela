@@ -106,7 +106,7 @@ class GameRelayServer:
             "arms_down_amount": 0.0,
             "tag_amount": 0.0,
             "sit_amount": 0.0,
-            "touch_grass_amount": 0.0,
+            "touch_ground_amount": 0.0,
             "on_fire": False,
         }
 
@@ -174,8 +174,10 @@ class GameRelayServer:
                         p["tag_amount"] = safe_float(data.get("tag_amount", 0.0), 0.0, limit=2.0)
                     if "sit_amount" in data:
                         p["sit_amount"] = safe_float(data.get("sit_amount", 0.0), 0.0, limit=2.0)
-                    if "touch_grass_amount" in data:
-                        p["touch_grass_amount"] = safe_float(data.get("touch_grass_amount", 0.0), 0.0, limit=2.0)
+                    if "touch_ground_amount" in data:
+                        p["touch_ground_amount"] = safe_float(data.get("touch_ground_amount", 0.0), 0.0, limit=2.0)
+                    elif "touch_grass_amount" in data:
+                        p["touch_ground_amount"] = safe_float(data.get("touch_grass_amount", 0.0), 0.0, limit=2.0)
                     if "on_fire" in data:
                         p["on_fire"] = bool(data["on_fire"])
                     if "character" in data and data["character"]:
@@ -215,7 +217,7 @@ class GameRelayServer:
                         "arms_down_amount": p.get("arms_down_amount", 0.0),
                         "tag_amount": p.get("tag_amount", 0.0),
                         "sit_amount": p.get("sit_amount", 0.0),
-                        "touch_grass_amount": p.get("touch_grass_amount", 0.0),
+                        "touch_ground_amount": p.get("touch_ground_amount", 0.0),
                         "on_fire": p.get("on_fire", False),
                     }
                     if p["chick_name"]:

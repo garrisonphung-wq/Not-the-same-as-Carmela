@@ -308,7 +308,7 @@ class Carmelito3D:
         arms_down_amount: float = 0.0,
         tag_amount: float = 0.0,
         sit_amount: float = 0.0,
-        touch_grass_amount: float = 0.0,
+        touch_ground_amount: float = 0.0,
         ragdoll: float = 0.0,
         ragdoll_seed: float = 0.0,
         ragdoll_pose: dict | None = None,
@@ -392,7 +392,7 @@ class Carmelito3D:
         walk_bob = abs(math.sin(run_cycle * 2.0 * math.pi)) * 0.04
 
         sa = max(0.0, min(1.0, sit_amount))
-        tg = max(0.0, min(1.0, touch_grass_amount))
+        tg = max(0.0, min(1.0, touch_ground_amount))
 
         # Blended bob + sit drop + gentle touch-grass lean drop
         bob_y = (run_bob * rw + walk_bob * (ww * (1.0 - rw))) * (1.0 - sa) - (0.38 * sa) - (0.09 * tg * (1.0 - sa))
@@ -968,7 +968,7 @@ class Carmelito3D:
                 elbow_pt = lerp_vec3(elbow_pt, sit_elbow, sa)
                 hand_pt = lerp_vec3(hand_pt, sit_hand, sa)
 
-            # Touching grass ('G'): reach right wing down to gently pat the grass blades!
+            # Touching the ground ('G'): reach right wing down to gently pat the ground!
             if tg > 0.001:
                 pat_w = math.sin(run_cycle * 6.5)
                 pat_sw = math.cos(run_cycle * 6.5)
@@ -1186,7 +1186,7 @@ class Carmelito3D:
                 ankle_pt = lerp_vec3(ankle_pt, crouch_ankle, ja)
                 foot_angle = foot_angle * (1.0 - ja)
 
-            # Touch grass while standing ('G'): soft knee bend, feet planted firmly on grass
+            # Touch the ground while standing ('G'): soft knee bend, feet planted firmly on grass
             if tg > 0.001 and sa < 0.99:
                 tg_eff = tg * (1.0 - sa)
                 tg_knee = (leg_x * 1.06, 0.24, 0.11)
@@ -1938,14 +1938,14 @@ class Carmelito3D:
 
         return faces
 
-    def build_first_person_touch_grass_hand(
+    def build_first_person_touch_ground_hand(
         self,
-        touch_grass_amount: float = 0.0,
+        touch_ground_amount: float = 0.0,
         pat_phase: float = 0.0,
         character: str = "carmelito",
     ) -> list[tuple[list[tuple[float, float, float]], tuple[int, int, int], bool]]:
         """Build first-person right wing reaching down to touch & gently pat the grass ('G' key)."""
-        if touch_grass_amount <= 0.001:
+        if touch_ground_amount <= 0.001:
             return []
         char_l = character.lower()
         if char_l in ("carmen", "卡门"):
@@ -1961,7 +1961,7 @@ class Carmelito3D:
             body_col = COLOR_BODY_PINK
             char_scale = 1.0
 
-        tg = max(0.0, min(1.0, touch_grass_amount))
+        tg = max(0.0, min(1.0, touch_ground_amount))
         pat_w = math.sin(pat_phase * 6.5)
         pat_sw = math.cos(pat_phase * 6.5)
         sh_pos = (0.36 * char_scale, -0.30 * char_scale, 0.14 * char_scale)
@@ -2027,7 +2027,7 @@ class Carmelito3D:
         arms_down_amount: float = 0.0,
         tag_amount: float = 0.0,
         sit_amount: float = 0.0,
-        touch_grass_amount: float = 0.0,
+        touch_ground_amount: float = 0.0,
         ragdoll_pose: dict | None = None,
         clip_min_y: float | None = None,
     ) -> None:
@@ -2066,7 +2066,7 @@ class Carmelito3D:
             arms_down_amount=arms_down_amount,
             tag_amount=tag_amount,
             sit_amount=sit_amount,
-            touch_grass_amount=touch_grass_amount,
+            touch_ground_amount=touch_ground_amount,
             ragdoll=ragdoll,
             ragdoll_seed=ragdoll_seed,
             ragdoll_pose=ragdoll_pose,

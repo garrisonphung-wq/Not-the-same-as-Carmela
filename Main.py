@@ -587,7 +587,7 @@ class NetworkClient:
         self._local_arms_down_amount = 0.0
         self._local_tag_amount = 0.0
         self._local_sit_amount = 0.0
-        self._local_touch_grass_amount = 0.0
+        self._local_touch_ground_amount = 0.0
         self._local_on_fire = False
         self._pos_dirty = True
 
@@ -651,7 +651,7 @@ class NetworkClient:
         arms_down_amount: float = 0.0,
         tag_amount: float = 0.0,
         sit_amount: float = 0.0,
-        touch_grass_amount: float = 0.0,
+        touch_ground_amount: float = 0.0,
         on_fire: bool = False,
     ) -> None:
         nx = max(0.05, min(0.95, nx))
@@ -683,7 +683,7 @@ class NetworkClient:
                 or (abs(arms_down_amount - self._local_arms_down_amount) > 0.02)
                 or (abs(tag_amount - self._local_tag_amount) > 0.02)
                 or (abs(sit_amount - self._local_sit_amount) > 0.02)
-                or (abs(touch_grass_amount - self._local_touch_grass_amount) > 0.02)
+                or (abs(touch_ground_amount - self._local_touch_ground_amount) > 0.02)
                 or (on_fire != self._local_on_fire)
             )
             if pos_changed or state_changed:
@@ -710,7 +710,7 @@ class NetworkClient:
                 self._local_arms_down_amount = arms_down_amount
                 self._local_tag_amount = tag_amount
                 self._local_sit_amount = sit_amount
-                self._local_touch_grass_amount = touch_grass_amount
+                self._local_touch_ground_amount = touch_ground_amount
                 self._local_on_fire = on_fire
                 self._pos_dirty = True
 
@@ -746,7 +746,7 @@ class NetworkClient:
                     "arms_down_amount": data.get("arms_down_amount", 0.0),
                     "tag_amount": data.get("tag_amount", 0.0),
                     "sit_amount": data.get("sit_amount", 0.0),
-                    "touch_grass_amount": data.get("touch_grass_amount", 0.0),
+                    "touch_ground_amount": data.get("touch_ground_amount", 0.0),
                     "on_fire": bool(data.get("on_fire", False)),
                 }
                 for pid, data in self.remote_players.items()
@@ -1153,7 +1153,7 @@ class NetworkClient:
                             "arms_down_amount": round(self._local_arms_down_amount, 3),
                             "tag_amount": round(self._local_tag_amount, 3),
                             "sit_amount": round(self._local_sit_amount, 3),
-                            "touch_grass_amount": round(self._local_touch_grass_amount, 3),
+                            "touch_ground_amount": round(self._local_touch_ground_amount, 3),
                             "on_fire": self._local_on_fire,
                         },
                         separators=(",", ":"),
@@ -1197,7 +1197,7 @@ class NetworkClient:
             "arms_down_amount": float(pdata.get("arms_down_amount", 0.0)),
             "tag_amount": float(pdata.get("tag_amount", 0.0)),
             "sit_amount": float(pdata.get("sit_amount", 0.0)),
-            "touch_grass_amount": float(pdata.get("touch_grass_amount", 0.0)),
+            "touch_ground_amount": float(pdata.get("touch_ground_amount", pdata.get("touch_grass_amount", 0.0))),
             "on_fire": bool(pdata.get("on_fire", False)),
         }
 
@@ -1301,8 +1301,10 @@ class NetworkClient:
                             rp["tag_amount"] = float(msg["tag_amount"])
                         if "sit_amount" in msg:
                             rp["sit_amount"] = float(msg["sit_amount"])
-                        if "touch_grass_amount" in msg:
-                            rp["touch_grass_amount"] = float(msg["touch_grass_amount"])
+                        if "touch_ground_amount" in msg:
+                            rp["touch_ground_amount"] = float(msg["touch_ground_amount"])
+                        elif "touch_grass_amount" in msg:
+                            rp["touch_ground_amount"] = float(msg["touch_grass_amount"])
                         if "on_fire" in msg:
                             rp["on_fire"] = bool(msg["on_fire"])
 
@@ -1463,10 +1465,8 @@ def main() -> None:
     tag_amount = 0.0
     is_sitting = False
     sit_amount = 0.0
-    is_touching_grass = False
-    touch_grass_amount = 0.0
-    grass_touch_particles: list[dict[str, float | tuple[int, int, int]]] = []
-    grass_particle_timer = 0.0
+    is_touching_ground = False
+    touch_ground_amount = 0.0
     selected_character = "carmelito"
     selected_chick_name = CHICK_NAME
     has_selected_character = False
@@ -1785,8 +1785,8 @@ def main() -> None:
                                 jump_amount = 0.0
                     elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down or is_buried_in_crater) and event.key == pygame.K_g:
                         # Pressing 'G' toggles touching grass while standing (or sitting)!
-                        is_touching_grass = not is_touching_grass
-                        if is_touching_grass:
+                        is_touching_ground = not is_touching_ground
+                        if is_touching_ground:
                             is_kicking = False
                             kick_timer = 0.0
                             is_punching = False
@@ -1801,7 +1801,7 @@ def main() -> None:
                     elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down or is_buried_in_crater) and event.key == pygame.K_j:
                         # Hold 'J' to crouch & charge jump height; release 'J' to launch! (Disabled during ragdoll mode)
                         is_sitting = False
-                        is_touching_grass = False
+                        is_touching_ground = False
                         if jump_state == "idle":
                             jump_state = "crouching"
                             crouch_timer = 0.0
@@ -1814,7 +1814,7 @@ def main() -> None:
                         kick_timer = 0.0
                         kick_side = -kick_side  # alternate between right and left leg!
                         is_sitting = False
-                        is_touching_grass = False
+                        is_touching_ground = False
                         kick_hit_victims.clear()
                     elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down or is_buried_in_crater) and event.key == pygame.K_p:
                         # Pressing 'P' triggers a forward boxing punch / wing strike! (Disabled during ragdoll mode)
@@ -1822,7 +1822,7 @@ def main() -> None:
                         punch_timer = 0.0
                         punch_side = -punch_side  # alternate between right and left wing!
                         is_sitting = False
-                        is_touching_grass = False
+                        is_touching_ground = False
                         punch_hit_victims.clear()
                     elif is_online and not is_fighting and not (is_kick_launched or side_lying_timer > 0.0 or local_ragdoll > 0.05 or local_headshot_phase != "none" or is_lying_down or is_buried_in_crater) and event.key == pygame.K_t:
                         # Pressing 'T' toggles raising both arms forward like a zombie (Disabled during ragdoll/lying mode)
@@ -1833,8 +1833,8 @@ def main() -> None:
                         if is_lying_down:
                             is_sitting = False
                             sit_amount = 0.0
-                            is_touching_grass = False
-                            touch_grass_amount = 0.0
+                            is_touching_ground = False
+                            touch_ground_amount = 0.0
                             is_kicking = False
                             kick_timer = 0.0
                             is_punching = False
@@ -1853,8 +1853,8 @@ def main() -> None:
                             is_lying_down = False
                             is_sitting = False
                             sit_amount = 0.0
-                            is_touching_grass = False
-                            touch_grass_amount = 0.0
+                            is_touching_ground = False
+                            touch_ground_amount = 0.0
                             local_ragdoll = 1.0
                             is_kicking = False
                             kick_timer = 0.0
@@ -2264,7 +2264,7 @@ def main() -> None:
             is_moving = move_mag > 0.0
             if is_moving:
                 is_sitting = False
-                is_touching_grass = False
+                is_touching_ground = False
             # Moving: normal walk / run speed
             # Run when shift or space is held while moving
             run_key_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT] or keys[pygame.K_SPACE]
@@ -2330,8 +2330,8 @@ def main() -> None:
                         tag_amount = 0.0
                         is_sitting = False
                         sit_amount = 0.0
-                        is_touching_grass = False
-                        touch_grass_amount = 0.0
+                        is_touching_ground = False
+                        touch_ground_amount = 0.0
                         jump_amount = 0.0
                         wing_flap_amount = 0.0
                     else:
@@ -2375,8 +2375,8 @@ def main() -> None:
                         tag_amount = 0.0
                         is_sitting = False
                         sit_amount = 0.0
-                        is_touching_grass = False
-                        touch_grass_amount = 0.0
+                        is_touching_ground = False
+                        touch_ground_amount = 0.0
                         jump_amount = 0.0
                         wing_flap_amount = 0.0
                     else:
@@ -2739,8 +2739,8 @@ def main() -> None:
                 tag_amount = 0.0
                 is_sitting = False
                 sit_amount = 0.0
-                is_touching_grass = False
-                touch_grass_amount = 0.0
+                is_touching_ground = False
+                touch_ground_amount = 0.0
                 if jump_state == "crouching":
                     jump_state = "idle"
                     crouch_timer = 0.0
@@ -2767,19 +2767,19 @@ def main() -> None:
             )
             if activity_blocked:
                 is_sitting = False
-                is_touching_grass = False
+                is_touching_ground = False
 
             if is_sitting:
                 sit_amount = min(1.0, sit_amount + 7.5 * dt)
             else:
                 sit_amount = max(0.0, sit_amount - 8.5 * dt)
 
-            if is_touching_grass:
-                touch_grass_amount = min(1.0, touch_grass_amount + 7.5 * dt)
+            if is_touching_ground:
+                touch_ground_amount = min(1.0, touch_ground_amount + 7.5 * dt)
                 if not is_moving:
                     motion_cycle += dt * 1.4
             else:
-                touch_grass_amount = max(0.0, touch_grass_amount - 8.5 * dt)
+                touch_ground_amount = max(0.0, touch_ground_amount - 8.5 * dt)
 
             # Crouch-then-Jump execution:
             # Step 1: Crouching down (bends legs, camera sinks down)
@@ -2919,7 +2919,7 @@ def main() -> None:
             else:
                 head_bob = math.sin(motion_cycle * 2.0 * math.pi) * (0.04 * run_weight + 0.02 * walk_weight)
                 sit_eye_drop = -1.05 * sit_amount
-                touch_eye_drop = -0.45 * touch_grass_amount * (1.0 - 0.55 * sit_amount)
+                touch_eye_drop = -0.45 * touch_ground_amount * (1.0 - 0.55 * sit_amount)
                 eye_y = head_bob + jump_offset_y + crouch_eye_drop + sit_eye_drop + touch_eye_drop
 
             # Sync position & posture with network only if online (mapped across the vast island)
@@ -2949,13 +2949,12 @@ def main() -> None:
                 arms_down_amount=arms_down_amount,
                 tag_amount=tag_amount,
                 sit_amount=sit_amount,
-                touch_grass_amount=touch_grass_amount,
+                touch_ground_amount=touch_ground_amount,
                 on_fire=is_on_fire,
             )
 
         if net.pop_world_reset_flag():
             world_craters.clear()
-            grass_touch_particles.clear()
             remote_states.clear()
             chat_bubbles.clear()
             chat_history.clear()
@@ -3052,7 +3051,7 @@ def main() -> None:
                     "arms_down_amount": float(pdata.get("arms_down_amount", 0.0)),
                     "tag_amount": float(pdata.get("tag_amount", 0.0)),
                     "sit_amount": float(pdata.get("sit_amount", 0.0)),
-                    "touch_grass_amount": float(pdata.get("touch_grass_amount", 0.0)),
+                    "touch_ground_amount": float(pdata.get("touch_ground_amount", pdata.get("touch_grass_amount", 0.0))),
                 }
             else:
                 rs = remote_states[pid]
@@ -3083,19 +3082,19 @@ def main() -> None:
                 rs["tag_amount"] = rs.get("tag_amount", 0.0) + (t_tag - rs.get("tag_amount", 0.0)) * min(1.0, 18.0 * dt)
                 t_sit = float(pdata.get("sit_amount", 0.0))
                 rs["sit_amount"] = rs.get("sit_amount", 0.0) + (t_sit - rs.get("sit_amount", 0.0)) * min(1.0, 14.0 * dt)
-                t_tg = float(pdata.get("touch_grass_amount", 0.0))
-                rs["touch_grass_amount"] = rs.get("touch_grass_amount", 0.0) + (t_tg - rs.get("touch_grass_amount", 0.0)) * min(1.0, 14.0 * dt)
+                t_tg = float(pdata.get("touch_ground_amount", pdata.get("touch_grass_amount", 0.0)))
+                rs["touch_ground_amount"] = rs.get("touch_ground_amount", 0.0) + (t_tg - rs.get("touch_ground_amount", 0.0)) * min(1.0, 14.0 * dt)
                 loco = max(rs["run_weight"], rs["walk_weight"])
                 if loco > 0.001:
                     stride_spd = (3.2 * rs["run_weight"]) + (1.8 * rs["walk_weight"] * (1.0 - rs["run_weight"]))
                     rs["motion_cycle"] += dt * max(0.4, stride_spd)
-                elif rs["touch_grass_amount"] > 0.05:
+                elif rs["touch_ground_amount"] > 0.05:
                     rs["motion_cycle"] += dt * 1.4
 
         # Keep first-person yaw & pitch synced immediately during headshot / ragdoll states
         if is_online and not is_fighting:
-            if touch_grass_amount > 0.001 and local_headshot_phase == "none":
-                total_pitch = max(-1.35, min(1.35, total_pitch - 0.28 * touch_grass_amount * (1.0 - 0.4 * sit_amount)))
+            if touch_ground_amount > 0.001 and local_headshot_phase == "none":
+                total_pitch = max(-1.35, min(1.35, total_pitch - 0.28 * touch_ground_amount * (1.0 - 0.4 * sit_amount)))
             if local_headshot_phase != "none":
                 total_yaw = cam_yaw + head_yaw + (j_spin_yaw if is_j_air_spinning else 0.0)
                 total_pitch = max(-1.35, min(1.35, head_pitch))
@@ -3291,61 +3290,6 @@ def main() -> None:
                     pygame.draw.polygon(screen, (118, 82, 48), mid_pts)
                 if len(inner_pts) >= 3:
                     pygame.draw.polygon(screen, (78, 52, 30), inner_pts)
-
-        # Spawn & update gentle grass leaf particles when touching the grass ('G' key)
-        if is_online:
-            grass_particle_timer -= dt
-            if grass_particle_timer <= 0.0:
-                grass_particle_timer = 0.14
-                if touch_grass_amount > 0.55 and not is_fighting:
-                    gx = cam_x + math.sin(cam_yaw) * 0.95 + random.uniform(-0.35, 0.35)
-                    gz = cam_z + math.cos(cam_yaw) * 0.95 + random.uniform(-0.35, 0.35)
-                    grass_touch_particles.append({
-                        "wx": gx,
-                        "wy": max(0.05, jump_offset_y + 0.18),
-                        "wz": gz,
-                        "vx": random.uniform(-0.7, 0.7),
-                        "vy": random.uniform(1.1, 2.2),
-                        "vz": random.uniform(-0.7, 0.7),
-                        "life": 0.65,
-                        "max_life": 0.65,
-                        "col": random.choice([(98, 198, 72), (132, 220, 82), (242, 224, 96)]),
-                    })
-                for r_rs in remote_states.values():
-                    if r_rs.get("touch_grass_amount", 0.0) > 0.55:
-                        r_yaw = r_rs.get("rot_y", 0.0)
-                        gx = r_rs["wx"] + math.sin(r_yaw) * 0.9 + random.uniform(-0.35, 0.35)
-                        gz = r_rs["wz"] + math.cos(r_yaw) * 0.9 + random.uniform(-0.35, 0.35)
-                        grass_touch_particles.append({
-                            "wx": gx,
-                            "wy": max(0.05, r_rs.get("jump_offset_y", 0.0) + 0.18),
-                            "wz": gz,
-                            "vx": random.uniform(-0.7, 0.7),
-                            "vy": random.uniform(1.1, 2.2),
-                            "vz": random.uniform(-0.7, 0.7),
-                            "life": 0.65,
-                            "max_life": 0.65,
-                            "col": random.choice([(98, 198, 72), (132, 220, 82), (242, 224, 96)]),
-                        })
-            alive_gp = []
-            for gp in grass_touch_particles:
-                gp["life"] -= dt
-                if gp["life"] > 0.0:
-                    gp["wx"] += gp["vx"] * dt
-                    gp["wy"] += gp["vy"] * dt
-                    gp["vy"] -= 2.8 * dt
-                    gp["wz"] += gp["vz"] * dt
-                    alive_gp.append(gp)
-            grass_touch_particles[:] = alive_gp[-80:]
-
-            for gp in grass_touch_particles:
-                g_cam = to_cam(gp["wx"], current_ground_y + gp["wy"], gp["wz"])
-                if g_cam[2] > near_z:
-                    gsx = round(hw + (g_cam[0] / g_cam[2]) * focal)
-                    gsy = round(hh - (g_cam[1] / g_cam[2]) * focal)
-                    fade = max(0.2, gp["life"] / gp["max_life"])
-                    rad = max(2, round((0.08 * fade / g_cam[2]) * focal))
-                    pygame.draw.circle(screen, gp["col"], (gsx, gsy), rad)
 
         # 1c. Render 3D grass blades across the island
         base_sway = math.sin(anim_time * 2.2) * 0.045
@@ -3672,7 +3616,7 @@ def main() -> None:
                     arms_down_amount=rs.get("arms_down_amount", 0.0),
                     tag_amount=rs.get("tag_amount", 0.0),
                     sit_amount=rs.get("sit_amount", 0.0),
-                    touch_grass_amount=rs.get("touch_grass_amount", 0.0),
+                    touch_ground_amount=rs.get("touch_ground_amount", 0.0),
                     clip_min_y=(-rs.get("jump_offset_y", 0.0) / rem_scale if rs.get("jump_offset_y", 0.0) < -0.10 else None),
                 )
                 if pdata.get("on_fire", False):
@@ -4229,8 +4173,8 @@ def main() -> None:
                     if draw_ink:
                         pygame.draw.polygon(screen, COLOR_INK_LINE, pts, 1)
 
-        # 1h. RENDER OWN WING REACHING DOWN TO TOUCH GRASS IN FIRST PERSON (G KEY)
-        if is_online and not is_fighting and touch_grass_amount > 0.001 and punch_amount <= 0.001 and tag_amount <= 0.001:
+        # 1h. RENDER OWN WING REACHING DOWN TO TOUCH THE GROUND IN FIRST PERSON (G KEY)
+        if is_online and not is_fighting and touch_ground_amount > 0.001 and punch_amount <= 0.001 and tag_amount <= 0.001:
             cos_body = math.cos(cam_yaw)
             sin_body = math.sin(cam_yaw)
 
@@ -4240,8 +4184,8 @@ def main() -> None:
                 wy = eye_y + by
                 return to_cam(wx, wy, wz)
 
-            tg_faces = model_3d.build_first_person_touch_grass_hand(
-                touch_grass_amount=touch_grass_amount,
+            tg_faces = model_3d.build_first_person_touch_ground_hand(
+                touch_ground_amount=touch_ground_amount,
                 pat_phase=motion_cycle,
                 character=selected_character,
             )
@@ -4507,7 +4451,7 @@ def main() -> None:
                 arms_down_amount=arms_down_amount,
                 tag_amount=tag_amount,
                 sit_amount=sit_amount,
-                touch_grass_amount=touch_grass_amount,
+                touch_ground_amount=touch_ground_amount,
                 clip_min_y=(-jump_offset_y / get_local_world_scale(selected_character) if jump_offset_y < -0.10 else None),
             )
             if is_on_fire:

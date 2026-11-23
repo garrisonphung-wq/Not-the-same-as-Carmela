@@ -127,9 +127,9 @@ class AICodeCompanion:
         self.is_sitting = False
         self.sit_timer = 0.0
         self.sit_amount = 0.0
-        self.is_touching_grass = False
-        self.touch_grass_timer = 0.0
-        self.touch_grass_amount = 0.0
+        self.is_touching_ground = False
+        self.touch_ground_timer = 0.0
+        self.touch_ground_amount = 0.0
 
         self.action_cooldown = random.uniform(2.5, 5.5)
 
@@ -235,7 +235,7 @@ class AICodeCompanion:
             return
 
         self.is_sitting = False
-        self.is_touching_grass = False
+        self.is_touching_ground = False
         roll = random.random()
         if roll < 0.34:
             on_cloud_now = (
@@ -337,15 +337,15 @@ class AICodeCompanion:
             self.target_head_pitch = random.uniform(-0.15, 0.20)
             self.mode_timer = self.sit_timer + 0.3
         elif roll < 0.95:
-            # Touch grass while standing!
-            self.mode = "touch_grass"
+            # Touch the ground while standing!
+            self.mode = "touch_ground"
             self.is_walking = False
             self.is_running = False
-            self.is_touching_grass = True
-            self.touch_grass_timer = random.uniform(2.0, 3.6)
+            self.is_touching_ground = True
+            self.touch_ground_timer = random.uniform(2.0, 3.6)
             self.target_head_yaw = random.uniform(-0.20, 0.20)
             self.target_head_pitch = -0.35
-            self.mode_timer = self.touch_grass_timer + 0.3
+            self.mode_timer = self.touch_ground_timer + 0.3
         elif roll < 0.98:
             # Lie down on the grass!
             self.mode = "lie_down"
@@ -560,8 +560,8 @@ class AICodeCompanion:
             self.tag_amount = 0.0
             self.is_sitting = False
             self.sit_amount = 0.0
-            self.is_touching_grass = False
-            self.touch_grass_amount = 0.0
+            self.is_touching_ground = False
+            self.touch_ground_amount = 0.0
             self.target_head_yaw = 0.0
             self.target_head_pitch = 0.0
             if self.jump_state == "crouching":
@@ -882,15 +882,15 @@ class AICodeCompanion:
             self.is_sitting = False
             self.sit_amount = max(0.0, self.sit_amount - 8.5 * dt)
 
-        # Touch grass while standing animation
-        if self.is_touching_grass and not (self.is_walking or self.is_running or self.jump_state != "idle"):
-            self.touch_grass_timer -= dt
-            if self.touch_grass_timer <= 0.0:
-                self.is_touching_grass = False
-            self.touch_grass_amount = min(1.0, self.touch_grass_amount + 7.5 * dt)
+        # Touch the ground while standing animation
+        if self.is_touching_ground and not (self.is_walking or self.is_running or self.jump_state != "idle"):
+            self.touch_ground_timer -= dt
+            if self.touch_ground_timer <= 0.0:
+                self.is_touching_ground = False
+            self.touch_ground_amount = min(1.0, self.touch_ground_amount + 7.5 * dt)
         else:
-            self.is_touching_grass = False
-            self.touch_grass_amount = max(0.0, self.touch_grass_amount - 8.5 * dt)
+            self.is_touching_ground = False
+            self.touch_ground_amount = max(0.0, self.touch_ground_amount - 8.5 * dt)
 
         # Jump & Rocket Chicken physics
         if self.jump_state == "crouching":
@@ -1228,7 +1228,7 @@ class AICodeCompanion:
                     "on_fire": bool(self.on_fire),
                     "tag_amount": round(self.tag_amount, 3),
                     "sit_amount": round(self.sit_amount, 3),
-                    "touch_grass_amount": round(self.touch_grass_amount, 3),
+                    "touch_ground_amount": round(self.touch_ground_amount, 3),
                 },
                 separators=(",", ":"),
             )
