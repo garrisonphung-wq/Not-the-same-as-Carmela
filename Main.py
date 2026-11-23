@@ -512,7 +512,7 @@ def discover_room_on_lan(code: str, timeout: float = 0.25) -> str | None:
 
 
 def resolve_server_target(raw_text: str, fallback: str = DEFAULT_SERVER_URL) -> tuple[str | None, bool]:
-    """Resolve a user server input (empty, room code like 535.4.0.2, IP, or ws:// URL).
+    """Resolve a user server input (empty, 4-number room code, IP, or ws:// URL).
     Returns (ws_url_or_None_if_unresolved_room_code, is_room_code).
     """
     txt = str(raw_text or "").strip()
@@ -891,7 +891,7 @@ class NetworkClient:
     def host_new_room(self, code: str) -> tuple[bool, int, str]:
         clean_code = str(code or "").strip()
         if not is_four_dotted_numbers(clean_code):
-            return False, 0, "Need 4 numbers with dots (like 535.4.0.2)"
+            return False, 0, "Need 4 numbers with dots"
         with self._lock:
             existing_port = self._hosted_rooms.get(clean_code)
         if existing_port is None:
@@ -4572,7 +4572,7 @@ def main() -> None:
                     pygame.draw.line(screen, (28, 36, 48), (cur_sx + 1, s_text_y + 2), (cur_sx + 1, s_text_y + name_font.get_height() - 2), 2)
                 screen.set_clip(clip_s_prev)
 
-                # "host:" box + [Host] button right below "server:" to create a new server with 4 numbers with dots (like 535.4.0.2)!
+                # "host:" box + [Host] button right below "server:" to create a new server with any 4 numbers with dots!
                 host_lbl_surf = get_outlined_text_surface("host:", lbl_px, outline_px=lbl_outline_px)
                 host_row_y = srv_row_y + box_h + max(10, round(win_h * 0.018))
                 host_btn_w = max(58, round(box_h * 1.75))
@@ -4604,7 +4604,7 @@ def main() -> None:
                     cur_hx = draw_hx + h_val_surf.get_width()
                 else:
                     if not is_typing_menu_host:
-                        hph_surf = name_font.render("535.4.0.2", True, (150, 160, 175))
+                        hph_surf = name_font.render("#.#.#.#", True, (150, 160, 175))
                         screen.blit(hph_surf, (hbox_x + 10, h_text_y))
                     cur_hx = hbox_x + 10
                 if is_typing_menu_host and (int(anim_time * 2.5) % 2) == 0:
