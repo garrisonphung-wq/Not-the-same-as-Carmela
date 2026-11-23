@@ -53,6 +53,61 @@ ISLAND_SHADOW = (118, 96, 74)
 OCEAN_WATER_COLOR = (180, 222, 245)
 OCEAN_FOAM_COLOR = (235, 248, 255)
 
+WEATHER_THEMES: dict[str, dict[str, Any]] = {
+    "spring": {
+        "sky": (175, 225, 252),
+        "cloud_white": (255, 255, 255),
+        "cloud_shadow": (222, 238, 250),
+        "ground": (138, 202, 114),
+        "blade_dark": (90, 164, 70),
+        "blade_light": (108, 182, 86),
+        "crater_outer": (152, 114, 70),
+        "crater_mid": (118, 82, 48),
+        "crater_inner": (78, 52, 30),
+        "sun_col": (255, 246, 186),
+        "sun_glow": (255, 248, 212),
+    },
+    "summer": {
+        "sky": (128, 208, 255),
+        "cloud_white": (255, 255, 255),
+        "cloud_shadow": (214, 236, 252),
+        "ground": (112, 194, 86),
+        "blade_dark": (72, 152, 54),
+        "blade_light": (94, 174, 72),
+        "crater_outer": (162, 122, 74),
+        "crater_mid": (124, 88, 50),
+        "crater_inner": (84, 56, 32),
+        "sun_col": (255, 236, 112),
+        "sun_glow": (255, 245, 168),
+    },
+    "fall": {
+        "sky": (204, 218, 236),
+        "cloud_white": (252, 248, 242),
+        "cloud_shadow": (222, 218, 216),
+        "ground": (184, 168, 94),
+        "blade_dark": (162, 128, 54),
+        "blade_light": (190, 148, 66),
+        "crater_outer": (146, 102, 62),
+        "crater_mid": (112, 74, 42),
+        "crater_inner": (74, 48, 26),
+        "sun_col": (255, 214, 132),
+        "sun_glow": (255, 230, 178),
+    },
+    "winter": {
+        "sky": (206, 224, 242),
+        "cloud_white": (250, 253, 255),
+        "cloud_shadow": (216, 228, 242),
+        "ground": (236, 243, 252),
+        "blade_dark": (196, 214, 232),
+        "blade_light": (222, 234, 248),
+        "crater_outer": (188, 202, 218),
+        "crater_mid": (152, 166, 184),
+        "crater_inner": (116, 128, 144),
+        "sun_col": (252, 252, 240),
+        "sun_glow": (236, 244, 252),
+    },
+}
+
 LOCAL_DOT_COLOR = (255, 175, 195)
 REMOTE_DOT_COLOR = (120, 195, 255)
 
@@ -600,6 +655,9 @@ class NetworkClient:
         self._outgoing_craters: list[dict[str, float]] = []
         self._incoming_craters: list[dict[str, float]] = []
         self._world_reset_pending = False
+        self._weather = "spring"
+        self._outgoing_weather: str | None = None
+        self._incoming_weather: str | None = None
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
@@ -772,6 +830,18 @@ class NetworkClient:
             self._world_reset_pending = False
             return True
 
+    def set_server_weather(self, weather: str) -> None:
+        clean_w = game_server.normalize_weather(weather, "spring")
+        with self._lock:
+            self._weather = clean_w
+            self._outgoing_weather = clean_w
+
+    def pop_incoming_weather(self) -> str | None:
+        with self._lock:
+            w = self._incoming_weather
+            self._incoming_weather = None
+            return w
+
     def send_punch_hit(self, target_id: int, dir_x: float, dir_z: float, headshot: bool, punch_side: float = 1.0) -> None:
         with self._lock:
             self._outgoing_punch_hits.append({
@@ -866,10 +936,12 @@ class NetworkClient:
 
         threading.Thread(target=responder_loop, daemon=True).start()
 
-    def _spawn_server_with_ai(self, ws_port: int) -> None:
+    def _spawn_server_with_ai(self, ws_port: int, initial_weather: str = "spring") -> None:
+        clean_w = game_server.normalize_weather(initial_weather, "spring")
+
         def server_runner() -> None:
             try:
-                asyncio.run(game_server.run_server(host="0.0.0.0", port=ws_port))
+                asyncio.run(game_server.run_server(host="0.0.0.0", port=ws_port, initial_weather=clean_w))
             except OSError:
                 pass
 
@@ -906,15 +978,16 @@ class NetworkClient:
         for cfg in ai_chick_configs:
             threading.Thread(target=launch_single_ai, args=(cfg,), daemon=True).start()
 
-    def host_new_room(self, code: str) -> tuple[bool, int, str]:
+    def host_new_room(self, code: str, weather: str = "spring") -> tuple[bool, int, str]:
         clean_code = str(code or "").strip()
         if not is_four_dotted_numbers(clean_code):
             return False, 0, "Need 4 numbers with dots"
+        clean_w = game_server.normalize_weather(weather, "spring")
         with self._lock:
             existing_port = self._hosted_rooms.get(clean_code)
         if existing_port is None:
             ws_port = find_free_tcp_port(port_for_room_code(clean_code))
-            self._spawn_server_with_ai(ws_port)
+            self._spawn_server_with_ai(ws_port, initial_weather=clean_w)
             with self._lock:
                 self._hosted_rooms[clean_code] = ws_port
             self._ensure_discovery_responder()
@@ -923,7 +996,10 @@ class NetworkClient:
         with self._lock:
             self.hosted_code = clean_code
             self.is_host = True
+            self._weather = clean_w
         self.switch_server(f"ws://127.0.0.1:{ws_port}", auto_host=False, target_spec="", keep_hosted_code=clean_code)
+        if existing_port is not None:
+            self.set_server_weather(clean_w)
         return True, ws_port, f"Hosting {clean_code}"
 
     def switch_server_target(self, raw_input: str, fallback: str = DEFAULT_SERVER_URL, auto_host: bool = True) -> None:
@@ -980,6 +1056,10 @@ class NetworkClient:
             self._incoming_punch_hits.clear()
             self._outgoing_punch_hits.clear()
             self._world_reset_pending = True
+            self._outgoing_weather = None
+            self._incoming_weather = None
+            if keep_hosted_code is None:
+                self._weather = "spring"
             self._pos_dirty = True
             ws_to_close = self._active_ws
         if ws_to_close is not None:
@@ -1120,6 +1200,17 @@ class NetworkClient:
                 except Exception:
                     pass
 
+            out_weather = None
+            with self._lock:
+                if self._outgoing_weather is not None:
+                    out_weather = self._outgoing_weather
+                    self._outgoing_weather = None
+            if out_weather is not None:
+                try:
+                    await ws.send(json.dumps({"type": "weather", "weather": out_weather}, separators=(",", ":")))
+                except Exception:
+                    pass
+
             payload = None
             with self._lock:
                 if self._is_online and self._pos_dirty:
@@ -1232,6 +1323,10 @@ class NetworkClient:
                         self.remote_players[pid] = self._parse_remote_player(pdata)
                     for cr in raw_craters:
                         self._incoming_craters.append({"wx": float(cr.get("wx", 0.0)), "wz": float(cr.get("wz", 0.0)), "radius": float(cr.get("radius", 1.38))})
+                    if "weather" in msg:
+                        w_val = game_server.normalize_weather(msg.get("weather"), "spring")
+                        self._weather = w_val
+                        self._incoming_weather = w_val
 
             elif msg_type == "crater":
                 with self._lock:
@@ -1320,6 +1415,12 @@ class NetworkClient:
             elif msg_type == "punch_hit":
                 with self._lock:
                     self._incoming_punch_hits.append(msg)
+
+            elif msg_type == "weather":
+                w_val = game_server.normalize_weather(msg.get("weather"), "spring")
+                with self._lock:
+                    self._weather = w_val
+                    self._incoming_weather = w_val
 
             elif msg_type == "chat":
                 with self._lock:
@@ -1524,6 +1625,24 @@ def main() -> None:
     spawn_place_options = ("ground", "on cloud", "in coop")
     selected_spawn_place = "ground"
     place_dropdown_open = False
+    weather_box_rect = pygame.Rect(-100, -100, 0, 0)
+    weather_option_rects: list[tuple[str, pygame.Rect]] = []
+    start_weather_options = ("spring", "summer", "fall", "winter")
+    selected_start_weather = "spring"
+    weather_dropdown_open = False
+    show_start_weather_picker = False
+    seasonal_sky_flakes = [
+        {
+            "x": random.uniform(0.0, 1.0),
+            "y": random.uniform(0.0, 1.0),
+            "spd": random.uniform(0.08, 0.22),
+            "drift": random.uniform(-0.04, 0.04),
+            "phase": random.uniform(0.0, math.tau),
+            "size": random.randint(2, 5),
+            "variant": i % 3,
+        }
+        for i in range(60)
+    ]
     custom_player_name = ""
     is_typing_menu_name = False
     is_typing_menu_server = False
@@ -1536,15 +1655,16 @@ def main() -> None:
     lan_ip_check_timer = 0.0
 
     def trigger_host_room() -> None:
-        nonlocal custom_host_input, custom_server_input, host_feedback_msg, is_typing_menu_host
+        nonlocal custom_host_input, custom_server_input, host_feedback_msg, is_typing_menu_host, show_start_weather_picker
         code = custom_host_input.strip()
         if not code:
             code = f"{random.randint(100, 999)}.{random.randint(0, 9)}.{random.randint(0, 9)}.{random.randint(1, 9)}"
             custom_host_input = code
-        ok, _hport, hmsg = net.host_new_room(code)
+        ok, _hport, hmsg = net.host_new_room(code, weather=selected_start_weather)
         if ok:
             custom_server_input = code
             host_feedback_msg = ""
+            show_start_weather_picker = True
             is_typing_menu_host = False
             if hasattr(pygame.key, "stop_text_input"):
                 pygame.key.stop_text_input()
@@ -1880,12 +2000,38 @@ def main() -> None:
                                 if opt_r.collidepoint(event.pos):
                                     picked_place_opt = opt_val
                                     break
+                        picked_weather_opt = None
+                        if weather_dropdown_open:
+                            for opt_val, opt_r in weather_option_rects:
+                                if opt_r.collidepoint(event.pos):
+                                    picked_weather_opt = opt_val
+                                    break
                         if picked_place_opt is not None:
                             selected_spawn_place = picked_place_opt
                             place_dropdown_open = False
+                            weather_dropdown_open = False
+                            is_dragging_island = False
+                        elif picked_weather_opt is not None:
+                            selected_start_weather = picked_weather_opt
+                            weather_dropdown_open = False
+                            net.set_server_weather(selected_start_weather)
+                            is_dragging_island = False
+                        elif show_start_weather_picker and bool(net.hosted_code) and weather_box_rect.collidepoint(event.pos):
+                            weather_dropdown_open = not weather_dropdown_open
+                            place_dropdown_open = False
+                            if is_typing_menu_name or is_typing_menu_server or is_typing_menu_host:
+                                is_typing_menu_name = False
+                                is_typing_menu_host = False
+                                if is_typing_menu_server:
+                                    is_typing_menu_server = False
+                                    net.switch_server_target(custom_server_input, fallback=DEFAULT_SERVER_URL, auto_host=(not args.no_auto_host))
+                                menu_ime_comp_text = ""
+                                if hasattr(pygame.key, "stop_text_input"):
+                                    pygame.key.stop_text_input()
                             is_dragging_island = False
                         elif place_box_rect.collidepoint(event.pos):
                             place_dropdown_open = not place_dropdown_open
+                            weather_dropdown_open = False
                             if is_typing_menu_name or is_typing_menu_server or is_typing_menu_host:
                                 is_typing_menu_name = False
                                 is_typing_menu_host = False
@@ -1898,12 +2044,14 @@ def main() -> None:
                             is_dragging_island = False
                         elif host_button_rect.collidepoint(event.pos):
                             place_dropdown_open = False
+                            weather_dropdown_open = False
                             is_typing_menu_name = False
                             is_typing_menu_server = False
                             trigger_host_room()
                             is_dragging_island = False
                         elif host_input_rect.collidepoint(event.pos):
                             place_dropdown_open = False
+                            weather_dropdown_open = False
                             is_typing_menu_name = False
                             if is_typing_menu_server:
                                 is_typing_menu_server = False
@@ -1917,6 +2065,7 @@ def main() -> None:
                             is_dragging_island = False
                         elif server_input_rect.collidepoint(event.pos):
                             place_dropdown_open = False
+                            weather_dropdown_open = False
                             is_typing_menu_name = False
                             is_typing_menu_host = False
                             is_typing_menu_server = True
@@ -1928,6 +2077,7 @@ def main() -> None:
                             is_dragging_island = False
                         elif name_button_rect.collidepoint(event.pos) or name_input_rect.collidepoint(event.pos):
                             place_dropdown_open = False
+                            weather_dropdown_open = False
                             is_typing_menu_host = False
                             if is_typing_menu_server:
                                 is_typing_menu_server = False
@@ -1942,6 +2092,7 @@ def main() -> None:
                         elif play_button_rect.collidepoint(event.pos):
                             # Clicking PLAY opens character select: Carmelito appears spinning, with name and USE button
                             place_dropdown_open = False
+                            weather_dropdown_open = False
                             if is_typing_menu_name or is_typing_menu_server or is_typing_menu_host:
                                 is_typing_menu_name = False
                                 is_typing_menu_server = False
@@ -1954,6 +2105,7 @@ def main() -> None:
                             is_dragging_island = False
                         else:
                             place_dropdown_open = False
+                            weather_dropdown_open = False
                             if is_typing_menu_name or is_typing_menu_server or is_typing_menu_host:
                                 is_typing_menu_name = False
                                 is_typing_menu_host = False
@@ -2955,6 +3107,13 @@ def main() -> None:
 
         if net.pop_world_reset_flag():
             world_craters.clear()
+            if not net.hosted_code:
+                show_start_weather_picker = False
+                weather_dropdown_open = False
+                selected_start_weather = "spring"
+        _srv_weather = net.pop_incoming_weather()
+        if _srv_weather is not None:
+            selected_start_weather = _srv_weather
             remote_states.clear()
             chat_bubbles.clear()
             chat_history.clear()
@@ -3108,7 +3267,8 @@ def main() -> None:
                         total_pitch = -0.18
 
         # --- 1. RENDER WHAT YOU SEE: THE GIANT ISLAND, CHICKENS, GRASS, HORIZON ---
-        screen.fill(BG_COLOR)
+        w_theme = WEATHER_THEMES.get(selected_start_weather, WEATHER_THEMES["spring"])
+        screen.fill(w_theme["sky"])
 
         focal = win_w * 0.75
         hw = win_w * 0.5
@@ -3161,7 +3321,7 @@ def main() -> None:
         # 1a. Horizon & ground / ocean rendering (supports sideways roll when kicked!):
         raw_horizon_y = hh + math.tan(total_pitch) * focal
         horizon_y = max(0, min(win_h, round(raw_horizon_y)))
-        ground_col_fill = GRASS_GROUND_COLOR if is_online else OCEAN_WATER_COLOR
+        ground_col_fill = w_theme["ground"] if is_online else OCEAN_WATER_COLOR
         if abs(cam_roll) > 1e-3 and is_online:
             # Draw tilted/upside-down grass ground polygon below rotated horizon line
             cos_r = math.cos(cam_roll)
@@ -3177,6 +3337,17 @@ def main() -> None:
         else:
             if horizon_y < win_h:
                 screen.fill(ground_col_fill, pygame.Rect(0, horizon_y, win_w, win_h - horizon_y))
+
+        # 1a-1. Render warm sun disc in upper sky (especially bright in summer!)
+        if is_online:
+            sun_c = to_cam(cam_x + 420.0, 260.0 - jump_offset_y * 0.1, cam_z + 580.0)
+            if sun_c[2] > 5.0:
+                sun_sx = round(hw + (sun_c[0] / sun_c[2]) * focal)
+                sun_sy = round(hh - (sun_c[1] / sun_c[2]) * focal)
+                sun_r = max(18, round(win_h * (0.068 if selected_start_weather == "summer" else 0.048)))
+                if sun_sy - sun_r < horizon_y + 12:
+                    pygame.draw.circle(screen, w_theme["sun_glow"], (sun_sx, sun_sy), round(sun_r * 1.45))
+                    pygame.draw.circle(screen, w_theme["sun_col"], (sun_sx, sun_sy), sun_r)
 
         # 1a-2. RENDER PUFFY STORYBOOK WHITE CLOUDS IN THE SKY:
         # Floating high across the sky dome, drifting gently with the breeze!
@@ -3209,7 +3380,7 @@ def main() -> None:
                 # Only draw if within screen view
                 if -base_r * 2 <= csx <= win_w + base_r * 2 and -base_r * 2 <= csy <= win_h + base_r * 2:
                     # Draw subtle cloud shadow base first, then bright fluffy white cloud puffs
-                    for shadow_pass, col in ((True, SKY_CLOUD_SHADOW), (False, SKY_CLOUD_WHITE)):
+                    for shadow_pass, col in ((True, w_theme["cloud_shadow"]), (False, w_theme["cloud_white"])):
                         y_off = (base_r * 0.12) if shadow_pass else 0.0
                         for px_rel, py_rel, pw_rel, ph_rel in cloud_puffs:
                             px = csx + px_rel * base_r
@@ -3236,7 +3407,7 @@ def main() -> None:
                     top_rim_scr.append((sx_i, sy_i))
             if len(top_rim_scr) >= 3:
                 pygame.draw.polygon(screen, ISLAND_RIM_SAND, top_rim_scr)
-                pygame.draw.polygon(screen, ISLAND_TOP_COLOR, top_rim_scr)
+                pygame.draw.polygon(screen, w_theme["ground"], top_rim_scr)
 
         # 1a-4. RENDER IMPACT CRATERS ON THE GRASS (with near-plane clipping for close-up players)
         if is_online and world_craters:
@@ -3285,11 +3456,11 @@ def main() -> None:
                 mid_pts = _clip_and_project_poly(mid_cam)
                 inner_pts = _clip_and_project_poly(inner_cam)
                 if len(outer_pts) >= 3:
-                    pygame.draw.polygon(screen, (152, 114, 70), outer_pts)
+                    pygame.draw.polygon(screen, w_theme["crater_outer"], outer_pts)
                 if len(mid_pts) >= 3:
-                    pygame.draw.polygon(screen, (118, 82, 48), mid_pts)
+                    pygame.draw.polygon(screen, w_theme["crater_mid"], mid_pts)
                 if len(inner_pts) >= 3:
-                    pygame.draw.polygon(screen, (78, 52, 30), inner_pts)
+                    pygame.draw.polygon(screen, w_theme["crater_inner"], inner_pts)
 
         # 1c. Render 3D grass blades across the island
         base_sway = math.sin(anim_time * 2.2) * 0.045
@@ -3354,7 +3525,7 @@ def main() -> None:
             tsx = round(hw + (t_cam[0] / t_cam[2]) * focal)
             tsy = round(hh - (t_cam[1] / t_cam[2]) * focal)
 
-            blade_col = GRASS_BLADE_NEAR_DARK if (th & 1) else GRASS_BLADE_NEAR_LIGHT
+            blade_col = w_theme["blade_dark"] if (th & 1) else w_theme["blade_light"]
             width = 2 if bz_cam < 36.0 else 1
             pygame.draw.line(screen, blade_col, (bsx, bsy), (tsx, tsy), width)
 
@@ -3525,6 +3696,7 @@ def main() -> None:
                 farm_world.draw_world_prop_item(
                     _p_kind, _p_payload, screen, to_cam, current_ground_y,
                     near_z, hw, hh, focal, win_w, win_h, anim_time,
+                    weather=selected_start_weather,
                 )
                 continue
             remote_item = _item_obj
@@ -4172,6 +4344,24 @@ def main() -> None:
                     pygame.draw.polygon(screen, f_col, pts)
                     if draw_ink:
                         pygame.draw.polygon(screen, COLOR_INK_LINE, pts, 1)
+
+        # 1g-2. Seasonal weather sky ambiance (blossoms in spring, falling leaves in fall, snow in winter)
+        if is_online and selected_start_weather in ("spring", "fall", "winter"):
+            for fl in seasonal_sky_flakes:
+                spd_mul = 1.15 if selected_start_weather == "winter" else (0.85 if selected_start_weather == "fall" else 0.55)
+                fl["y"] = (fl["y"] + fl["spd"] * spd_mul * dt) % 1.0
+                fl["x"] = (fl["x"] + (fl["drift"] + math.sin(anim_time * 1.6 + fl["phase"]) * 0.025) * dt) % 1.0
+                fx_scr = round(fl["x"] * win_w)
+                fy_scr = round(fl["y"] * win_h)
+                fr = fl["size"]
+                if selected_start_weather == "winter":
+                    pygame.draw.circle(screen, (250, 253, 255), (fx_scr, fy_scr), fr)
+                elif selected_start_weather == "fall":
+                    l_col = ((216, 86, 44), (234, 146, 48), (236, 192, 62))[fl["variant"]]
+                    pygame.draw.ellipse(screen, l_col, pygame.Rect(fx_scr, fy_scr, fr * 2 + 2, fr + 2))
+                else:
+                    p_col = ((255, 206, 224), (255, 224, 236), (255, 246, 250))[fl["variant"]]
+                    pygame.draw.circle(screen, p_col, (fx_scr, fy_scr), max(2, fr - 1))
 
         # 1h. RENDER OWN WING REACHING DOWN TO TOUCH THE GROUND IN FIRST PERSON (G KEY)
         if is_online and not is_fighting and touch_ground_amount > 0.001 and punch_amount <= 0.001 and tag_amount <= 0.001:
@@ -4869,7 +5059,38 @@ def main() -> None:
                 _hint_surf = _hint_font.render(_status_txt, True, (255, 255, 255))
                 _hint_shadow = _hint_font.render(_status_txt, True, (40, 65, 95))
                 _hx = (win_w - _hint_surf.get_width()) // 2
-                _hy = host_row_y + box_h + 7
+                w_bottom_y = host_row_y + box_h
+                weather_option_rects = []
+                if show_start_weather_picker and bool(net.hosted_code):
+                    w_lbl_surf = get_outlined_text_surface("start weather:", lbl_px, outline_px=lbl_outline_px)
+                    w_row_y = host_row_y + box_h + max(10, round(win_h * 0.018))
+                    w_total_w = w_lbl_surf.get_width() + row_gap + box_w
+                    w_row_x = (win_w - w_total_w) // 2
+                    w_lbl_y = w_row_y + (box_h - w_lbl_surf.get_height()) // 2
+                    screen.blit(w_lbl_surf, (w_row_x, w_lbl_y))
+
+                    wbox_x = w_row_x + w_lbl_surf.get_width() + row_gap
+                    weather_box_rect = pygame.Rect(wbox_x, w_row_y, box_w, box_h)
+                    pygame.draw.rect(screen, (180, 195, 210), pygame.Rect(wbox_x + 2, w_row_y + 2, box_w, box_h), border_radius=10)
+                    pygame.draw.rect(screen, (255, 255, 255), weather_box_rect, border_radius=10)
+                    w_border_col = (55, 130, 225) if weather_dropdown_open else (140, 160, 185)
+                    pygame.draw.rect(screen, w_border_col, weather_box_rect, width=2, border_radius=10)
+
+                    w_text_y = w_row_y + (box_h - name_font.get_height()) // 2
+                    w_val_surf = name_font.render(selected_start_weather, True, (28, 36, 48))
+                    screen.blit(w_val_surf, (wbox_x + 12, w_text_y))
+
+                    wtri_cx = wbox_x + box_w - 16
+                    wtri_cy = w_row_y + box_h // 2
+                    if weather_dropdown_open:
+                        pygame.draw.polygon(screen, (70, 90, 115), [(wtri_cx - 5, wtri_cy + 3), (wtri_cx + 5, wtri_cy + 3), (wtri_cx, wtri_cy - 3)])
+                    else:
+                        pygame.draw.polygon(screen, (70, 90, 115), [(wtri_cx - 5, wtri_cy - 3), (wtri_cx + 5, wtri_cy - 3), (wtri_cx, wtri_cy + 4)])
+                    w_bottom_y = w_row_y + box_h
+                else:
+                    weather_box_rect = pygame.Rect(-100, -100, 0, 0)
+
+                _hy = w_bottom_y + 7
                 screen.blit(_hint_shadow, (_hx + 1, _hy + 1))
                 screen.blit(_hint_surf, (_hx, _hy))
 
@@ -4893,6 +5114,25 @@ def main() -> None:
                         screen.blit(opt_surf, (pbox_x + 12, opt_r.y + (opt_h - opt_surf.get_height()) // 2))
                     pygame.draw.rect(screen, (55, 130, 225), drop_bg, width=2, border_radius=10)
 
+                if weather_dropdown_open and show_start_weather_picker and bool(net.hosted_code):
+                    m_pos = pygame.mouse.get_pos()
+                    w_opt_h = box_h
+                    w_drop_y = weather_box_rect.bottom + 4
+                    w_drop_bg = pygame.Rect(weather_box_rect.x, w_drop_y, box_w, w_opt_h * len(start_weather_options))
+                    pygame.draw.rect(screen, (180, 195, 210), pygame.Rect(weather_box_rect.x + 2, w_drop_y + 2, box_w, w_drop_bg.h), border_radius=10)
+                    pygame.draw.rect(screen, (255, 255, 255), w_drop_bg, border_radius=10)
+                    for wi, w_opt_label in enumerate(start_weather_options):
+                        w_opt_r = pygame.Rect(weather_box_rect.x, w_drop_y + wi * w_opt_h, box_w, w_opt_h)
+                        weather_option_rects.append((w_opt_label, w_opt_r))
+                        w_is_hov = w_opt_r.collidepoint(m_pos)
+                        w_is_sel = (w_opt_label == selected_start_weather)
+                        if w_is_hov or w_is_sel:
+                            w_fill_c = (218, 236, 255) if w_is_hov else (238, 246, 255)
+                            pygame.draw.rect(screen, w_fill_c, w_opt_r.inflate(-4, -4), border_radius=7)
+                        w_opt_surf = name_font.render(w_opt_label, True, (28, 36, 48))
+                        screen.blit(w_opt_surf, (weather_box_rect.x + 12, w_opt_r.y + (w_opt_h - w_opt_surf.get_height()) // 2))
+                    pygame.draw.rect(screen, (55, 130, 225), w_drop_bg, width=2, border_radius=10)
+
             elif menu_state in ("character_select", "character_used"):
                 name_button_rect = pygame.Rect(-100, -100, 0, 0)
                 name_input_rect = pygame.Rect(-100, -100, 0, 0)
@@ -4902,6 +5142,9 @@ def main() -> None:
                 place_box_rect = pygame.Rect(-100, -100, 0, 0)
                 place_option_rects = []
                 place_dropdown_open = False
+                weather_box_rect = pygame.Rect(-100, -100, 0, 0)
+                weather_option_rects = []
+                weather_dropdown_open = False
                 # Single character card in the center with a Right Arrow button to switch chicks!
                 play_button_rect = pygame.Rect(-100, -100, 0, 0)
 

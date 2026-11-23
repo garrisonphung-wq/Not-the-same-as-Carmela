@@ -10,6 +10,16 @@ from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
 
+VALID_WEATHERS = ("spring", "summer", "fall", "winter")
+
+
+def normalize_weather(value: Any, default: str = "spring") -> str:
+    w = str(value or "").strip().lower()
+    if w in VALID_WEATHERS:
+        return w
+    return default
+
+
 PLAYER_PALETTE: list[list[int]] = [
     [255, 175, 195],  # Carmelito Pink
     [120, 195, 255],  # Antigravity Blue
@@ -49,11 +59,12 @@ def safe_float(value: Any, default: float = 0.0, limit: float = 10000.0) -> floa
 
 
 class GameRelayServer:
-    def __init__(self) -> None:
+    def __init__(self, initial_weather: str = "spring") -> None:
         self._next_id = 1
         self._clients: dict[int, ServerConnection] = {}
         self._players: dict[int, dict[str, Any]] = {}
         self._craters: list[dict[str, float]] = []
+        self._weather: str = normalize_weather(initial_weather, "spring")
 
     async def broadcast(self, message: dict[str, Any], exclude_id: int | None = None) -> None:
         if not self._clients:
@@ -120,6 +131,7 @@ class GameRelayServer:
                     if data.get("in_game", False)
                 },
                 "craters": self._craters[-60:],
+                "weather": self._weather,
             }
             await conn.send(json.dumps(welcome_msg, separators=(",", ":")))
 
@@ -286,6 +298,10 @@ class GameRelayServer:
                             await self._clients[target_id].send(json.dumps(punch_msg, separators=(",", ":")))
                         except Exception:
                             pass
+                elif data.get("type") == "weather":
+                    new_w = normalize_weather(data.get("weather"), self._weather)
+                    self._weather = new_w
+                    await self.broadcast({"type": "weather", "weather": self._weather})
                 elif data.get("type") == "chat":
                     text = str(data.get("text", "")).strip()[:280]
                     if text:
@@ -317,8 +333,9 @@ async def run_server(
     host: str = "0.0.0.0",
     port: int = 8765,
     stop_event: asyncio.Event | None = None,
+    initial_weather: str = "spring",
 ) -> None:
-    relay = GameRelayServer()
+    relay = GameRelayServer(initial_weather=initial_weather)
     async with serve(
         relay.handle_client,
         host,

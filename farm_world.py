@@ -794,6 +794,7 @@ def draw_world_prop_item(
     win_w: int,
     win_h: int,
     anim_time: float,
+    weather: str = "spring",
 ) -> None:
     """Render one 3D farm building or nature prop."""
     if kind == "coop_face":
@@ -1003,13 +1004,52 @@ def draw_world_prop_item(
             edge_col=(78, 48, 26),
         )
         sway = math.sin(anim_time * 1.4 + seed) * 0.08 * sc
+        if weather == "winter":
+            canopy_pal = [
+                (172, 198, 214), (186, 210, 226), (196, 220, 235),
+                (180, 206, 222), (202, 224, 238), (232, 242, 252),
+            ]
+        elif weather == "fall":
+            _fvar = int(abs(seed)) % 3
+            if _fvar == 0:
+                canopy_pal = [
+                    (192, 72, 42), (208, 86, 48), (218, 98, 52),
+                    (198, 78, 44), (226, 114, 58), (238, 134, 66),
+                ]
+            elif _fvar == 1:
+                canopy_pal = [
+                    (206, 118, 38), (222, 134, 44), (234, 150, 52),
+                    (214, 126, 42), (240, 166, 62), (246, 188, 78),
+                ]
+            else:
+                canopy_pal = [
+                    (196, 148, 42), (212, 166, 48), (224, 180, 56),
+                    (204, 156, 44), (234, 194, 64), (244, 212, 82),
+                ]
+        elif weather == "summer":
+            canopy_pal = [
+                (44, 134, 46), (54, 150, 52), (62, 160, 58),
+                (48, 142, 48), (68, 168, 62), (86, 184, 72),
+            ]
+        else:
+            # Spring: fresh bright green + pink cherry-blossom trees!
+            if int(abs(seed)) % 4 == 0:
+                canopy_pal = [
+                    (236, 162, 190), (244, 178, 204), (248, 192, 214),
+                    (238, 168, 196), (252, 204, 222), (255, 224, 236),
+                ]
+            else:
+                canopy_pal = [
+                    (64, 146, 56), (74, 162, 62), (80, 170, 66),
+                    (68, 154, 58), (84, 176, 68), (104, 194, 78),
+                ]
         lobes = [
-            (0.0 + sway, trunk_h + 1.25 * sc, 0.0, 2.35 * sc, (64, 146, 56)),
-            (-1.15 * sc + sway, trunk_h + 0.75 * sc, -0.55 * sc, 1.65 * sc, (74, 162, 62)),
-            (1.18 * sc + sway, trunk_h + 0.80 * sc, 0.45 * sc, 1.68 * sc, (80, 170, 66)),
-            (-0.45 * sc + sway, trunk_h + 0.90 * sc, 1.05 * sc, 1.60 * sc, (68, 154, 58)),
-            (0.35 * sc + sway, trunk_h + 1.05 * sc, -1.05 * sc, 1.58 * sc, (84, 176, 68)),
-            (0.05 * sc + sway * 1.2, trunk_h + 2.25 * sc, 0.05 * sc, 1.55 * sc, (104, 194, 78)),
+            (0.0 + sway, trunk_h + 1.25 * sc, 0.0, 2.35 * sc, canopy_pal[0]),
+            (-1.15 * sc + sway, trunk_h + 0.75 * sc, -0.55 * sc, 1.65 * sc, canopy_pal[1]),
+            (1.18 * sc + sway, trunk_h + 0.80 * sc, 0.45 * sc, 1.68 * sc, canopy_pal[2]),
+            (-0.45 * sc + sway, trunk_h + 0.90 * sc, 1.05 * sc, 1.60 * sc, canopy_pal[3]),
+            (0.35 * sc + sway, trunk_h + 1.05 * sc, -1.05 * sc, 1.58 * sc, canopy_pal[4]),
+            (0.05 * sc + sway * 1.2, trunk_h + 2.25 * sc, 0.05 * sc, 1.55 * sc, canopy_pal[5]),
         ]
         lobe_cam = []
         for ox, oy, oz, rad, col in lobes:
@@ -1023,9 +1063,12 @@ def draw_world_prop_item(
             sr = max(4, round((rad / zc) * focal))
             if -sr <= sx <= win_w + sr and -sr <= sy <= win_h + sr:
                 pygame.draw.circle(screen, col, (sx, sy), sr)
-                pygame.draw.circle(screen, (min(255, col[0] + 20), min(255, col[1] + 22), min(255, col[2] + 14)), (sx - max(1, sr // 5), sy - max(1, sr // 5)), max(2, round(sr * 0.58)))
+                hi_col = (248, 252, 255) if weather == "winter" else (min(255, col[0] + 20), min(255, col[1] + 22), min(255, col[2] + 14))
+                pygame.draw.circle(screen, hi_col, (sx - max(1, sr // 5), sy - max(1, sr // 5)), max(2, round(sr * 0.58)))
 
     elif kind == "flower":
+        if weather == "winter":
+            return
         fl = payload  # type: ignore[assignment]
         fx, fz = float(fl["wx"]), float(fl["wz"])
         fh = float(fl["h"])
@@ -1038,7 +1081,8 @@ def draw_world_prop_item(
             by = round(hh - (c_base[1] / c_base[2]) * focal)
             tx = round(hw + (c_top[0] / c_top[2]) * focal)
             ty = round(hh - (c_top[1] / c_top[2]) * focal)
-            pygame.draw.line(screen, (62, 146, 52), (bx, by), (tx, ty), 2)
+            stem_col = (146, 134, 64) if weather == "fall" else (62, 146, 52)
+            pygame.draw.line(screen, stem_col, (bx, by), (tx, ty), 2)
             pr = max(3, round((fsize / c_top[2]) * focal))
             col = fl["color"]  # type: ignore[assignment]
             for pi in range(5):
