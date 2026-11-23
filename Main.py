@@ -84,9 +84,9 @@ WEATHER_THEMES: dict[str, dict[str, Any]] = {
         "sky": (204, 218, 236),
         "cloud_white": (252, 248, 242),
         "cloud_shadow": (222, 218, 216),
-        "ground": (184, 168, 94),
-        "blade_dark": (162, 128, 54),
-        "blade_light": (190, 148, 66),
+        "ground": (156, 118, 56),
+        "blade_dark": (164, 126, 54),
+        "blade_light": (188, 146, 64),
         "crater_outer": (146, 102, 62),
         "crater_mid": (112, 74, 42),
         "crater_inner": (74, 48, 26),
@@ -1447,6 +1447,191 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+FALL_LEAF_COLORS: tuple[tuple[int, int, int], ...] = (
+    (196, 68, 38),
+    (218, 96, 42),
+    (232, 138, 46),
+    (234, 178, 56),
+    (174, 82, 38),
+    (206, 122, 44),
+)
+FALL_LEAF_TREES = [t for t in farm_world.FARM_TREES if not t.get("pine", False)]
+
+
+def create_fall_carpet_leaves(center_x: float, center_z: float, count: int = 420, max_r: float = 38.0) -> list[dict[str, Any]]:
+    leaves: list[dict[str, Any]] = []
+    for _ in range(count):
+        ang = random.uniform(0.0, math.tau)
+        dist = math.sqrt(random.uniform(0.0, 1.0)) * max_r
+        lx = center_x + math.cos(ang) * dist
+        lz = center_z + math.sin(ang) * dist
+        leaves.append({
+            "wx": lx,
+            "wy": 0.035,
+            "wz": lz,
+            "vx": 0.0,
+            "vy": 0.0,
+            "vz": 0.0,
+            "yaw": random.uniform(0.0, math.tau),
+            "spin": 0.0,
+            "size": random.uniform(0.36, 0.56),
+            "col": random.choice(FALL_LEAF_COLORS),
+            "landed": True,
+            "ttl": None,
+        })
+    return leaves
+
+
+def spawn_fall_tree_leaf(cam_x: float, cam_z: float, ground_y: float) -> dict[str, Any] | None:
+    if not FALL_LEAF_TREES:
+        return None
+    # Bias spawning toward closer leafy trees so falling leaves are always clearly visible!
+    weighted = sorted(FALL_LEAF_TREES, key=lambda t: math.hypot(float(t["wx"]) - cam_x, float(t["wz"]) - cam_z))
+    pool = weighted[: min(6, len(weighted))] if random.random() < 0.72 else FALL_LEAF_TREES
+    tree = random.choice(pool)
+    tx = float(tree["wx"])
+    tz = float(tree["wz"])
+    sc = float(tree["scale"])
+    ang = random.uniform(0.0, math.tau)
+    rad = random.uniform(0.4, 2.3) * sc
+    lx = tx + math.cos(ang) * rad
+    lz = tz + math.sin(ang) * rad
+    ly = ground_y + sc * random.uniform(3.7, 5.5)
+    seed_var = int(abs(float(tree["seed"]))) % 3
+    if seed_var == 0:
+        col = random.choice(((192, 72, 42), (212, 90, 48), (228, 114, 54)))
+    elif seed_var == 1:
+        col = random.choice(((206, 118, 38), (226, 140, 46), (242, 168, 60)))
+    else:
+        col = random.choice(((196, 148, 42), (218, 172, 52), (238, 198, 66)))
+    return {
+        "wx": lx,
+        "wy": ly,
+        "wz": lz,
+        "vx": random.uniform(-0.85, 0.85),
+        "vy": random.uniform(-1.75, -1.15),
+        "vz": random.uniform(-0.85, 0.85),
+        "yaw": random.uniform(0.0, math.tau),
+        "spin": random.uniform(-2.8, 2.8),
+        "size": random.uniform(0.42, 0.62),
+        "col": col,
+        "landed": False,
+        "ttl": 8.0,
+        "phase": random.uniform(0.0, math.tau),
+    }
+
+
+def step_fall_leaves(
+    carpet_leaves: list[dict[str, Any]],
+    tree_leaves: list[dict[str, Any]],
+    movers: list[tuple[float, float, float, bool]],
+    center_x: float,
+    center_z: float,
+    ground_y: float,
+    dt: float,
+    anim_time: float,
+    island_radius: float,
+) -> None:
+    leaf_rest_y = ground_y + 0.035
+    damp = math.exp(-6.8 * dt)
+
+    def _apply_movers(lf: dict[str, Any]) -> None:
+        if lf["wy"] > leaf_rest_y + 1.1:
+            return
+        for mx, mz, m_jy, m_strong in movers:
+            if m_jy > 1.35:
+                continue
+            dx = lf["wx"] - mx
+            dz = lf["wz"] - mz
+            d2 = dx * dx + dz * dz
+            push_r = 2.05 if m_strong else 1.42
+            if d2 < push_r * push_r:
+                d = math.sqrt(d2)
+                if d < 1e-4:
+                    ang = random.uniform(0.0, math.tau)
+                    nx, nz = math.cos(ang), math.sin(ang)
+                else:
+                    nx, nz = dx / d, dz / d
+                strength = (1.0 - d / push_r)
+                spd = (7.2 if m_strong else 4.2) * strength + 1.5
+                lf["vx"] = max(-8.5, min(8.5, lf["vx"] + nx * spd * min(1.0, dt * 14.0)))
+                lf["vz"] = max(-8.5, min(8.5, lf["vz"] + nz * spd * min(1.0, dt * 14.0)))
+                lift = (2.8 if m_strong else 1.45) * strength + 0.4
+                if lf["vy"] < lift:
+                    lf["vy"] = lift
+                lf["spin"] = random.uniform(-6.5, 6.5)
+
+    for lf in carpet_leaves:
+        _apply_movers(lf)
+        if lf["wy"] > leaf_rest_y or abs(lf["vx"]) > 0.01 or abs(lf["vz"]) > 0.01 or lf["vy"] > 0.0:
+            lf["wx"] += lf["vx"] * dt
+            lf["wz"] += lf["vz"] * dt
+            lf["wy"] += lf["vy"] * dt
+            lf["yaw"] += lf["spin"] * dt
+            if lf["wy"] > leaf_rest_y:
+                lf["vy"] -= 11.5 * dt
+            if lf["wy"] <= leaf_rest_y:
+                lf["wy"] = leaf_rest_y
+                lf["vy"] = 0.0
+                lf["vx"] *= damp
+                lf["vz"] *= damp
+                lf["spin"] *= damp
+                if abs(lf["vx"]) < 0.02 and abs(lf["vz"]) < 0.02:
+                    lf["vx"] = 0.0
+                    lf["vz"] = 0.0
+                    lf["spin"] = 0.0
+        # Keep carpet dense around the player anywhere across the giant island!
+        dx_c = lf["wx"] - center_x
+        dz_c = lf["wz"] - center_z
+        if dx_c * dx_c + dz_c * dz_c > 42.0 * 42.0:
+            ang = random.uniform(0.0, math.tau)
+            r_new = random.uniform(26.0, 38.0)
+            nx = center_x + math.cos(ang) * r_new
+            nz = center_z + math.sin(ang) * r_new
+            if math.hypot(nx, nz) <= island_radius - 2.0:
+                lf["wx"] = nx
+                lf["wz"] = nz
+                lf["wy"] = leaf_rest_y
+                lf["vx"] = 0.0
+                lf["vy"] = 0.0
+                lf["vz"] = 0.0
+
+    alive_tree_leaves: list[dict[str, Any]] = []
+    for lf in tree_leaves:
+        if not lf["landed"]:
+            flutter_x = math.sin(anim_time * 3.1 + lf.get("phase", 0.0)) * 1.15
+            flutter_z = math.cos(anim_time * 2.6 + lf.get("phase", 0.0)) * 1.15
+            lf["wx"] += (lf["vx"] + flutter_x) * dt
+            lf["wz"] += (lf["vz"] + flutter_z) * dt
+            lf["wy"] += lf["vy"] * dt
+            lf["yaw"] += lf["spin"] * dt
+            if lf["wy"] <= leaf_rest_y:
+                lf["wy"] = leaf_rest_y
+                lf["vy"] = 0.0
+                lf["vx"] *= 0.25
+                lf["vz"] *= 0.25
+                lf["landed"] = True
+        else:
+            _apply_movers(lf)
+            lf["wx"] += lf["vx"] * dt
+            lf["wz"] += lf["vz"] * dt
+            lf["wy"] += lf["vy"] * dt
+            lf["yaw"] += lf["spin"] * dt
+            if lf["wy"] > leaf_rest_y:
+                lf["vy"] -= 11.5 * dt
+            if lf["wy"] <= leaf_rest_y:
+                lf["wy"] = leaf_rest_y
+                lf["vy"] = 0.0
+                lf["vx"] *= damp
+                lf["vz"] *= damp
+                lf["spin"] *= damp
+            lf["ttl"] = float(lf["ttl"]) - dt
+            if lf["ttl"] <= 0.0:
+                continue
+        alive_tree_leaves.append(lf)
+    tree_leaves[:] = alive_tree_leaves
+
+
 def main() -> None:
     args = parse_args()
 
@@ -1631,6 +1816,9 @@ def main() -> None:
     selected_start_weather = "spring"
     weather_dropdown_open = False
     show_start_weather_picker = False
+    fall_carpet_leaves = create_fall_carpet_leaves(0.0, 0.0, count=420, max_r=38.0)
+    fall_tree_leaves: list[dict[str, Any]] = []
+    fall_leaf_spawn_acc = 0.0
     seasonal_sky_flakes = [
         {
             "x": random.uniform(0.0, 1.0),
@@ -2013,6 +2201,9 @@ def main() -> None:
                             is_dragging_island = False
                         elif picked_weather_opt is not None:
                             selected_start_weather = picked_weather_opt
+                            if selected_start_weather == "fall":
+                                fall_carpet_leaves = create_fall_carpet_leaves(cam_x, cam_z, count=420, max_r=38.0)
+                                fall_tree_leaves.clear()
                             weather_dropdown_open = False
                             net.set_server_weather(selected_start_weather)
                             is_dragging_island = False
@@ -3113,7 +3304,45 @@ def main() -> None:
                 selected_start_weather = "spring"
         _srv_weather = net.pop_incoming_weather()
         if _srv_weather is not None:
+            if _srv_weather != selected_start_weather and _srv_weather == "fall":
+                fall_carpet_leaves = create_fall_carpet_leaves(cam_x, cam_z, count=420, max_r=38.0)
+                fall_tree_leaves.clear()
             selected_start_weather = _srv_weather
+
+        if is_online and selected_start_weather == "fall":
+            fall_leaf_spawn_acc += dt
+            while fall_leaf_spawn_acc >= 0.042:
+                fall_leaf_spawn_acc -= 0.042
+                if len(fall_tree_leaves) < 180:
+                    _new_lf = spawn_fall_tree_leaf(cam_x, cam_z, GROUND_Y)
+                    if _new_lf is not None:
+                        fall_tree_leaves.append(_new_lf)
+            _leaf_movers: list[tuple[float, float, float, bool]] = [
+                (cam_x, cam_z, jump_offset_y, is_kicking or is_punching or is_running)
+            ]
+            for _pid, _rs in remote_states.items():
+                _rwx = _rs.get("wx")
+                _rwz = _rs.get("wz")
+                if _rwx is not None and _rwz is not None:
+                    _leaf_movers.append((
+                        float(_rwx),
+                        float(_rwz),
+                        float(_rs.get("jump_offset_y", 0.0)),
+                        bool(_rs.get("kick_amount", 0.0) > 0.25 or _rs.get("running", False)),
+                    ))
+            step_fall_leaves(
+                fall_carpet_leaves,
+                fall_tree_leaves,
+                _leaf_movers,
+                cam_x,
+                cam_z,
+                GROUND_Y,
+                dt,
+                anim_time,
+                ISLAND_RADIUS,
+            )
+        elif fall_tree_leaves:
+            fall_tree_leaves.clear()
             remote_states.clear()
             chat_bubbles.clear()
             chat_history.clear()
@@ -3529,6 +3758,53 @@ def main() -> None:
             width = 2 if bz_cam < 36.0 else 1
             pygame.draw.line(screen, blade_col, (bsx, bsy), (tsx, tsy), width)
 
+        # 1c-1. Render Fall Movable Ground Leaves + Falling Tree Leaves in 3D
+        if is_online and selected_start_weather == "fall":
+            leaf_draw_list: list[tuple[float, dict[str, Any], float]] = []
+            ground_y_offset = current_ground_y - GROUND_Y
+            for _lf in fall_carpet_leaves:
+                _lc = to_cam(_lf["wx"], _lf["wy"] + ground_y_offset, _lf["wz"])
+                if near_z < _lc[2] < 42.0 and abs(_lc[0]) <= _lc[2] * half_fov_tan + 1.2:
+                    leaf_draw_list.append((_lc[2], _lf, 1.0))
+            for _lf in fall_tree_leaves:
+                _max_d = 46.0 if _lf["landed"] else 160.0
+                _lc = to_cam(_lf["wx"], _lf["wy"] + ground_y_offset, _lf["wz"])
+                if near_z < _lc[2] < _max_d and abs(_lc[0]) <= _lc[2] * half_fov_tan + 1.5:
+                    _ttl = float(_lf["ttl"]) if _lf["landed"] else 8.0
+                    _l_scale = min(1.0, _ttl / 1.2) if _lf["landed"] else 1.0
+                    leaf_draw_list.append((_lc[2], _lf, _l_scale))
+
+            leaf_draw_list.sort(key=lambda it: it[0], reverse=True)
+            for _lz, _lf, _l_scale in leaf_draw_list:
+                _rad = _lf["size"] * _l_scale
+                if _rad <= 0.04:
+                    continue
+                _cy = math.cos(_lf["yaw"])
+                _sy = math.sin(_lf["yaw"])
+                _wy = _lf["wy"] + ground_y_offset
+                _tilt = 0.0 if (_lf["landed"] and _wy <= current_ground_y + 0.05) else (0.14 * math.sin(_lf["yaw"] * 2.0))
+                _q_world = [
+                    (_lf["wx"] + _cy * _rad, _wy + _tilt, _lf["wz"] + _sy * _rad),
+                    (_lf["wx"] - _sy * _rad * 0.58, _wy, _lf["wz"] + _cy * _rad * 0.58),
+                    (_lf["wx"] - _cy * _rad, _wy - _tilt, _lf["wz"] - _sy * _rad),
+                    (_lf["wx"] + _sy * _rad * 0.58, _wy, _lf["wz"] - _cy * _rad * 0.58),
+                ]
+                _pts_2d = []
+                _ok_pts = True
+                for _qx, _qy, _qz in _q_world:
+                    _qc = to_cam(_qx, _qy, _qz)
+                    if _qc[2] <= near_z:
+                        _ok_pts = False
+                        break
+                    _pts_2d.append((
+                        round(hw + (_qc[0] / _qc[2]) * focal),
+                        round(hh - (_qc[1] / _qc[2]) * focal),
+                    ))
+                if _ok_pts:
+                    pygame.draw.polygon(screen, _lf["col"], _pts_2d)
+                    if _lz < 20.0:
+                        pygame.draw.line(screen, (112, 54, 24), _pts_2d[0], _pts_2d[2], 1)
+
         # 1d. RENDER CHICKENS / OTHER PLAYERS IN 3D SPACE (with Chinese name "卡梅利多" and player names)
         # Consistent true-perspective scaling:
         # Distance is based on horizontal ground distance (so chicks naturally grow larger as you walk toward them)
@@ -3644,7 +3920,7 @@ def main() -> None:
                 rwx, rwz = rs["wx"], rs["wz"]
                 remote_char = resolve_character_id(pdata)
                 char_scale = 0.82 if remote_char == "carmen" else (1.15 if remote_char in ("pangdun", "小胖墩", "belino", "coquenpate") else (1.08 if remote_char in ("xiaoliuzi", "小六子", "coqsix", "克西斯") else 1.0))
-                
+
                 # Ground shadow screen position (skip if high inside elevated coop so shadow doesn't bleed under stilts!)
                 r_jy = rs.get("jump_offset_y", 0.0)
                 _, _, _r_sup_chk = farm_world.resolve_world_props_collision(rwx, rwz, r_jy, chick_radius=0.48)
@@ -4346,7 +4622,7 @@ def main() -> None:
                         pygame.draw.polygon(screen, COLOR_INK_LINE, pts, 1)
 
         # 1g-2. Seasonal weather sky ambiance (blossoms in spring, falling leaves in fall, snow in winter)
-        if is_online and selected_start_weather in ("spring", "fall", "winter"):
+        if is_online and selected_start_weather in ("spring", "winter"):
             for fl in seasonal_sky_flakes:
                 spd_mul = 1.15 if selected_start_weather == "winter" else (0.85 if selected_start_weather == "fall" else 0.55)
                 fl["y"] = (fl["y"] + fl["spd"] * spd_mul * dt) % 1.0

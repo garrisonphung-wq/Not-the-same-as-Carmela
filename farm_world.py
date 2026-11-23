@@ -12,7 +12,7 @@ Includes:
 from __future__ import annotations
 
 import math
-from typing import Callable
+from typing import Any, Callable
 
 import pygame
 
@@ -96,25 +96,25 @@ def _build_fence_posts() -> list[tuple[float, float]]:
 FENCE_POSTS = _build_fence_posts()
 
 # 18 lush tall trees framing the ultra-far 330m x 320m pasture and gigantic egg coop
-FARM_TREES: list[dict[str, float]] = [
-    {"wx": -172.0, "wz": -50.0, "scale": 2.60, "seed": 1.0},
-    {"wx": -172.0, "wz": 65.0, "scale": 2.85, "seed": 2.3},
-    {"wx": -172.0, "wz": 150.0, "scale": 2.75, "seed": 3.1},
-    {"wx": -95.0, "wz": 197.0, "scale": 2.80, "seed": 3.7},
-    {"wx": 0.0, "wz": 198.0, "scale": 2.90, "seed": 4.2},
-    {"wx": 95.0, "wz": 197.0, "scale": 2.75, "seed": 4.9},
-    {"wx": 172.0, "wz": 115.0, "scale": 2.70, "seed": 5.4},
-    {"wx": 172.0, "wz": -15.0, "scale": 2.55, "seed": 6.8},
-    {"wx": -169.0, "wz": -136.0, "scale": 2.60, "seed": 7.5},
-    {"wx": 168.0, "wz": -136.0, "scale": 2.55, "seed": 8.2},
-    {"wx": -85.0, "wz": -65.0, "scale": 2.40, "seed": 9.1},
-    {"wx": -110.0, "wz": 18.0, "scale": 2.50, "seed": 10.4},
-    {"wx": 72.0, "wz": 78.0, "scale": 2.55, "seed": 11.7},
-    {"wx": 68.0, "wz": -45.0, "scale": 2.35, "seed": 12.9},
-    {"wx": 115.0, "wz": 140.0, "scale": 2.65, "seed": 13.5},
-    {"wx": -118.0, "wz": 132.0, "scale": 2.75, "seed": 14.8},
-    {"wx": 22.0, "wz": 122.0, "scale": 2.45, "seed": 15.6},
-    {"wx": 95.0, "wz": -95.0, "scale": 2.40, "seed": 16.3},
+FARM_TREES: list[dict[str, Any]] = [
+    {"wx": -172.0, "wz": -50.0, "scale": 2.60, "seed": 1.0, "pine": True},
+    {"wx": -172.0, "wz": 65.0, "scale": 2.85, "seed": 2.3, "pine": False},
+    {"wx": -172.0, "wz": 150.0, "scale": 2.75, "seed": 3.1, "pine": False},
+    {"wx": -95.0, "wz": 197.0, "scale": 2.80, "seed": 3.7, "pine": True},
+    {"wx": 0.0, "wz": 198.0, "scale": 2.90, "seed": 4.2, "pine": False},
+    {"wx": 95.0, "wz": 197.0, "scale": 2.75, "seed": 4.9, "pine": False},
+    {"wx": 172.0, "wz": 115.0, "scale": 2.70, "seed": 5.4, "pine": True},
+    {"wx": 172.0, "wz": -15.0, "scale": 2.55, "seed": 6.8, "pine": False},
+    {"wx": -169.0, "wz": -136.0, "scale": 2.60, "seed": 7.5, "pine": False},
+    {"wx": 168.0, "wz": -136.0, "scale": 2.55, "seed": 8.2, "pine": True},
+    {"wx": -85.0, "wz": -65.0, "scale": 2.40, "seed": 9.1, "pine": False},
+    {"wx": -110.0, "wz": 18.0, "scale": 2.50, "seed": 10.4, "pine": True},
+    {"wx": 72.0, "wz": 78.0, "scale": 2.55, "seed": 11.7, "pine": False},
+    {"wx": 68.0, "wz": -45.0, "scale": 2.35, "seed": 12.9, "pine": False},
+    {"wx": 115.0, "wz": 140.0, "scale": 2.65, "seed": 13.5, "pine": False},
+    {"wx": -118.0, "wz": 132.0, "scale": 2.75, "seed": 14.8, "pine": True},
+    {"wx": 22.0, "wz": 122.0, "scale": 2.45, "seed": 15.6, "pine": False},
+    {"wx": 95.0, "wz": -95.0, "scale": 2.40, "seed": 16.3, "pine": False},
 ]
 
 
@@ -986,9 +986,10 @@ def draw_world_prop_item(
 
     elif kind == "tree":
         tree = payload  # type: ignore[assignment]
-        tx, tz, sc, seed = tree["wx"], tree["wz"], tree["scale"], tree["seed"]
-        trunk_h = 3.2 * sc
-        trunk_w = 0.72 * sc
+        tx, tz, sc, seed = float(tree["wx"]), float(tree["wz"]), float(tree["scale"]), float(tree["seed"])
+        is_pine = bool(tree.get("pine", False))
+        trunk_h = (2.7 if is_pine else 3.2) * sc
+        trunk_w = (0.64 if is_pine else 0.72) * sc
         _draw_box(
             screen, to_cam,
             tx, current_ground_y, tz,
@@ -1004,32 +1005,102 @@ def draw_world_prop_item(
             edge_col=(78, 48, 26),
         )
         sway = math.sin(anim_time * 1.4 + seed) * 0.08 * sc
-        if weather == "winter":
-            canopy_pal = [
-                (172, 198, 214), (186, 210, 226), (196, 220, 235),
-                (180, 206, 222), (202, 224, 238), (232, 242, 252),
+
+        if is_pine:
+            # Evergreen pine tree: keeps all needles year-round (with snowy caps in winter!)
+            tier_specs = [
+                (1.65 * sc, 3.65 * sc, 2.30 * sc, (34, 98, 48)),
+                (2.75 * sc, 4.75 * sc, 1.85 * sc, (42, 114, 56)),
+                (3.80 * sc, 5.75 * sc, 1.38 * sc, (50, 128, 62)),
+                (4.75 * sc, 6.75 * sc, 0.90 * sc, (62, 144, 72)),
             ]
-        elif weather == "fall":
+            pine_faces = []
+            n_cone = 6
+            for ti_idx, (y_bot, y_top, rad, base_col) in enumerate(tier_specs):
+                tip_cam = to_cam(tx + sway * (0.4 + 0.2 * ti_idx), current_ground_y + y_top, tz)
+                for si in range(n_cone):
+                    a0 = (si / n_cone) * math.tau + seed * 0.3
+                    a1 = ((si + 1) / n_cone) * math.tau + seed * 0.3
+                    p0 = to_cam(tx + math.cos(a0) * rad + sway * 0.3, current_ground_y + y_bot, tz + math.sin(a0) * rad)
+                    p1 = to_cam(tx + math.cos(a1) * rad + sway * 0.3, current_ground_y + y_bot, tz + math.sin(a1) * rad)
+                    if max(p0[2], p1[2], tip_cam[2]) > near_z:
+                        shade = 0.85 + 0.18 * math.sin((a0 + a1) * 0.5)
+                        f_col = (
+                            min(255, int(base_col[0] * shade)),
+                            min(255, int(base_col[1] * shade)),
+                            min(255, int(base_col[2] * shade)),
+                        )
+                        zc_avg = (p0[2] + p1[2] + tip_cam[2]) / 3.0
+                        pine_faces.append((zc_avg, [p0, p1, tip_cam], f_col, (24, 68, 34)))
+                        if weather == "winter":
+                            # Snow-frosted upper ridge cap on evergreen pine boughs
+                            sm0 = (
+                                p0[0] * 0.35 + tip_cam[0] * 0.65,
+                                p0[1] * 0.35 + tip_cam[1] * 0.65,
+                                p0[2] * 0.35 + tip_cam[2] * 0.65,
+                            )
+                            sm1 = (
+                                p1[0] * 0.35 + tip_cam[0] * 0.65,
+                                p1[1] * 0.35 + tip_cam[1] * 0.65,
+                                p1[2] * 0.35 + tip_cam[2] * 0.65,
+                            )
+                            pine_faces.append((zc_avg - 0.03, [sm0, sm1, tip_cam], (238, 246, 255), None))
+            _draw_quad_list(screen, pine_faces, near_z, hw, hh, focal, win_w, win_h)
+            return
+
+        # Non-pine deciduous trees: draw bare wooden branches in fall & winter (winter loses ALL leaves!)
+        if weather in ("fall", "winter"):
+            branch_specs = [
+                (0.0, trunk_h * 0.78, 0.0, -1.65 * sc + sway * 0.5, trunk_h + 1.55 * sc, -0.60 * sc),
+                (0.0, trunk_h * 0.84, 0.0, 1.72 * sc + sway * 0.5, trunk_h + 1.68 * sc, 0.55 * sc),
+                (0.0, trunk_h * 0.88, 0.0, -0.55 * sc + sway * 0.6, trunk_h + 1.95 * sc, 1.35 * sc),
+                (0.0, trunk_h * 0.90, 0.0, 0.45 * sc + sway * 0.6, trunk_h + 2.05 * sc, -1.25 * sc),
+                (0.0, trunk_h * 0.94, 0.0, 0.12 * sc + sway * 0.8, trunk_h + 2.45 * sc, 0.08 * sc),
+                (-0.95 * sc + sway * 0.3, trunk_h + 0.95 * sc, -0.35 * sc, -2.05 * sc + sway * 0.6, trunk_h + 1.90 * sc, -1.05 * sc),
+                (1.00 * sc + sway * 0.3, trunk_h + 1.05 * sc, 0.32 * sc, 2.10 * sc + sway * 0.6, trunk_h + 2.05 * sc, 0.95 * sc),
+            ]
+            br_col = (104, 72, 44) if weather == "winter" else (112, 74, 40)
+            for x0, y0, z0, x1, y1, z1 in branch_specs:
+                p0 = to_cam(tx + x0, current_ground_y + y0, tz + z0)
+                p1 = to_cam(tx + x1, current_ground_y + y1, tz + z1)
+                if p0[2] > near_z and p1[2] > near_z:
+                    s0 = (round(hw + (p0[0] / p0[2]) * focal), round(hh - (p0[1] / p0[2]) * focal))
+                    s1 = (round(hw + (p1[0] / p1[2]) * focal), round(hh - (p1[1] / p1[2]) * focal))
+                    bw = max(2, round((0.20 * sc / max(1.0, (p0[2] + p1[2]) * 0.5)) * focal))
+                    pygame.draw.line(screen, br_col, s0, s1, bw)
+                    if weather == "winter":
+                        pygame.draw.line(screen, (230, 240, 250), (s0[0], s0[1] - 1), (s1[0], s1[1] - 1), max(1, bw // 3))
+
+        if weather == "winter":
+            # Non-pine trees lose ALL of their leaves in winter!
+            return
+
+        if weather == "fall":
             _fvar = int(abs(seed)) % 3
             if _fvar == 0:
-                canopy_pal = [
-                    (192, 72, 42), (208, 86, 48), (218, 98, 52),
-                    (198, 78, 44), (226, 114, 58), (238, 134, 66),
-                ]
+                canopy_pal = [(192, 72, 42), (212, 90, 48), (228, 114, 54)]
             elif _fvar == 1:
-                canopy_pal = [
-                    (206, 118, 38), (222, 134, 44), (234, 150, 52),
-                    (214, 126, 42), (240, 166, 62), (246, 188, 78),
-                ]
+                canopy_pal = [(206, 118, 38), (226, 140, 46), (242, 168, 60)]
             else:
-                canopy_pal = [
-                    (196, 148, 42), (212, 166, 48), (224, 180, 56),
-                    (204, 156, 44), (234, 194, 64), (244, 212, 82),
-                ]
+                canopy_pal = [(196, 148, 42), (218, 172, 52), (238, 198, 66)]
+            # Fewer, smaller sparse autumn leaves remaining on the tree!
+            lobes = [
+                (-1.25 * sc + sway, trunk_h + 1.35 * sc, -0.50 * sc, 1.05 * sc, canopy_pal[0]),
+                (1.15 * sc + sway, trunk_h + 1.48 * sc, 0.52 * sc, 0.98 * sc, canopy_pal[1]),
+                (0.10 * sc + sway * 1.1, trunk_h + 2.25 * sc, -0.15 * sc, 1.08 * sc, canopy_pal[2]),
+            ]
         elif weather == "summer":
             canopy_pal = [
                 (44, 134, 46), (54, 150, 52), (62, 160, 58),
                 (48, 142, 48), (68, 168, 62), (86, 184, 72),
+            ]
+            lobes = [
+                (0.0 + sway, trunk_h + 1.25 * sc, 0.0, 2.35 * sc, canopy_pal[0]),
+                (-1.15 * sc + sway, trunk_h + 0.75 * sc, -0.55 * sc, 1.65 * sc, canopy_pal[1]),
+                (1.18 * sc + sway, trunk_h + 0.80 * sc, 0.45 * sc, 1.68 * sc, canopy_pal[2]),
+                (-0.45 * sc + sway, trunk_h + 0.90 * sc, 1.05 * sc, 1.60 * sc, canopy_pal[3]),
+                (0.35 * sc + sway, trunk_h + 1.05 * sc, -1.05 * sc, 1.58 * sc, canopy_pal[4]),
+                (0.05 * sc + sway * 1.2, trunk_h + 2.25 * sc, 0.05 * sc, 1.55 * sc, canopy_pal[5]),
             ]
         else:
             # Spring: fresh bright green + pink cherry-blossom trees!
@@ -1043,14 +1114,14 @@ def draw_world_prop_item(
                     (64, 146, 56), (74, 162, 62), (80, 170, 66),
                     (68, 154, 58), (84, 176, 68), (104, 194, 78),
                 ]
-        lobes = [
-            (0.0 + sway, trunk_h + 1.25 * sc, 0.0, 2.35 * sc, canopy_pal[0]),
-            (-1.15 * sc + sway, trunk_h + 0.75 * sc, -0.55 * sc, 1.65 * sc, canopy_pal[1]),
-            (1.18 * sc + sway, trunk_h + 0.80 * sc, 0.45 * sc, 1.68 * sc, canopy_pal[2]),
-            (-0.45 * sc + sway, trunk_h + 0.90 * sc, 1.05 * sc, 1.60 * sc, canopy_pal[3]),
-            (0.35 * sc + sway, trunk_h + 1.05 * sc, -1.05 * sc, 1.58 * sc, canopy_pal[4]),
-            (0.05 * sc + sway * 1.2, trunk_h + 2.25 * sc, 0.05 * sc, 1.55 * sc, canopy_pal[5]),
-        ]
+            lobes = [
+                (0.0 + sway, trunk_h + 1.25 * sc, 0.0, 2.35 * sc, canopy_pal[0]),
+                (-1.15 * sc + sway, trunk_h + 0.75 * sc, -0.55 * sc, 1.65 * sc, canopy_pal[1]),
+                (1.18 * sc + sway, trunk_h + 0.80 * sc, 0.45 * sc, 1.68 * sc, canopy_pal[2]),
+                (-0.45 * sc + sway, trunk_h + 0.90 * sc, 1.05 * sc, 1.60 * sc, canopy_pal[3]),
+                (0.35 * sc + sway, trunk_h + 1.05 * sc, -1.05 * sc, 1.58 * sc, canopy_pal[4]),
+                (0.05 * sc + sway * 1.2, trunk_h + 2.25 * sc, 0.05 * sc, 1.55 * sc, canopy_pal[5]),
+            ]
         lobe_cam = []
         for ox, oy, oz, rad, col in lobes:
             lc = to_cam(tx + ox, current_ground_y + oy, tz + oz)
@@ -1063,7 +1134,7 @@ def draw_world_prop_item(
             sr = max(4, round((rad / zc) * focal))
             if -sr <= sx <= win_w + sr and -sr <= sy <= win_h + sr:
                 pygame.draw.circle(screen, col, (sx, sy), sr)
-                hi_col = (248, 252, 255) if weather == "winter" else (min(255, col[0] + 20), min(255, col[1] + 22), min(255, col[2] + 14))
+                hi_col = (min(255, col[0] + 20), min(255, col[1] + 22), min(255, col[2] + 14))
                 pygame.draw.circle(screen, hi_col, (sx - max(1, sr // 5), sy - max(1, sr // 5)), max(2, round(sr * 0.58)))
 
     elif kind == "flower":
