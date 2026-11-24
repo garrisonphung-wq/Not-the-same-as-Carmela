@@ -846,7 +846,15 @@ class NetworkClient:
             self._incoming_weather = None
             return w
 
-    def send_punch_hit(self, target_id: int, dir_x: float, dir_z: float, headshot: bool, punch_side: float = 1.0) -> None:
+    def send_punch_hit(
+        self,
+        target_id: int,
+        dir_x: float,
+        dir_z: float,
+        headshot: bool,
+        punch_side: float = 1.0,
+        mega_launch: bool = False,
+    ) -> None:
         with self._lock:
             self._outgoing_punch_hits.append({
                 "type": "punch_hit",
@@ -855,6 +863,7 @@ class NetworkClient:
                 "dir_z": round(dir_z, 4),
                 "headshot": bool(headshot),
                 "punch_side": 1.0 if punch_side >= 0.0 else -1.0,
+                "mega_launch": bool(mega_launch),
             })
 
     def pop_incoming_punch_hits(self) -> list[dict[str, Any]]:
@@ -1740,6 +1749,8 @@ def main() -> None:
     kick_lay_dir = -1.0
     kick_bounced = False
     side_lying_timer = 0.0
+    local_mega_ko_pending = False
+    local_mega_ko_timer = 0.0
     remote_ragdolls: dict[int, ChickRagdollSim] = {}
     local_ragdoll_sim = ChickRagdollSim()
 
@@ -2495,7 +2506,9 @@ def main() -> None:
             else:
                 blink_cover_progress = max(0.0, blink_cover_progress - 8.5 * dt)
 
-            target_blink = 1.0 if (blink_hold_timer > 0.0 or holding_b) else 0.0
+            if local_mega_ko_timer > 0.0:
+                local_mega_ko_timer = max(0.0, local_mega_ko_timer - dt)
+            target_blink = 1.0 if (blink_hold_timer > 0.0 or holding_b or local_mega_ko_timer > 0.0) else 0.0
             if blink_amount < target_blink:
                 blink_amount = min(target_blink, blink_amount + 18.0 * dt)
             elif blink_amount > target_blink:
@@ -2692,7 +2705,47 @@ def main() -> None:
                     dlen_p = math.hypot(dx_p, dz_p)
                     nx_p = dx_p / dlen_p if dlen_p > 1e-4 else 0.0
                     nz_p = dz_p / dlen_p if dlen_p > 1e-4 else 1.0
-                    if bool(ph.get("headshot", False)):
+                    if bool(ph.get("mega_launch", False)):
+                        knock_vx = nx_p * 52.0
+                        knock_vz = nz_p * 52.0
+                        is_kick_launched = True
+                        is_lying_down = False
+                        is_manual_ragdoll = False
+                        is_j_air_spinning = False
+                        j_spin_yaw = 0.0
+                        is_on_fire = False
+                        airborne_timer = 0.0
+                        arms_down_amount = 0.0
+                        was_j_facing_up = False
+                        launch_accel_timer = 0.36
+                        jump_state = "airborne"
+                        jump_velocity_y = 3.0
+                        jump_offset_y = max(jump_offset_y, 0.08)
+                        kick_roll_dir = 1.0 if float(ph.get("punch_side", 1.0)) >= 0.0 else -1.0
+                        fwd_dot = nx_p * math.sin(cam_yaw) + nz_p * math.cos(cam_yaw)
+                        kick_lay_dir = 1.0 if fwd_dot > 0.0 else -1.0
+                        local_ragdoll = 1.0
+                        kick_bounced = False
+                        side_lying_timer = 0.0
+                        local_mega_ko_pending = True
+                        local_mega_ko_timer = 0.0
+                        local_headshot_phase = "none"
+                        is_kicking = False
+                        kick_timer = 0.0
+                        is_punching = False
+                        punch_timer = 0.0
+                        is_tagging = False
+                        tag_amount = 0.0
+                        is_sitting = False
+                        sit_amount = 0.0
+                        is_touching_ground = False
+                        touch_ground_amount = 0.0
+                        jump_amount = 0.0
+                        wing_flap_amount = 0.0
+                    elif local_mega_ko_timer > 0.0 or side_lying_timer > 1.5:
+                        knock_vx = nx_p * 4.5
+                        knock_vz = nz_p * 4.5
+                    elif bool(ph.get("headshot", False)):
                         # 30% punch headshot: face attacker, head moves up to sky, fall backward onto grass for 1 sec!
                         knock_vx = nx_p * 5.2
                         knock_vz = nz_p * 5.2
@@ -3069,8 +3122,10 @@ def main() -> None:
                                     push_dz /= plen
                                 else:
                                     push_dx, push_dz = fwd_x, fwd_z
-                                is_headshot = (random.random() < 0.30)  # 70% pushed back, 30% headshot
-                                net.send_punch_hit(pid, push_dx, push_dz, headshot=is_headshot, punch_side=punch_side)
+                                target_char = resolve_character_id(pdata)
+                                is_mega_launch = (selected_character == "carmelito" and target_char == "pangdun" and random.random() < 0.10)
+                                is_headshot = False if is_mega_launch else (random.random() < 0.30)
+                                net.send_punch_hit(pid, push_dx, push_dz, headshot=is_headshot, punch_side=punch_side, mega_launch=is_mega_launch)
 
             # Zombie tag arms animation progress (smoothly raises/lowers hands to neck level)
             # When holding or toggled on with 'T', arms raise up and stay steady at neck level
@@ -3241,7 +3296,14 @@ def main() -> None:
                             local_lay_pitch = kick_lay_dir * (math.pi * 0.5)
                             local_rot_z = kick_roll_dir * math.radians(22.0)
                             local_ragdoll = 1.0
-                            side_lying_timer = 1.0
+                            if local_mega_ko_pending:
+                                local_mega_ko_pending = False
+                                side_lying_timer = 120.0
+                                local_mega_ko_timer = 120.0
+                                blink_amount = 1.0
+                                is_blinking = True
+                            else:
+                                side_lying_timer = max(side_lying_timer, 1.0)
             else:
                 # Idle state: if standing on another chick, stay locked atop them as they move!
                 current_floor = max(0.0, landing_support_y)

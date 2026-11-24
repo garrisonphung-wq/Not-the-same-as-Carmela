@@ -293,6 +293,7 @@ class GameRelayServer:
                             "dir_z": safe_float(data.get("dir_z", 1.0), 1.0, limit=2.0),
                             "headshot": bool(data.get("headshot", False)),
                             "punch_side": 1.0 if safe_float(data.get("punch_side", 1.0), 1.0, limit=2.0) >= 0.0 else -1.0,
+                            "mega_launch": bool(data.get("mega_launch", False)),
                         }
                         try:
                             await self._clients[target_id].send(json.dumps(punch_msg, separators=(",", ":")))
