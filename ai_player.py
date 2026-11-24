@@ -108,6 +108,13 @@ class AICodeCompanion:
         self.punch_duration = 0.38
         self.punch_side = 1.0
         self.punch_amount = 0.0
+        self._kick_hit_victims: set[int] = set()
+        self._punch_hit_victims: set[int] = set()
+        self._pending_kick_hits: list[dict] = []
+        self._pending_punch_hits: list[dict] = []
+        self.brawl_target_pid: int | None = None
+        self.brawl_attack_cooldown: float = 0.4
+        self.brawl_aggro_chance: float = 0.80 if character.lower() in ("pangdun", "小胖墩", "belino", "coquenpate") else 0.15
 
         # Jump action
         self.jump_offset_y = 0.0
@@ -291,6 +298,53 @@ class AICodeCompanion:
             return
 
         inside_coop = self.is_inside_coop()
+        on_cloud_now = (
+            self.jump_offset_y >= self.CLOUD_SPAWN_Y - 1.0
+            and math.hypot(self.wx - self.CLOUD_SPAWN_WX, self.wz - self.CLOUD_SPAWN_WZ) <= self.CLOUD_PLATFORM_RADIUS
+        )
+        human_peers = [
+            (pid, p) for pid, p in self.other_players.items()
+            if "(AI)" not in str(p.get("name", ""))
+        ]
+        if human_peers and random.random() < self.brawl_aggro_chance:
+            # 80% chance for Belino: chase nearest human player to kick & punch them!
+            target_pid, target_info = min(
+                human_peers,
+                key=lambda item: math.hypot(item[1]["wx"] - self.wx, item[1]["wz"] - self.wz)
+                + abs(item[1].get("jump_y", 0.0) - self.jump_offset_y) * 0.1,
+            )
+            tx = float(target_info["wx"])
+            tz = float(target_info["wz"])
+            ty = float(target_info.get("jump_y", 0.0))
+            target_on_cloud = (
+                ty >= self.CLOUD_SPAWN_Y - 2.0
+                and math.hypot(tx - self.CLOUD_SPAWN_WX, tz - self.CLOUD_SPAWN_WZ) <= self.CLOUD_PLATFORM_RADIUS
+            )
+            target_in_coop = (
+                door_y - 1.2 <= ty < self.CLOUD_SPAWN_Y - 10.0
+                and math.hypot(tx - cx, tz - cz) < 22.0
+            )
+            if on_cloud_now and not target_on_cloud:
+                ang = random.uniform(0.0, 2.0 * math.pi)
+                self.dest_x = self.CLOUD_SPAWN_WX + math.cos(ang) * (self.CLOUD_PLATFORM_RADIUS + 4.5)
+                self.dest_z = self.CLOUD_SPAWN_WZ + math.sin(ang) * (self.CLOUD_PLATFORM_RADIUS + 4.5)
+                self.mode = "run"
+                self.mode_timer = 3.5
+                return
+            if not on_cloud_now:
+                if target_in_coop and not inside_coop:
+                    self.start_coop_visit(tx, tz)
+                    return
+                if inside_coop and ty < door_y - 2.0:
+                    self.start_coop_exit()
+                    return
+            self.brawl_target_pid = target_pid
+            self.mode = "brawl"
+            self.target_head_yaw = 0.0
+            self.target_head_pitch = 0.0
+            self.mode_timer = random.uniform(2.8, 4.6)
+            return
+
         roll = random.random()
         if roll < 0.40:
             on_cloud_now = (
@@ -738,6 +792,65 @@ class AICodeCompanion:
             if self.is_rocket_charging or self.jump_state == "crouching":
                 self.is_walking = False
                 self.is_running = False
+            elif self.mode == "brawl":
+                self.brawl_attack_cooldown = max(0.0, self.brawl_attack_cooldown - dt)
+                t_info = self.other_players.get(self.brawl_target_pid) if self.brawl_target_pid is not None else None
+                if t_info is None:
+                    self.is_walking = False
+                    self.is_running = False
+                    self.mode = "idle"
+                    self.mode_timer = 0.3
+                else:
+                    tx = float(t_info["wx"])
+                    tz = float(t_info["wz"])
+                    ty = float(t_info.get("jump_y", 0.0))
+                    dx_d = tx - self.wx
+                    dz_d = tz - self.wz
+                    dist_d = math.hypot(dx_d, dz_d)
+                    if dist_d > 0.08:
+                        desired_yaw = math.atan2(dx_d, dz_d)
+                        diff = wrap_angle(desired_yaw - self.rot_y)
+                        max_turn = self.TURN_SPEED * 2.4 * dt
+                        if abs(diff) <= max_turn:
+                            self.rot_y = desired_yaw
+                        else:
+                            self.rot_y = wrap_angle(self.rot_y + math.copysign(max_turn, diff))
+                    if abs(ty - self.jump_offset_y) > 8.0:
+                        self.is_walking = False
+                        self.is_running = False
+                        self.mode = "idle"
+                        self.mode_timer = 0.25
+                    elif dist_d > 1.38:
+                        self.is_running = True
+                        self.is_walking = False
+                        step = min(dist_d - 1.15, self.RUN_SPEED * dt)
+                        if step > 0.0:
+                            self.wx += (dx_d / dist_d) * step
+                            self.wz += (dz_d / dist_d) * step
+                            r_w = math.hypot(self.wx, self.wz)
+                            if r_w > self.WORLD_LIMIT:
+                                self.wx = self.wx / r_w * self.WORLD_LIMIT
+                                self.wz = self.wz / r_w * self.WORLD_LIMIT
+                    else:
+                        self.is_walking = False
+                        self.is_running = False
+                        if (
+                            self.brawl_attack_cooldown <= 0.0
+                            and not self.is_kicking
+                            and not self.is_punching
+                            and self.jump_state == "idle"
+                        ):
+                            if random.random() < 0.50:
+                                self.is_kicking = True
+                                self.kick_timer = 0.0
+                                self.kick_side = -self.kick_side
+                                self._kick_hit_victims.clear()
+                            else:
+                                self.is_punching = True
+                                self.punch_timer = 0.0
+                                self.punch_side = -self.punch_side
+                                self._punch_hit_victims.clear()
+                            self.brawl_attack_cooldown = random.uniform(0.85, 1.35)
             elif self.mode in ("walk", "run"):
                 dx_d = self.dest_x - self.wx
                 dz_d = self.dest_z - self.wz
@@ -935,27 +1048,99 @@ class AICodeCompanion:
             self.head_yaw += (self.target_head_yaw - self.head_yaw) * head_alpha
             self.head_pitch += (self.target_head_pitch - self.head_pitch) * head_alpha
 
-        # Update kick animation
+        # Update kick animation & emit real kick_hit on players in front!
         if self.is_kicking:
             self.kick_timer += dt
             if self.kick_timer >= self.kick_duration:
                 self.is_kicking = False
                 self.kick_timer = 0.0
                 self.kick_amount = 0.0
+                self._kick_hit_victims.clear()
             else:
                 kp = self.kick_timer / self.kick_duration
                 self.kick_amount = math.sin((kp / 0.38) * (math.pi / 2)) if kp < 0.38 else math.cos(((kp - 0.38) / 0.62) * (math.pi / 2))
+                if kp <= 0.65 and self.kick_amount >= 0.45:
+                    fwd_x = math.sin(self.rot_y)
+                    fwd_z = math.cos(self.rot_y)
+                    right_x = math.cos(self.rot_y)
+                    right_z = -math.sin(self.rot_y)
+                    foot_x = self.wx + fwd_x * (0.95 * self.kick_amount) + right_x * (self.kick_side * 0.16)
+                    foot_z = self.wz + fwd_z * (0.95 * self.kick_amount) + right_z * (self.kick_side * 0.16)
+                    foot_y = self.jump_offset_y + 0.35 * self.kick_amount
+                    for pid, pinfo in list(self.other_players.items()):
+                        if pid in self._kick_hit_victims:
+                            continue
+                        ox = float(pinfo["wx"])
+                        oz = float(pinfo["wz"])
+                        o_jy = float(pinfo.get("jump_y", 0.0))
+                        rel_fwd = (ox - self.wx) * fwd_x + (oz - self.wz) * fwd_z
+                        if rel_fwd <= 0.10:
+                            continue
+                        if math.hypot(ox - foot_x, oz - foot_z) <= 1.25 and abs(foot_y - (o_jy + 0.45)) < 1.25:
+                            self._kick_hit_victims.add(pid)
+                            pdx = ox - self.wx
+                            pdz = oz - self.wz
+                            plen = math.hypot(pdx, pdz)
+                            if plen > 1e-4:
+                                pdx /= plen
+                                pdz /= plen
+                            else:
+                                pdx, pdz = fwd_x, fwd_z
+                            self._pending_kick_hits.append({
+                                "type": "kick_hit",
+                                "target_id": pid,
+                                "dir_x": round(pdx, 4),
+                                "dir_z": round(pdz, 4),
+                                "launch": (random.random() < 0.25),
+                                "roll_dir": self.kick_side,
+                            })
 
-        # Update punch animation
+        # Update punch animation & emit real punch_hit on players in front!
         if self.is_punching:
             self.punch_timer += dt
             if self.punch_timer >= self.punch_duration:
                 self.is_punching = False
                 self.punch_timer = 0.0
                 self.punch_amount = 0.0
+                self._punch_hit_victims.clear()
             else:
                 pp = self.punch_timer / self.punch_duration
                 self.punch_amount = math.sin((pp / 0.32) * (math.pi / 2)) if pp < 0.32 else math.cos(((pp - 0.32) / 0.68) * (math.pi / 2))
+                if pp <= 0.60 and self.punch_amount >= 0.45:
+                    fwd_x = math.sin(self.rot_y)
+                    fwd_z = math.cos(self.rot_y)
+                    right_x = math.cos(self.rot_y)
+                    right_z = -math.sin(self.rot_y)
+                    fist_x = self.wx + fwd_x * (0.90 * self.punch_amount) + right_x * (self.punch_side * 0.22)
+                    fist_z = self.wz + fwd_z * (0.90 * self.punch_amount) + right_z * (self.punch_side * 0.22)
+                    fist_y = self.jump_offset_y + 0.98
+                    for pid, pinfo in list(self.other_players.items()):
+                        if pid in self._punch_hit_victims:
+                            continue
+                        ox = float(pinfo["wx"])
+                        oz = float(pinfo["wz"])
+                        o_jy = float(pinfo.get("jump_y", 0.0))
+                        rel_fwd = (ox - self.wx) * fwd_x + (oz - self.wz) * fwd_z
+                        if rel_fwd <= 0.08:
+                            continue
+                        if math.hypot(ox - fist_x, oz - fist_z) <= 1.25 and abs(fist_y - (o_jy + 0.95)) < 1.25:
+                            self._punch_hit_victims.add(pid)
+                            pdx = ox - self.wx
+                            pdz = oz - self.wz
+                            plen = math.hypot(pdx, pdz)
+                            if plen > 1e-4:
+                                pdx /= plen
+                                pdz /= plen
+                            else:
+                                pdx, pdz = fwd_x, fwd_z
+                            self._pending_punch_hits.append({
+                                "type": "punch_hit",
+                                "target_id": pid,
+                                "dir_x": round(pdx, 4),
+                                "dir_z": round(pdz, 4),
+                                "headshot": (random.random() < 0.30),
+                                "punch_side": self.punch_side,
+                            })
 
         # Tag hands reach animation
         if self.is_tagging:
@@ -1333,6 +1518,18 @@ class AICodeCompanion:
                 c_wx, c_wz, c_r = self._pending_craters.pop(0)
                 try:
                     await ws.send(json.dumps({"type": "crater", "wx": round(c_wx, 3), "wz": round(c_wz, 3), "radius": round(c_r, 3)}, separators=(",", ":")))
+                except Exception:
+                    pass
+            while self._pending_kick_hits:
+                kh = self._pending_kick_hits.pop(0)
+                try:
+                    await ws.send(json.dumps(kh, separators=(",", ":")))
+                except Exception:
+                    pass
+            while self._pending_punch_hits:
+                ph = self._pending_punch_hits.pop(0)
+                try:
+                    await ws.send(json.dumps(ph, separators=(",", ":")))
                 except Exception:
                     pass
             try:

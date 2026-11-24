@@ -952,7 +952,7 @@ class NetworkClient:
         threading.Thread(target=server_runner, daemon=True).start()
 
         ai_chick_configs = [
-            {"name": "卡门 (AI)", "character": "carmen", "chick_name": "卡门", "wx": 3.5, "wz": 15.5, "jump_y": 2475.0, "rot_y": math.pi, "role": "free", "target": None, "chat": True, "delay": 0.45},
+            {"name": "小胖墩 (AI)", "character": "pangdun", "chick_name": "小胖墩", "wx": 3.5, "wz": 15.5, "jump_y": 2475.0, "rot_y": math.pi, "role": "free", "target": None, "chat": True, "delay": 0.45},
         ]
 
         def launch_single_ai(cfg: dict[str, Any]) -> None:
