@@ -854,6 +854,7 @@ class NetworkClient:
         headshot: bool,
         punch_side: float = 1.0,
         mega_launch: bool = False,
+        ai_yeet: bool = False,
     ) -> None:
         with self._lock:
             self._outgoing_punch_hits.append({
@@ -864,6 +865,7 @@ class NetworkClient:
                 "headshot": bool(headshot),
                 "punch_side": 1.0 if punch_side >= 0.0 else -1.0,
                 "mega_launch": bool(mega_launch),
+                "ai_yeet": bool(ai_yeet),
             })
 
     def pop_incoming_punch_hits(self) -> list[dict[str, Any]]:
@@ -3123,9 +3125,22 @@ def main() -> None:
                                 else:
                                     push_dx, push_dz = fwd_x, fwd_z
                                 target_char = resolve_character_id(pdata)
-                                is_mega_launch = (selected_character == "carmelito" and target_char == "pangdun" and random.random() < 0.10)
-                                is_headshot = False if is_mega_launch else (random.random() < 0.30)
-                                net.send_punch_hit(pid, push_dx, push_dz, headshot=is_headshot, punch_side=punch_side, mega_launch=is_mega_launch)
+                                target_pname = str(pdata.get("name", ""))
+                                is_ai_belino = (target_char == "pangdun" and "(AI)" in target_pname)
+                                # 5% special chance on AI Belino only: head face down, sitting legs, launched ~1 km!
+                                is_ai_yeet = (is_ai_belino and random.random() < 0.05)
+                                # 10% Carmelito mega punch (if not ai_yeet)
+                                is_mega_launch = False if is_ai_yeet else (selected_character == "carmelito" and target_char == "pangdun" and random.random() < 0.10)
+                                is_headshot = False if (is_ai_yeet or is_mega_launch) else (random.random() < 0.30)
+                                net.send_punch_hit(
+                                    pid,
+                                    push_dx,
+                                    push_dz,
+                                    headshot=is_headshot,
+                                    punch_side=punch_side,
+                                    mega_launch=is_mega_launch,
+                                    ai_yeet=is_ai_yeet,
+                                )
 
             # Zombie tag arms animation progress (smoothly raises/lowers hands to neck level)
             # When holding or toggled on with 'T', arms raise up and stay steady at neck level

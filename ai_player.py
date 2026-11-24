@@ -85,6 +85,7 @@ class AICodeCompanion:
         self.side_lying_timer = 0.0
         self.mega_ko_pending = False
         self.mega_ko_timer = 0.0
+        self.is_ai_yeeted = False
         self.headshot_phase = "none"  # "none" | "head_up" | "fall_back"
         self.headshot_timer = 0.0
         self.headshot_face_yaw = self.rot_y
@@ -512,7 +513,7 @@ class AICodeCompanion:
             self.manual_ragdoll_timer = random.uniform(2.0, 3.4)
             self.mode_timer = self.manual_ragdoll_timer + 0.4
 
-    def apply_punch_hit(self, dir_x: float, dir_z: float, headshot: bool, punch_side: float = 1.0, mega_launch: bool = False) -> None:
+    def apply_punch_hit(self, dir_x: float, dir_z: float, headshot: bool, punch_side: float = 1.0, mega_launch: bool = False, ai_yeet: bool = False) -> None:
         if self.is_buried_in_crater:
             return
         self.is_rocket_charging = False
@@ -520,7 +521,51 @@ class AICodeCompanion:
         dlen = math.hypot(dir_x, dir_z)
         nx = dir_x / dlen if dlen > 1e-4 else 0.0
         nz = dir_z / dlen if dlen > 1e-4 else 1.0
-        if mega_launch:
+        if ai_yeet:
+            # 5% special punch on AI Belino: head face-down, legs sitting, thrown ~1 km!
+            self.knock_vx = nx * 290.0
+            self.knock_vz = nz * 290.0
+            self.is_kick_launched = True
+            self.is_lying_down = False
+            self.is_manual_ragdoll = False
+            self.is_j_air_spinning = False
+            self.on_fire = False
+            self.airborne_timer = 0.0
+            self.launch_accel_timer = 1.65
+            self.jump_state = "airborne"
+            self.jump_velocity_y = 44.0
+            self.jump_offset_y = max(self.jump_offset_y, 0.08)
+            self.kick_roll_dir = 0.0
+            self.kick_lay_dir = -1.0
+            self.lay_pitch = 0.0
+            self.rot_z = 0.0
+            self.ragdoll = 0.0
+            self.sit_amount = 1.0
+            self.head_pitch = -1.25
+            self.target_head_pitch = -1.25
+            self.target_head_yaw = 0.0
+            self.head_yaw = 0.0
+            self.kick_bounced = False
+            self.side_lying_timer = 0.0
+            self.mega_ko_pending = False
+            self.mega_ko_timer = 0.0
+            self.is_ai_yeeted = True
+            self.headshot_phase = "none"
+            self.is_walking = False
+            self.is_running = False
+            self.is_kicking = False
+            self.kick_timer = 0.0
+            self.kick_amount = 0.0
+            self.is_punching = False
+            self.punch_timer = 0.0
+            self.punch_amount = 0.0
+            self.is_tagging = False
+            self.tag_amount = 0.0
+            self.is_sitting = True
+            self.touch_ground_amount = 0.0
+            self.jump_amount = 0.0
+            self.coop_waypoints.clear()
+        elif mega_launch:
             # 10% Carmelito luck punch on Belino: blast very far in ragdoll, then 2 min KO with eyes closed!
             self.knock_vx = nx * 280.0
             self.knock_vz = nz * 280.0
@@ -637,7 +682,7 @@ class AICodeCompanion:
         if abs(self.knock_vx) > 0.01 or abs(self.knock_vz) > 0.01:
             self.wx += self.knock_vx * dt
             self.wz += self.knock_vz * dt
-            drag = 1.1 if self.jump_state == "airborne" else 5.5
+            drag = (0.28 if self.is_ai_yeeted else 1.1) if self.jump_state == "airborne" else 5.5
             decay = max(0.0, 1.0 - drag * dt)
             self.knock_vx *= decay
             self.knock_vz *= decay
@@ -744,7 +789,16 @@ class AICodeCompanion:
         self.climb_jump_cooldown = max(0.0, self.climb_jump_cooldown - dt)
 
         ai_ragdoll_locked = (self.is_kick_launched or self.side_lying_timer > 0.0 or self.ragdoll > 0.05 or self.headshot_phase != "none" or self.is_buried_in_crater or self.is_lying_down or self.is_manual_ragdoll)
-        if ai_ragdoll_locked:
+        if self.is_ai_yeeted:
+            self.sit_amount = 1.0
+            self.is_sitting = True
+            self.head_pitch = -1.25
+            self.target_head_pitch = -1.25
+            self.target_head_yaw = 0.0
+            self.lay_pitch = 0.0
+            self.rot_z = 0.0
+            self.ragdoll = 0.0
+        elif ai_ragdoll_locked:
             self.coop_waypoints.clear()
             self.is_kicking = False
             self.kick_timer = 0.0
@@ -807,7 +861,10 @@ class AICodeCompanion:
         if ai_ragdoll_locked or self.ai_role in ("still", "jump_only"):
             self.is_walking = False
             self.is_running = False
-            if self.headshot_phase == "none":
+            if self.is_ai_yeeted:
+                self.target_head_yaw = 0.0
+                self.target_head_pitch = -1.25
+            elif self.headshot_phase == "none":
                 # Look toward nearby players (and look UP if a player is standing on the cloud!)
                 best_info = None
                 best_score = 1e9
@@ -1098,7 +1155,12 @@ class AICodeCompanion:
             self.riding_prev_pos = None
 
         # Smooth natural neck interpolation (skip overwrite during headshot sequence)
-        if self.headshot_phase == "none":
+        if self.is_ai_yeeted:
+            self.head_pitch = -1.25
+            self.target_head_pitch = -1.25
+            self.head_yaw = 0.0
+            self.target_head_yaw = 0.0
+        elif self.headshot_phase == "none":
             head_alpha = 1.0 - math.exp(-6.0 * dt)
             self.head_yaw += (self.target_head_yaw - self.head_yaw) * head_alpha
             self.head_pitch += (self.target_head_pitch - self.head_pitch) * head_alpha
@@ -1210,7 +1272,10 @@ class AICodeCompanion:
             self.tag_amount = max(0.0, self.tag_amount - 10.0 * dt)
 
         # Sit on grass animation
-        if self.is_sitting and not (self.is_walking or self.is_running or self.jump_state != "idle"):
+        if self.is_ai_yeeted:
+            self.is_sitting = True
+            self.sit_amount = 1.0
+        elif self.is_sitting and not (self.is_walking or self.is_running or self.jump_state != "idle"):
             self.sit_timer -= dt
             if self.sit_timer <= 0.0:
                 self.is_sitting = False
@@ -1280,16 +1345,27 @@ class AICodeCompanion:
                 if self.is_j_air_spinning and self.airborne_timer >= 5.0:
                     self.on_fire = True
             if self.is_kick_launched:
-                # Ragdoll mode: tip into loose sprawl toward ±90 deg to land laying flat down on grass (NOT a backflip!)
-                self.ragdoll = 1.0
-                target_lay = self.kick_lay_dir * (math.pi * 0.5)
-                lay_step = math.radians(165.0) * dt * self.kick_lay_dir
-                if self.kick_lay_dir > 0:
-                    self.lay_pitch = min(target_lay, self.lay_pitch + lay_step)
+                if self.is_ai_yeeted:
+                    # In special 1km yeet: keep upright sitting pose with head facing down!
+                    self.ragdoll = 0.0
+                    self.lay_pitch = 0.0
+                    self.rot_z = 0.0
+                    self.sit_amount = 1.0
+                    self.head_pitch = -1.25
+                    self.target_head_pitch = -1.25
+                    self.head_yaw = 0.0
+                    self.target_head_yaw = 0.0
                 else:
-                    self.lay_pitch = max(target_lay, self.lay_pitch + lay_step)
-                target_wobble = self.kick_roll_dir * math.radians(24.0)
-                self.rot_z += (target_wobble - self.rot_z) * min(1.0, 7.0 * dt)
+                    # Ragdoll mode: tip into loose sprawl toward ±90 deg to land laying flat down on grass (NOT a backflip!)
+                    self.ragdoll = 1.0
+                    target_lay = self.kick_lay_dir * (math.pi * 0.5)
+                    lay_step = math.radians(165.0) * dt * self.kick_lay_dir
+                    if self.kick_lay_dir > 0:
+                        self.lay_pitch = min(target_lay, self.lay_pitch + lay_step)
+                    else:
+                        self.lay_pitch = max(target_lay, self.lay_pitch + lay_step)
+                    target_wobble = self.kick_roll_dir * math.radians(24.0)
+                    self.rot_z += (target_wobble - self.rot_z) * min(1.0, 7.0 * dt)
             cur_floor = max(0.0, ai_landing_support_y)
             if self.jump_velocity_y <= 0.0 and self.jump_offset_y <= cur_floor:
                 if self.is_kick_launched and not self.kick_bounced and self.jump_velocity_y < -4.2:
@@ -1316,16 +1392,27 @@ class AICodeCompanion:
                         self.jump_offset_y = cur_floor
                     if self.is_kick_launched:
                         self.is_kick_launched = False
-                        self.lay_pitch = self.kick_lay_dir * (math.pi * 0.5)
-                        self.rot_z = self.kick_roll_dir * math.radians(22.0)
-                        self.ragdoll = 1.0
-                        if self.mega_ko_pending:
-                            self.mega_ko_pending = False
-                            self.side_lying_timer = 120.0
-                            self.mega_ko_timer = 120.0
-                            self.is_blinking = True
+                        if self.is_ai_yeeted:
+                            self.is_ai_yeeted = False
+                            self.is_sitting = True
+                            self.sit_amount = 1.0
+                            self.ragdoll = 0.0
+                            self.lay_pitch = 0.0
+                            self.rot_z = 0.0
+                            self.side_lying_timer = 0.0
+                            self.mode = "sit"
+                            self.mode_timer = 3.0
                         else:
-                            self.side_lying_timer = max(self.side_lying_timer, 1.0)
+                            self.lay_pitch = self.kick_lay_dir * (math.pi * 0.5)
+                            self.rot_z = self.kick_roll_dir * math.radians(22.0)
+                            self.ragdoll = 1.0
+                            if self.mega_ko_pending:
+                                self.mega_ko_pending = False
+                                self.side_lying_timer = 120.0
+                                self.mega_ko_timer = 120.0
+                                self.is_blinking = True
+                            else:
+                                self.side_lying_timer = max(self.side_lying_timer, 1.0)
         else:
             self.arms_down_amount = max(0.0, self.arms_down_amount - 10.0 * dt)
             cur_floor = max(0.0, ai_landing_support_y)
@@ -1508,6 +1595,7 @@ class AICodeCompanion:
                         bool(msg.get("headshot", False)),
                         float(msg.get("punch_side", 1.0)),
                         bool(msg.get("mega_launch", False)),
+                        bool(msg.get("ai_yeet", False)),
                     )
 
             elif mtype == "kick_hit":
