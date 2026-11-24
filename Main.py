@@ -2706,8 +2706,8 @@ def main() -> None:
                     nx_p = dx_p / dlen_p if dlen_p > 1e-4 else 0.0
                     nz_p = dz_p / dlen_p if dlen_p > 1e-4 else 1.0
                     if bool(ph.get("mega_launch", False)):
-                        knock_vx = nx_p * 95.0
-                        knock_vz = nz_p * 95.0
+                        knock_vx = nx_p * 280.0
+                        knock_vz = nz_p * 280.0
                         is_kick_launched = True
                         is_lying_down = False
                         is_manual_ragdoll = False
@@ -2717,9 +2717,9 @@ def main() -> None:
                         airborne_timer = 0.0
                         arms_down_amount = 0.0
                         was_j_facing_up = False
-                        launch_accel_timer = 0.52
+                        launch_accel_timer = 1.25
                         jump_state = "airborne"
-                        jump_velocity_y = 6.5
+                        jump_velocity_y = 26.0
                         jump_offset_y = max(jump_offset_y, 0.08)
                         kick_roll_dir = 1.0 if float(ph.get("punch_side", 1.0)) >= 0.0 else -1.0
                         fwd_dot = nx_p * math.sin(cam_yaw) + nz_p * math.cos(cam_yaw)

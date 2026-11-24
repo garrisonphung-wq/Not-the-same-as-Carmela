@@ -522,17 +522,17 @@ class AICodeCompanion:
         nz = dir_z / dlen if dlen > 1e-4 else 1.0
         if mega_launch:
             # 10% Carmelito luck punch on Belino: blast very far in ragdoll, then 2 min KO with eyes closed!
-            self.knock_vx = nx * 95.0
-            self.knock_vz = nz * 95.0
+            self.knock_vx = nx * 280.0
+            self.knock_vz = nz * 280.0
             self.is_kick_launched = True
             self.is_lying_down = False
             self.is_manual_ragdoll = False
             self.is_j_air_spinning = False
             self.on_fire = False
             self.airborne_timer = 0.0
-            self.launch_accel_timer = 0.52
+            self.launch_accel_timer = 1.25
             self.jump_state = "airborne"
-            self.jump_velocity_y = 6.5
+            self.jump_velocity_y = 26.0
             self.jump_offset_y = max(self.jump_offset_y, 0.08)
             self.kick_roll_dir = 1.0 if punch_side >= 0.0 else -1.0
             fwd_dot = nx * math.sin(self.rot_y) + nz * math.cos(self.rot_y)
